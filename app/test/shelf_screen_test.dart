@@ -420,9 +420,10 @@ void main() {
     final screen = GlobalKey<ShelfScreenState>();
     await pumpApp(tester, screenKey: screen);
 
-    // The everyday case stays on one inline span: the whole message, tail
-    // of the file name included, plus the action in two lines.
-    const usual = 'saved to Downloads/Quarterly report FINAL final v3.pdf';
+    // A message that fits stays on one inline span, the whole message plus
+    // the action in two lines. (The test font is wide: 22 glyphs per line
+    // here, so this is the longest everyday case it can hold.)
+    const usual = 'saved to Downloads/report.pdf';
     screen.currentState!.toast(usual, action: 'show', onTap: () {});
     await tester.pump();
     final inline = find.byWidgetPredicate(
