@@ -70,7 +70,8 @@ Future<void> _start() async {
   try {
     await Hotkeys.register(node, say);
   } catch (_) {
-    // Another app owns the shortcut, or the platform has none.
+    // The plugin or its channel is missing (no keybinder on Linux, say). A
+    // combo another app owns never throws; see Hotkeys.isFree.
   }
   await ShareIn.listen(node, say).catchError((_) {});
 }

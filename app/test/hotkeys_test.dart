@@ -50,6 +50,13 @@ void main() {
     }
   });
 
+  // Nothing else holds the defaults on a test host; off Windows there is no
+  // probe at all, since only Win32 hot keys are exclusive.
+  test('the defaults are free to register', () {
+    expect(Hotkeys.isFree(Hotkeys.defaultSnip), isTrue);
+    expect(Hotkeys.isFree(Hotkeys.defaultClip), isTrue);
+  });
+
   test('bindings compare by key and modifiers, not label', () {
     HotKey k(PhysicalKeyboardKey key, List<HotKeyModifier> m) =>
         HotKey(key: key, modifiers: m);

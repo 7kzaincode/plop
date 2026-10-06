@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:plop_core/plop_core.dart';
+import 'package:uni_platform/uni_platform.dart';
 
 import 'grab.dart';
 
@@ -89,6 +90,44 @@ abstract final class Hotkeys {
     }
     return null;
   }
+
+  /// Whether no other app has [k]. Only Windows can tell: Win32 hot keys are
+  /// exclusive, so RegisterHotKey fails on a taken combo, which the plugin
+  /// swallows and reports as success. On macOS a combo two apps register
+  /// fires in both rather than going dead; X11 fails silently too, but seeing
+  /// that would need an X11 probe. Call only while plop's own bindings are
+  /// unregistered, or they are what gets found.
+  static bool isFree(HotKey k) {
+    if (!Platform.isWindows) return true;
+    final vk = k.physicalKey.keyCode; // what the plugin registers
+    if (vk == null) return false;
+    var mods = 0x4000; // MOD_NOREPEAT
+    for (final m in k.modifiers ?? const <HotKeyModifier>[]) {
+      mods |= switch (m) {
+        HotKeyModifier.alt => 0x1,
+        HotKeyModifier.control => 0x2,
+        HotKeyModifier.shift => 0x4,
+        HotKeyModifier.meta => 0x8,
+        _ => 0,
+      };
+    }
+    const id = 0x5050; // far from the plugin's own small ids
+    if (_registerHotKey(nullptr, id, mods, vk) == 0) return false;
+    _unregisterHotKey(nullptr, id);
+    return true;
+  }
+
+  static final _user32 = DynamicLibrary.open('user32.dll');
+  static final _registerHotKey = _user32
+      .lookupFunction<
+        Int32 Function(Pointer<Void>, Int32, Uint32, Uint32),
+        int Function(Pointer<Void>, int, int, int)
+      >('RegisterHotKey');
+  static final _unregisterHotKey = _user32
+      .lookupFunction<
+        Int32 Function(Pointer<Void>, Int32),
+        int Function(Pointer<Void>, int)
+      >('UnregisterHotKey');
 
   /// F1–F12, which may stand alone or with any modifier.
   static bool isFunctionKey(PhysicalKeyboardKey k) =>
@@ -175,6 +214,15 @@ abstract final class Hotkeys {
     final node = _node, onPlopped = _onPlopped;
     if (!supported || node == null || onPlopped == null) return;
     await hotKeyManager.unregisterAll();
+    // Registering a taken combo reports success and does nothing, so say so;
+    // the other shortcut still works.
+    for (final k in [snip, clip]) {
+      if (!isFree(k)) {
+        onPlopped(
+          '${label(k)} is taken by another app · change it in settings',
+        );
+      }
+    }
     await hotKeyManager.register(
       snip,
       keyDownHandler: (_) {
@@ -308,10 +356,9 @@ abstract final class Hotkeys {
   /// clipboard's sequence number rather than its contents, so nothing is read
   /// until it changes; a newer press cancels this wait.
   static Future<ShelfItem?> _snipWindows(PlopNode node, String name) async {
-    final seqOf = DynamicLibrary.open('user32.dll')
-        .lookupFunction<Uint32 Function(), int Function()>(
-          'GetClipboardSequenceNumber',
-        );
+    final seqOf = _user32.lookupFunction<Uint32 Function(), int Function()>(
+      'GetClipboardSequenceNumber',
+    );
     final gen = ++_snipGen;
     final start = seqOf();
     await Process.start('explorer.exe', ['ms-screenclip:']);
@@ -356,7 +403,7 @@ abstract final class Hotkeys {
     }
   }
 
-  static final _messageBeep = DynamicLibrary.open('user32.dll')
+  static final _messageBeep = _user32
       .lookupFunction<Int32 Function(Uint32), int Function(int)>('MessageBeep');
 
   /// Plays a freedesktop sound theme event with whichever player is here;

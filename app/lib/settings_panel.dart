@@ -93,6 +93,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _note = 'that one is already taken');
       return true;
     }
+    if (!Hotkeys.isFree(k)) {
+      setState(() => _note = 'another app already uses ${Hotkeys.label(k)}');
+      return true;
+    }
     final which = _recording!;
     if (which == 'snip') {
       Hotkeys.snip = k;
