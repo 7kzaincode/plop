@@ -134,10 +134,14 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  RECT frame = {0, 0, Scale(size.width, scale_factor),
+                Scale(size.height, scale_factor)};
+  AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
+
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      frame.right - frame.left, frame.bottom - frame.top,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
@@ -195,6 +199,16 @@ Win32Window::MessageHandler(HWND hwnd,
       SetWindowPos(hwnd, nullptr, newRectSize->left, newRectSize->top, newWidth,
                    newHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 
+      return 0;
+    }
+    case WM_GETMINMAXINFO: {
+      // Keep at least 360x320 of content, as on macOS (contentMinSize).
+      UINT dpi = FlutterDesktopGetDpiForHWND(hwnd);
+      RECT frame = {0, 0, MulDiv(360, dpi, 96), MulDiv(320, dpi, 96)};
+      AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
+      auto info = reinterpret_cast<MINMAXINFO*>(lparam);
+      info->ptMinTrackSize.x = frame.right - frame.left;
+      info->ptMinTrackSize.y = frame.bottom - frame.top;
       return 0;
     }
     case WM_SIZE: {
