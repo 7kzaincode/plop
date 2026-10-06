@@ -35,6 +35,7 @@ Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
     await target.create(recursive: true);
     final budget = File(zipPath).lengthSync();
     var written = 0;
+    final places = _Places(outDir);
     final input = InputFileStream(zipPath);
     try {
       for (final f in ZipDecoder().decodeStream(input)) {
@@ -46,10 +47,7 @@ Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
         if (f.isCompressed) {
           throw const FormatException('folder zip is compressed');
         }
-        final path = [
-          outDir,
-          ...parts.map(safeFileName),
-        ].join(Platform.pathSeparator);
+        final path = places.of(parts, isDir: f.isDirectory);
         if (f.isDirectory) {
           await Directory(path).create(recursive: true);
           continue;
@@ -73,6 +71,53 @@ Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
     }
   },
 );
+
+/// Where each entry of a zip lands under its target folder. Sanitising can
+/// make two names one: `a:b.txt` and `a?b.txt` both become `a_b.txt`, and
+/// a file `notes:` lands where a folder `notes_` goes, which fails the
+/// whole unpack. The second to claim a path gets ` (1)`, ` (2)`… before
+/// its extension, while entries under one source folder keep landing in
+/// the same place, numbered or not.
+class _Places {
+  _Places(this.root);
+
+  final String root;
+  final _bySource = <String, String>{}; // source path -> where it landed
+  final _taken = <String>{};
+
+  String of(List<String> parts, {required bool isDir}) {
+    var source = '';
+    var path = root;
+    for (final (i, part) in parts.indexed) {
+      source = i == 0 ? part : '$source/$part';
+      final name = safeFileName(part);
+      // Only a folder is looked up by source, so its contents follow it.
+      // A file is nothing's parent, and a zip may well name one twice: the
+      // second is then a second file, not the first one again.
+      path = isDir || i < parts.length - 1
+          ? _bySource[source] ??= _free(path, name, isDir: true)
+          : _free(path, name, isDir: false);
+    }
+    return path;
+  }
+
+  String _free(String parent, String name, {required bool isDir}) {
+    var path = '$parent${Platform.pathSeparator}$name';
+    for (var n = 1; !_taken.add(path); n++) {
+      path = '$parent${Platform.pathSeparator}${_numbered(name, n, isDir)}';
+    }
+    return path;
+  }
+
+  /// `name (n)`, or `stem (n).ext` for a file with an extension. A dotfile
+  /// has none: `.env (1)`.
+  static String _numbered(String name, int n, bool isDir) {
+    final dot = isDir ? -1 : name.lastIndexOf('.');
+    return dot <= 0
+        ? '$name ($n)'
+        : '${name.substring(0, dot)} ($n)${name.substring(dot)}';
+  }
+}
 
 /// An [OutputFileStream] that throws rather than grow past [limit] bytes.
 /// Creates parent folders, as [OutputFileStream] itself does.

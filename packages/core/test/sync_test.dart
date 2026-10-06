@@ -841,6 +841,39 @@ void main() {
     expect(File('$out/dir_/.gitignore').existsSync(), isTrue);
   });
 
+  test(
+    'names that sanitise alike inside a folder are numbered apart',
+    () async {
+      c = await Cluster.start(1);
+      final alike = Archive()
+        ..add(stored('a:b.txt', [1]))
+        ..add(stored('a?b.txt', [2]))
+        ..add(stored('notes:', [3]))
+        ..add(
+          ArchiveFile.directory('notes_')..compression = CompressionType.none,
+        )
+        ..add(stored('notes_/x.txt', [4]))
+        // One entry named twice, which a zip allows. The Archive class
+        // merges identical names, so the second is spelt with a `.`
+        // segment, which the unpacker drops.
+        ..add(stored('notes_/.env', [5]))
+        ..add(stored('notes_/./.env', [6]));
+      final zip = File('${c.root.path}/alike.zip')
+        ..writeAsBytesSync(ZipEncoder().encode(alike));
+      final out = '${c.root.path}/out';
+      await extractFolder(zip.path, out);
+      expect(File('$out/a_b.txt').readAsBytesSync(), [1]);
+      expect(File('$out/a_b (1).txt').readAsBytesSync(), [2]);
+      // A file and a folder cannot share a name either, and the folder's
+      // contents follow it wherever it lands.
+      expect(File('$out/notes_').readAsBytesSync(), [3]);
+      expect(File('$out/notes_ (1)/x.txt').readAsBytesSync(), [4]);
+      // The second of the twice-named entries does not overwrite the first.
+      expect(File('$out/notes_ (1)/.env').readAsBytesSync(), [5]);
+      expect(File('$out/notes_ (1)/.env (1)').readAsBytesSync(), [6]);
+    },
+  );
+
   test('a folder zip that inflates is refused and leaves nothing', () async {
     c = await Cluster.start(1);
     // Deflated (the encoder's default): 4 MB of zeros in a few KB.
