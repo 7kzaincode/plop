@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -10,6 +11,8 @@ import 'item.dart';
 /// Unpacks a folder item's zip into [outDir]. Only plain files and folders
 /// are written: symlinks are skipped (plop never sends them, and a chain of
 /// them can steer later entries outside [outDir]), as are names with `..`.
+/// Of the sender's permissions only the executable bit is kept, so a script
+/// or binary still runs; the rest is the receiver's business.
 Future<void> extractFolder(String zipPath, String outDir) =>
     Isolate.run(() async {
       await Directory(outDir).create(recursive: true);
@@ -32,11 +35,48 @@ Future<void> extractFolder(String zipPath, String outDir) =>
           } finally {
             await out.close();
           }
+          if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
+            _setExecutable(path);
+          }
         }
       } finally {
         await input.close();
       }
     });
+
+/// Makes [path] executable for whoever can already read it, as `chmod +x`
+/// would under the receiver's umask. dart:io cannot change permissions, so
+/// this calls libc; not for Windows, which has no executable bit.
+void _setExecutable(String path) {
+  final mode = File(path).statSync().mode;
+  final bytes = utf8.encode(path);
+  final cPath = _malloc(bytes.length + 1);
+  cPath.asTypedList(bytes.length + 1)
+    ..setAll(0, bytes)
+    ..[bytes.length] = 0;
+  try {
+    _chmod(cPath, (mode | (mode & 0x124) >> 2) & 0xfff);
+  } finally {
+    _free(cPath);
+  }
+}
+
+final _libc = DynamicLibrary.process();
+final _chmod = _libc
+    .lookupFunction<
+      Int32 Function(Pointer<Uint8>, Uint32),
+      int Function(Pointer<Uint8>, int)
+    >('chmod');
+final _malloc = _libc
+    .lookupFunction<
+      Pointer<Uint8> Function(Size),
+      Pointer<Uint8> Function(int)
+    >('malloc');
+final _free = _libc
+    .lookupFunction<
+      Void Function(Pointer<Uint8>),
+      void Function(Pointer<Uint8>)
+    >('free');
 
 /// Writes the contents of [dir] to [zip]. Entries are stored with
 /// [CompressionType.none], which the archive package streams; it would
@@ -94,6 +134,7 @@ Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
     // Folder entries too: an empty "deflated" entry is invalid to unzip.
     enc.addArchiveFile(
       f
+        ..mode = stat.mode
         ..lastModTime = stat.modified.millisecondsSinceEpoch ~/ 1000
         ..compression = CompressionType.none,
     );

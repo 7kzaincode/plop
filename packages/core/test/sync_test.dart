@@ -406,6 +406,30 @@ void main() {
     await input.close();
   }, skip: Platform.isWindows ? 'creating symlinks needs admin rights' : false);
 
+  test('folders keep the executable bit, and only that', () async {
+    c = await Cluster.start(1);
+    final [a] = c.nodes;
+    final src = Directory('${c.root.path}/tool');
+    File('${src.path}/run.sh')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('#!/bin/sh\n');
+    File('${src.path}/notes.txt').writeAsStringSync('hi');
+    // Dart has no chmod. 0700 and 0600: only the x bit should come through,
+    // the rw bits of both should be the receiver's own.
+    await Process.run('chmod', ['700', '${src.path}/run.sh']);
+    await Process.run('chmod', ['600', '${src.path}/notes.txt']);
+
+    final item = await a.addPath(src.path);
+    final out = '${c.root.path}/out';
+    await extractFolder(item.path!, out);
+    int perms(String name) => File('$out/$name').statSync().mode & 0x1ff;
+    expect(perms('run.sh') & 0x40, 0x40, reason: 'u+x lost');
+    expect(perms('run.sh') & 0x1b6, perms('notes.txt'), reason: 'rw differ');
+    expect(perms('notes.txt') & 0x49, 0, reason: 'x bit invented');
+    // Readable by all under the usual umask, so executable by all too.
+    if (perms('notes.txt') == 0x1a4) expect(perms('run.sh'), 0x1ed);
+  }, skip: Platform.isWindows ? 'no executable bit' : false);
+
   test('links that stay inside a folder travel as copies', () async {
     c = await Cluster.start(1);
     final [a] = c.nodes;
