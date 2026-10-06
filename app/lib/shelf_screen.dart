@@ -39,6 +39,7 @@ class ShelfScreenState extends State<ShelfScreen> {
   late final AppLifecycleListener _lifecycle;
   final _started = DateTime.now();
   bool _dragging = false;
+  bool _oneWay = false; // as last drawn
 
   String? _toast; // null when hidden
   String _toastText = ''; // kept so the pill fades out with its text
@@ -49,23 +50,37 @@ class ShelfScreenState extends State<ShelfScreen> {
   /// instead of saving another copy.
   final _saved = <String, String>{};
 
+  /// Items with a grab in flight. Enter and ⌘C skip the row's own guard, and
+  /// two saves of a big item would race on the same .part file.
+  final _inFlight = <String>{};
+
   PlopNode get node => widget.node;
 
   @override
   void initState() {
     super.initState();
     _changes = node.changes.listen((_) => setState(() {}));
-    // Redraw once a second only while there is a countdown to show or the
-    // "looking for devices" grace period is running; an empty shelf idles.
+    // Redraw once a second only while there is a countdown to show, the
+    // "looking for devices" grace period is running, or the one-way flag
+    // (purely time-based in the core, so nothing announces it) has flipped;
+    // an empty shelf idles.
     _tick = Timer.periodic(_second, (_) {
       final looking =
           DateTime.now().difference(_started) <= _peerGrace + _second;
-      if (node.items.isNotEmpty || looking) setState(() {});
+      final oneWay = node.oneWay.isNotEmpty;
+      if (node.items.isNotEmpty || looking || oneWay != _oneWay) {
+        setState(() {});
+      }
     });
-    // Coming back from the background: phones lose their socket and Bonjour
-    // registration while suspended, so bring networking back and re-poll.
+    // Coming back from the background: phones may lose their socket while
+    // suspended, so probe it, restart if needed and re-poll. Only iOS also
+    // drops its Bonjour registration; Android's NsdManager keeps it for the
+    // life of the process, and a forced re-advertise there is a goodbye that
+    // makes peers drop our rows and re-add them a moment later. (revive
+    // re-advertises on its own when the socket did die.)
     _lifecycle = AppLifecycleListener(
-      onRestart: () => node.revive(rebroadcast: !isDesktop).catchError((_) {}),
+      onRestart: () =>
+          node.revive(rebroadcast: Platform.isIOS).catchError((_) {}),
     );
   }
 
@@ -106,23 +121,29 @@ class ShelfScreenState extends State<ShelfScreen> {
     }
   }
 
-  /// One tap on an item.
+  /// One tap on an item; a repeat while it is still running is ignored.
   Future<void> _act(BuildContext ctx, ShelfItem item, GrabAction a) async {
-    if (a != GrabAction.save) return run(() => grab(ctx, node, item, a));
+    if (!_inFlight.add(item.key)) return;
+    try {
+      await run(() => _grab(ctx, item, a));
+    } finally {
+      _inFlight.remove(item.key);
+    }
+  }
+
+  Future<String?> _grab(BuildContext ctx, ShelfItem item, GrabAction a) async {
+    if (a != GrabAction.save) return grab(ctx, node, item, a);
     final known = _saved[item.key];
     if (known != null &&
         FileSystemEntity.typeSync(known) != FileSystemEntityType.notFound) {
       await reveal(known);
-      return;
+      return null;
     }
-    try {
-      final path = await saveItem(node, item);
-      _saved[item.key] = path;
-      final where = path.split(Platform.pathSeparator).reversed.skip(1).first;
-      toast('saved to $where  ·  show', onTap: () => reveal(path));
-    } catch (e) {
-      toast(friendlyError(e));
-    }
+    final path = await saveItem(node, item);
+    _saved[item.key] = path;
+    final where = path.split(Platform.pathSeparator).reversed.skip(1).first;
+    toast('saved to $where  ·  show', onTap: () => reveal(path));
+    return null;
   }
 
   /// Adds picked or dropped paths, carrying on past failures.
@@ -137,7 +158,8 @@ class ShelfScreenState extends State<ShelfScreen> {
         toast('packing $name…', sticky: true);
       }
       try {
-        await node.addPath(p);
+        // Phones' pickers hand over a copy in the app cache, not the file.
+        await (isDesktop ? node.addPath(p) : addCopy(node, p));
       } catch (e) {
         failed++;
         first ??= e;
@@ -166,6 +188,7 @@ class ShelfScreenState extends State<ShelfScreen> {
   @override
   Widget build(BuildContext context) {
     final items = node.items;
+    final oneWay = _oneWay = node.oneWay.isNotEmpty;
     final body = Stack(
       children: [
         Column(
@@ -173,7 +196,7 @@ class ShelfScreenState extends State<ShelfScreen> {
           children: [
             _TopBar(
               peers: [for (final p in node.peers) p.name],
-              oneWay: node.oneWay.isNotEmpty,
+              oneWay: oneWay,
               self: node.store.nodeName,
               searching: DateTime.now().difference(_started) < _peerGrace,
               ttl: node.ttl,
@@ -186,7 +209,7 @@ class ShelfScreenState extends State<ShelfScreen> {
               },
             ),
             const Divider(height: 1, thickness: 1, color: Palette.line),
-            if (node.oneWay.isNotEmpty)
+            if (oneWay)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
                 child: Text(
@@ -238,14 +261,20 @@ class ShelfScreenState extends State<ShelfScreen> {
       ],
     );
 
-    SingleActivator cmd(LogicalKeyboardKey k) =>
-        SingleActivator(k, meta: Platform.isMacOS, control: !Platform.isMacOS);
+    // No repeats: a held ⌘V would plop the clipboard once per repeat.
+    SingleActivator cmd(LogicalKeyboardKey k) => SingleActivator(
+      k,
+      meta: Platform.isMacOS,
+      control: !Platform.isMacOS,
+      includeRepeats: false,
+    );
     return CallbackShortcuts(
       bindings: {
         cmd(LogicalKeyboardKey.keyV): () => run(paste),
         cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
         cmd(LogicalKeyboardKey.keyC): _grabNewest,
-        const SingleActivator(LogicalKeyboardKey.enter): _grabNewest,
+        const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false):
+            _grabNewest,
       },
       child: Focus(
         autofocus: true,

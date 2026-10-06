@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,6 +27,13 @@ Future<void> main() async {
 }
 
 Future<void> _start() async {
+  // Android's picker copies every pick into its own cache dir and leaves it;
+  // copies made from now on go with their item (addCopy), this clears what
+  // earlier builds left. Android only: on iOS it would empty all of tmp,
+  // plop's own dirs included.
+  if (Platform.isAndroid) {
+    await FilePicker.clearTemporaryFiles().catchError((_) {});
+  }
   // PLOP_INSTANCE lets two copies run side by side on one machine (each needs
   // its own scratch dirs, since they are wiped on launch).
   // Debug builds (flutter run) default to their own instance, so running
@@ -56,13 +64,22 @@ Future<void> _start() async {
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
-  void say(String msg) => screen.currentState?.toast(msg);
+  // The shortcuts fire while the user is in another app or the window is
+  // closed (macOS keeps plop running), so a failure that needs the user, like
+  // the Screen Recording steps, waits until they look instead of fading out.
+  void say(String msg, {bool ok = true}) => screen.currentState?.toast(
+    msg,
+    sticky:
+        !ok &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed,
+  );
   Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
   Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;
   try {
     await Hotkeys.register(node, say);
   } catch (_) {
-    // Another app owns the shortcut, or the platform has none.
+    // The plugin or its channel is missing (no keybinder on Linux, say). A
+    // combo another app owns never throws; see Hotkeys.isFree.
   }
   await ShareIn.listen(node, say).catchError((_) {});
 }

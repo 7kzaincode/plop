@@ -82,14 +82,19 @@ class _SettingsPanelState extends State<_SettingsPanel> {
         if (m != HotKeyModifier.capsLock && m != HotKeyModifier.fn)
           if (m.physicalKeys.any(pressed.contains)) m,
     ];
-    if (mods.isEmpty) {
-      setState(() => _note = 'add a modifier, like ⌃ ⌥ ⇧ or ⌘');
+    final k = HotKey(key: key, modifiers: mods);
+    final why = Hotkeys.reject(k);
+    if (why != null) {
+      setState(() => _note = why);
       return true;
     }
-    final k = HotKey(key: key, modifiers: mods);
     final other = _recording == 'snip' ? Hotkeys.clip : Hotkeys.snip;
     if (Hotkeys.same(k, other)) {
       setState(() => _note = 'that one is already taken');
+      return true;
+    }
+    if (!Hotkeys.isFree(k)) {
+      setState(() => _note = 'another app already uses ${Hotkeys.label(k)}');
       return true;
     }
     final which = _recording!;

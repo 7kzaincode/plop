@@ -6,7 +6,8 @@ import 'package:plop_core/plop_core.dart';
 import 'grab.dart';
 
 /// Android "Share to plop": MainActivity copies shared files into the cache
-/// and passes their paths (or shared text) over this channel.
+/// and passes their paths (or shared text) over this channel. The copies
+/// are plop's own, so they go when their items do (see addCopy).
 abstract final class ShareIn {
   static const _channel = MethodChannel('plop/share');
 
@@ -18,13 +19,23 @@ abstract final class ShareIn {
     Future<void> ingest(Object? shared) async {
       if (shared is! Map) return;
       try {
+        final failed = (shared['failed'] as int?) ?? 0;
         final paths = [for (final p in shared['paths'] as List? ?? []) '$p'];
         for (final p in paths) {
-          await node.addPath(p);
+          await addCopy(node, p);
         }
+        // Text only stands in when no file could be read, so a caption must
+        // not pass for the photo it came with.
         final text = '${shared['text'] ?? ''}';
-        if (paths.isEmpty && text.trim().isNotEmpty) await node.addText(text);
-        if (paths.isNotEmpty || text.trim().isNotEmpty) onMessage('plopped');
+        final gotText = paths.isEmpty && text.trim().isNotEmpty;
+        if (gotText) await node.addText(text);
+        if (paths.isEmpty && !gotText) {
+          // The share sheet has closed; silence would look like nothing
+          // happened.
+          if (failed > 0) onMessage("couldn't read what was shared");
+          return;
+        }
+        onMessage(failed > 0 ? 'plopped · $failed failed' : 'plopped');
       } catch (e) {
         onMessage(friendlyError(e));
       }

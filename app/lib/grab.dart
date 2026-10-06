@@ -61,6 +61,40 @@ Future<List<String>> pickFolder() async {
   return [?dir];
 }
 
+/// Puts a file that is plop's own copy on the shelf. Phones' pickers and
+/// Share-to-plop hand over a copy in the app cache rather than the user's
+/// file, and the store serves a picked path in place and only ever deletes
+/// files it made, so without this every shared photo and video stayed in
+/// the cache until the OS purged it. The copy goes when its item does
+/// (expiry or ✕). Desktop pickers return the user's real files: not for them.
+Future<ShelfItem> addCopy(PlopNode node, String path) async {
+  final ShelfItem item;
+  try {
+    item = await node.addPath(path);
+  } catch (_) {
+    _deleteCopy(path); // too big, say: nothing will ever refer to it
+    rethrow;
+  }
+  _copies[item.key] = path;
+  _copyWatch ??= node.store.localChanges.listen((_) {
+    final live = {for (final i in node.items) i.key};
+    for (final key in [..._copies.keys]) {
+      if (!live.contains(key)) _deleteCopy(_copies.remove(key)!);
+    }
+  });
+  return item;
+}
+
+final _copies = <String, String>{};
+StreamSubscription<void>? _copyWatch;
+
+void _deleteCopy(String path) {
+  final f = File(path);
+  // The copy sits in a per-pick directory; a non-recursive delete leaves
+  // the directory alone while another file from the same share is listed.
+  f.delete().then((_) => f.parent.delete()).then((_) {}, onError: (_) {});
+}
+
 Widget wrapDropTarget({
   required Widget child,
   required void Function(bool hovering) onHover,
@@ -142,7 +176,32 @@ Future<ShelfItem> addImageBytes(
 }) async {
   // pasteboard hands back an uncompressed BMP on Windows (33 MB at 4K).
   if (Platform.isWindows) bytes = await toPng(bytes);
-  return node.addBytes(bytes, '$prefix ${stamp()}.png');
+  return node.addBytes(bytes, '$prefix ${stamp()}.${imageExt(bytes)}');
+}
+
+/// The extension for image bytes, from their magic number. Android's
+/// clipboard hands over whatever the source app wrote (Chrome and Gboard
+/// often JPEG or WebP) where every other platform re-encodes to PNG, and the
+/// name decides the wire mime and whether a Windows receiver tries to copy
+/// it as a picture, which GDI+ can't do for WebP or HEIC.
+String imageExt(Uint8List b) {
+  bool at(int i, List<int> sig) {
+    if (b.length < i + sig.length) return false;
+    for (var k = 0; k < sig.length; k++) {
+      if (b[i + k] != sig[k]) return false;
+    }
+    return true;
+  }
+
+  if (at(0, 'RIFF'.codeUnits) && at(8, 'WEBP'.codeUnits)) return 'webp';
+  if (at(0, const [0xFF, 0xD8, 0xFF])) return 'jpg';
+  if (at(0, 'GIF8'.codeUnits)) return 'gif';
+  if (at(0, 'BM'.codeUnits)) return 'bmp';
+  if (at(4, 'ftyp'.codeUnits)) {
+    // ISO BMFF: the brand at bytes 8-11 tells AVIF from HEIC.
+    return at(8, 'avi'.codeUnits) ? 'avif' : 'heic';
+  }
+  return 'png';
 }
 
 /// Re-encodes any image Flutter can decode as PNG.

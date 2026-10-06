@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:plop_core/plop_core.dart';
+import 'package:uni_platform/uni_platform.dart';
 
 import 'grab.dart';
 
@@ -67,19 +68,90 @@ abstract final class Hotkeys {
       {...?a.modifiers}.containsAll({...?b.modifiers}) &&
       {...?b.modifiers}.containsAll({...?a.modifiers});
 
+  /// Why [k] must not become a system-wide shortcut, or null if it may. The
+  /// usual recorder rule: at least one of ⌃ ⌥ ⌘ (Shift alone would swallow a
+  /// typed character everywhere), function keys exempt, and ⌘/Ctrl plus a
+  /// letter is some app's everyday shortcut (⌘C, ⌘V, Ctrl+Z…).
+  static String? reject(HotKey k) {
+    final key = k.physicalKey;
+    final mods = k.modifiers ?? const <HotKeyModifier>[];
+    if (isFunctionKey(key)) return null;
+    // A key Flutter has no Windows virtual-key code for cannot be registered.
+    if (Platform.isWindows && key.keyCode == null) {
+      return "${keyName(key)} can't be a system-wide shortcut here · "
+          'try another key';
+    }
+    if (!mods.any((m) => m != HotKeyModifier.shift)) {
+      final add = Platform.isMacOS ? 'add ⌃ ⌥ or ⌘' : 'add Ctrl, Alt or Win';
+      return '$add · ${label(k)} on its own would block typing '
+          '${keyName(key)} everywhere';
+    }
+    final primary = Platform.isMacOS
+        ? HotKeyModifier.meta
+        : HotKeyModifier.control;
+    if (mods.length == 1 && mods.single == primary && _isLetter(key)) {
+      return '${label(k)} is an everyday shortcut in other apps · '
+          'add another modifier';
+    }
+    return null;
+  }
+
+  /// Whether no other app has [k]. Only Windows can tell: Win32 hot keys are
+  /// exclusive, so RegisterHotKey fails on a taken combo, which the plugin
+  /// swallows and reports as success. On macOS a combo two apps register
+  /// fires in both rather than going dead; X11 fails silently too, but seeing
+  /// that would need an X11 probe. Call only while plop's own bindings are
+  /// unregistered, or they are what gets found.
+  static bool isFree(HotKey k) {
+    if (!Platform.isWindows) return true;
+    final vk = k.physicalKey.keyCode; // what the plugin registers
+    if (vk == null) return true; // unregistrable, not taken; reject() says so
+    var mods = 0x4000; // MOD_NOREPEAT
+    for (final m in k.modifiers ?? const <HotKeyModifier>[]) {
+      mods |= switch (m) {
+        HotKeyModifier.alt => 0x1,
+        HotKeyModifier.control => 0x2,
+        HotKeyModifier.shift => 0x4,
+        HotKeyModifier.meta => 0x8,
+        _ => 0,
+      };
+    }
+    const id = 0x5050; // far from the plugin's own small ids
+    if (_registerHotKey(nullptr, id, mods, vk) == 0) return false;
+    _unregisterHotKey(nullptr, id);
+    return true;
+  }
+
+  static final _user32 = DynamicLibrary.open('user32.dll');
+  static final _registerHotKey = _user32
+      .lookupFunction<
+        Int32 Function(Pointer<Void>, Int32, Uint32, Uint32),
+        int Function(Pointer<Void>, int, int, int)
+      >('RegisterHotKey');
+  static final _unregisterHotKey = _user32
+      .lookupFunction<
+        Int32 Function(Pointer<Void>, Int32),
+        int Function(Pointer<Void>, int)
+      >('UnregisterHotKey');
+
+  /// F1–F12, which may stand alone or with any modifier.
+  static bool isFunctionKey(PhysicalKeyboardKey k) =>
+      k.usbHidUsage >= 0x0007003a && k.usbHidUsage <= 0x00070045;
+
+  static bool _isLetter(PhysicalKeyboardKey k) =>
+      k.usbHidUsage >= 0x00070004 && k.usbHidUsage <= 0x0007001d;
+
   /// A key's printed name from its USB HID usage code. PhysicalKeyboardKey's
   /// debugName is null in release builds, so it can't be used for this.
   static String keyName(PhysicalKeyboardKey key) {
     final u = key.usbHidUsage;
-    if (u >= 0x00070004 && u <= 0x0007001d) {
+    if (_isLetter(key)) {
       return String.fromCharCode(0x41 + u - 0x00070004); // A-Z
     }
     if (u >= 0x0007001e && u <= 0x00070026) {
       return '${u - 0x0007001e + 1}'; // 1-9
     }
-    if (u >= 0x0007003a && u <= 0x00070045) {
-      return 'F${u - 0x0007003a + 1}'; // F1-F12
-    }
+    if (isFunctionKey(key)) return 'F${u - 0x0007003a + 1}';
     return _keyNames[u] ?? '#${(u & 0xffff).toRadixString(16)}';
   }
 
@@ -112,7 +184,7 @@ abstract final class Hotkeys {
   };
 
   static PlopNode? _node;
-  static void Function(String message)? _onPlopped;
+  static void Function(String message, {bool ok})? _onPlopped;
 
   /// Global shortcuts only work on X11 under Linux, not Wayland.
   static bool get supported =>
@@ -123,12 +195,28 @@ abstract final class Hotkeys {
 
   static bool _busy = false;
   static int _snipGen = 0;
+  static final _lastPress = <String, DateTime>{};
   static bool _askedForScreen = false;
 
-  /// [onPlopped] gets a short message after something lands (or fails).
+  /// hotkey_manager registers without MOD_NOREPEAT on Windows, and keybinder
+  /// forwards X11 autorepeat too, so a held chord fires at the keyboard's
+  /// repeat rate. Anything within 1.1 s of the previous event of the same
+  /// binding is the same press: Windows' initial repeat delay goes up to
+  /// 1 s and its slowest rate is 2.5/s. Nobody plops twice within a second.
+  static bool _isRepeat(String which) {
+    if (Platform.isMacOS) return false;
+    final now = DateTime.now();
+    final last = _lastPress[which];
+    _lastPress[which] = now; // reset on every event: a long hold fires once
+    return last != null &&
+        now.difference(last) < const Duration(milliseconds: 1100);
+  }
+
+  /// [onPlopped] gets a short message after something lands, or with
+  /// `ok: false` when it failed and the user needs to act.
   static Future<void> register(
     PlopNode node,
-    void Function(String message) onPlopped,
+    void Function(String message, {bool ok}) onPlopped,
   ) async {
     _node = node;
     _onPlopped = onPlopped;
@@ -145,6 +233,16 @@ abstract final class Hotkeys {
     final node = _node, onPlopped = _onPlopped;
     if (!supported || node == null || onPlopped == null) return;
     await hotKeyManager.unregisterAll();
+    // Registering a taken combo reports success and does nothing, so say so;
+    // the other shortcut still works.
+    for (final k in [snip, clip]) {
+      if (!isFree(k)) {
+        onPlopped(
+          '${label(k)} is taken by another app · change it in settings',
+          ok: false,
+        );
+      }
+    }
     await hotKeyManager.register(
       snip,
       keyDownHandler: (_) {
@@ -156,46 +254,46 @@ abstract final class Hotkeys {
           }
         }
 
+        if (_isRepeat('snip')) return;
         // The Windows snip waits on the user, so it must not hold the lock
         // that the other shortcut shares.
         if (Platform.isWindows) {
-          run().catchError((Object e) {
-            _feedback(false);
-            onPlopped(friendlyError(e));
-          });
+          run().catchError((Object e) => _fail(friendlyError(e)));
         } else {
-          _once(run, onPlopped);
+          _once(run);
         }
       },
     );
     await hotKeyManager.register(
       clip,
-      keyDownHandler: (_) => _once(() async {
-        if (await pasteInto(node)) {
-          _feedback(true);
-          onPlopped('plopped clipboard');
-        } else {
-          _feedback(false);
-          onPlopped('nothing to paste');
-        }
-      }, onPlopped),
+      keyDownHandler: (_) => _isRepeat('clip')
+          ? null
+          : _once(() async {
+              if (await pasteInto(node)) {
+                _feedback(true);
+                onPlopped('plopped clipboard');
+              } else {
+                _fail('nothing to paste');
+              }
+            }),
     );
   }
 
-  static Future<void> _once(
-    Future<void> Function() f,
-    void Function(String) onPlopped,
-  ) async {
+  static Future<void> _once(Future<void> Function() f) async {
     if (_busy) return;
     _busy = true;
     try {
       await f();
     } catch (e) {
-      _feedback(false);
-      onPlopped(friendlyError(e));
+      _fail(friendlyError(e));
     } finally {
       _busy = false;
     }
+  }
+
+  static void _fail(String message) {
+    _feedback(false);
+    _onPlopped?.call(message, ok: false);
   }
 
   /// Lets the user drag out a region with the OS's own tool. Returns null if
@@ -272,10 +370,9 @@ abstract final class Hotkeys {
   /// clipboard's sequence number rather than its contents, so nothing is read
   /// until it changes; a newer press cancels this wait.
   static Future<ShelfItem?> _snipWindows(PlopNode node, String name) async {
-    final seqOf = DynamicLibrary.open('user32.dll')
-        .lookupFunction<Uint32 Function(), int Function()>(
-          'GetClipboardSequenceNumber',
-        );
+    final seqOf = _user32.lookupFunction<Uint32 Function(), int Function()>(
+      'GetClipboardSequenceNumber',
+    );
     final gen = ++_snipGen;
     final start = seqOf();
     await Process.start('explorer.exe', ['ms-screenclip:']);
@@ -298,14 +395,49 @@ abstract final class Hotkeys {
     return null;
   }
 
+  /// A sound either way: the shortcuts are pressed from other apps, where
+  /// the toast in plop's window can't be seen. Fire and forget.
   static void _feedback(bool ok) {
-    if (ok && Platform.isMacOS) {
-      Process.run('/usr/bin/afplay', [
-        '/System/Library/Sounds/Pop.aiff',
-      ]).ignore();
-    } else if (!ok) {
-      SystemSound.play(SystemSoundType.alert);
+    if (Platform.isMacOS) {
+      if (ok) {
+        Process.run('/usr/bin/afplay', [
+          '/System/Library/Sounds/Pop.aiff',
+        ]).ignore();
+      } else {
+        SystemSound.play(SystemSoundType.alert);
+      }
+    } else if (Platform.isWindows) {
+      // Asterisk is the soft "Background" chime, Hand the "Critical Stop";
+      // SystemSound's MB_OK sounds the same as Asterisk on the default scheme.
+      _messageBeep(ok ? 0x40 : 0x10);
+    } else {
+      _playLinux(ok ? 'complete' : 'dialog-error').then((played) {
+        if (!played && !ok) SystemSound.play(SystemSoundType.alert);
+      });
     }
+  }
+
+  static final _messageBeep = _user32
+      .lookupFunction<Int32 Function(Uint32), int Function(int)>('MessageBeep');
+
+  /// Plays a freedesktop sound theme event with whichever player is here;
+  /// the X11 bell behind SystemSound is muted on most desktops.
+  static Future<bool> _playLinux(String event) async {
+    final file = '/usr/share/sounds/freedesktop/stereo/$event.oga';
+    for (final cmd in [
+      ['canberra-gtk-play', '-i', event],
+      ['paplay', file],
+      ['pw-play', file],
+    ]) {
+      try {
+        if ((await Process.run(cmd.first, cmd.sublist(1))).exitCode == 0) {
+          return true;
+        }
+      } on ProcessException {
+        // not installed
+      }
+    }
+    return false;
   }
 }
 
