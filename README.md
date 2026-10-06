@@ -78,8 +78,10 @@ to renew it.
 - **Add:** drop anything on the window, paste with ⌘V / Ctrl+V, or use `+`.
   On phones: photo, file, paste.
 - **From anywhere (Mac, Windows, Linux):**
-  - ⌃⌥P / Ctrl+Alt+P: select a region of the screen; it lands on plop.
-  - ⌃⌥V / Ctrl+Alt+V: plop whatever is on the clipboard.
+  - ⌃⌥P / Ctrl+Shift+Alt+P: select a region of the screen; it lands on plop.
+  - ⌃⌥V / Ctrl+Shift+Alt+V: plop whatever is on the clipboard.
+  - Change either in the settings panel (sliders icon), where you can also
+    make plop open at login.
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
   folders save to Downloads (folders unpacked). Hover for the other option.
   On phones, files open the share sheet.

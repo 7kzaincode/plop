@@ -299,8 +299,18 @@ class ShelfStore {
 
   void _insert(ShelfItem item, Duration ttl) {
     _items[item.key] = item;
-    _timers[item.key] = Timer(ttl, () => remove(item.key));
+    _timers[item.key] = Timer(ttl, () => _expire(item.key));
     _changes.add(null);
+  }
+
+  /// Expiry waits for a transfer that is still running, so a big download
+  /// keeps its row and progress bar until it lands.
+  void _expire(String key) {
+    if (_items[key]?.progress != null) {
+      _timers[key] = Timer(const Duration(seconds: 1), () => _expire(key));
+    } else {
+      remove(key);
+    }
   }
 
   /// Ids become a directory name and part of a URL path, so a peer's ids

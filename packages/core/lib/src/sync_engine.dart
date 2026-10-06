@@ -146,7 +146,10 @@ class SyncEngine {
   void _reconcile(_PeerState s, List<RemoteItem> list) {
     final ids = {for (final r in list) r.id};
     for (final item in store.mirrorsOf(s.peer.id)) {
-      if (!ids.contains(item.id)) store.remove(item.key);
+      // Keep a row whose transfer is still running; expiry removes it after.
+      if (!ids.contains(item.id) && item.progress == null) {
+        store.remove(item.key);
+      }
     }
     for (final r in list) {
       final item = store.addRemote(s.peer.id, s.peer.name, r);

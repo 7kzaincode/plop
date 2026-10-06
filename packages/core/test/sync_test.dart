@@ -573,4 +573,29 @@ void main() {
     await a.addText('from a');
     await eventually(() => b.items.any((i) => i.name == 'from a'));
   });
+
+  test(
+    'an item still downloading survives its expiry until it lands',
+    () async {
+      c = await Cluster.start(
+        2,
+        ttl: const Duration(seconds: 2),
+        eagerCopyBytes: 1024,
+      );
+      final [a, b] = c.nodes;
+      final big = await a.addBytes(List.filled(2 * 1024 * 1024, 3), 'big.bin');
+      final key = itemKey(a.id, big.id);
+      await eventually(() => b.store[key] != null);
+      // Hold the row in "transferring" past its expiry.
+      b.store.setProgress(key, 0.5);
+      await Future<void>.delayed(const Duration(milliseconds: 2600));
+      expect(b.store[key], isNotNull, reason: 'kept while transferring');
+      expect(a.store[big.key], isNull, reason: 'the origin expired normally');
+      b.store.setProgress(key, null);
+      await eventually(
+        () => b.store[key] == null,
+        timeout: const Duration(seconds: 3),
+      );
+    },
+  );
 }

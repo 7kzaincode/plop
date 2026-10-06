@@ -699,10 +699,9 @@ class _RowState extends State<_Row> {
     );
 
     // New items slide in; expiring ones fade out.
-    final opacity = (left.inMilliseconds / _fadeOut.inMilliseconds).clamp(
-      0.0,
-      1.0,
-    );
+    final opacity = item.progress != null
+        ? 1.0
+        : (left.inMilliseconds / _fadeOut.inMilliseconds).clamp(0.0, 1.0);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: const Duration(milliseconds: 220),
