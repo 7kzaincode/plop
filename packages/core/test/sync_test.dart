@@ -531,4 +531,46 @@ void main() {
       isEmpty,
     );
   });
+
+  test('a peer we reach that never reaches us is flagged one-way', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    // Only A knows about B, so B never polls A.
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    expect(a.peers.map((p) => p.id), [b.id]);
+    expect(a.oneWay, isEmpty, reason: 'needs time before it is flagged');
+    // Pretend A has been reaching B for longer than the grace period.
+    a.server.seenBy.clear();
+    final okSince = a.engine.okSince(b.id)!;
+    expect(
+      DateTime.now().difference(okSince),
+      lessThan(const Duration(seconds: 5)),
+    );
+    // Simulate time passing by dating the record back.
+    a.engine.debugSetOkSince(
+      b.id,
+      DateTime.now().subtract(const Duration(seconds: 20)),
+    );
+    expect(a.oneWay.map((p) => p.id), [b.id]);
+
+    // Once B polls A, the flag clears.
+    c.connect(1, 0);
+    await eventually(() => a.oneWay.isEmpty && b.peers.isNotEmpty);
+  });
+
+  test('revive re-binds a closed server and re-polls peers', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    await eventually(() => a.peers.isNotEmpty && b.peers.isNotEmpty);
+    final port = a.port;
+    // The OS reclaimed the socket while the app was suspended.
+    await a.server.stop();
+    await a.revive();
+    expect(a.port, port, reason: 'same port when it is still free');
+    await b.addText('after revive');
+    await eventually(() => a.items.any((i) => i.name == 'after revive'));
+    // B can fetch from A again too.
+    await a.addText('from a');
+    await eventually(() => b.items.any((i) => i.name == 'from a'));
+  });
 }

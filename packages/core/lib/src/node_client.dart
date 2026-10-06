@@ -13,8 +13,11 @@ class NodeClient {
 
   static const _listTimeout = Duration(seconds: 5);
 
-  Future<List<RemoteItem>> fetchList(Uri base) async {
+  /// [selfId] tells the peer who is asking, so it can tell that this node
+  /// can reach it.
+  Future<List<RemoteItem>> fetchList(Uri base, String selfId) async {
     final req = await _http.getUrl(base.replace(path: '/v1/items'));
+    req.headers.set(nodeIdHeader, selfId);
     final res = await req.close().timeout(_listTimeout);
     if (res.statusCode != HttpStatus.ok) {
       await res.drain<void>();

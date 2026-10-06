@@ -25,6 +25,10 @@ Plain HTTP on the advertised port. Only items this node originated are served.
 
 ### `GET /v1/items`
 
+The caller sets `X-Plop-Node: <its node id>`. A node remembers when each
+peer last reached it; a peer it can reach that never reaches it back is
+shown as one-way (usually a firewall on this side).
+
 ```json
 [
   {"id": "9f2c…", "name": "photo.png", "size": 102400,

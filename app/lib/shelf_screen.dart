@@ -36,6 +36,7 @@ class ShelfScreen extends StatefulWidget {
 class ShelfScreenState extends State<ShelfScreen> {
   late final StreamSubscription<void> _changes;
   late final Timer _tick;
+  late final AppLifecycleListener _lifecycle;
   final _started = DateTime.now();
   bool _dragging = false;
 
@@ -61,10 +62,16 @@ class ShelfScreenState extends State<ShelfScreen> {
           DateTime.now().difference(_started) <= _peerGrace + _second;
       if (node.items.isNotEmpty || looking) setState(() {});
     });
+    // Coming back from the background: phones lose their socket and Bonjour
+    // registration while suspended, so bring networking back and re-poll.
+    _lifecycle = AppLifecycleListener(
+      onRestart: () => node.revive(rebroadcast: !isDesktop).catchError((_) {}),
+    );
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     _changes.cancel();
     _tick.cancel();
     _toastTimer?.cancel();
@@ -166,6 +173,7 @@ class ShelfScreenState extends State<ShelfScreen> {
           children: [
             _TopBar(
               peers: [for (final p in node.peers) p.name],
+              oneWay: node.oneWay.isNotEmpty,
               self: node.store.nodeName,
               searching: DateTime.now().difference(_started) < _peerGrace,
               ttl: node.ttl,
@@ -178,6 +186,14 @@ class ShelfScreenState extends State<ShelfScreen> {
               },
             ),
             const Divider(height: 1, thickness: 1, color: Palette.line),
+            if (node.oneWay.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                child: Text(
+                  "others can't reach this device · ${_inboundHint()}",
+                  style: monoStyle(size: 11, color: Palette.warn),
+                ),
+              ),
             Expanded(
               child: items.isEmpty
                   ? _empty()
@@ -328,6 +344,13 @@ class ShelfScreenState extends State<ShelfScreen> {
   );
 }
 
+/// What to check when peers can see this device but cannot connect to it.
+String _inboundHint() => Platform.isWindows
+    ? 'Windows Security › Firewall › Allow an app › plop (Private and Public)'
+    : Platform.isMacOS
+    ? 'System Settings › Network › Firewall › allow plop'
+    : 'a firewall here is blocking incoming connections';
+
 /// What to check when no other device shows up.
 String _fixHint() => Platform.isIOS
     ? 'allow Settings › plop › Local Network'
@@ -340,6 +363,7 @@ String _fixHint() => Platform.isIOS
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.peers,
+    required this.oneWay,
     required this.self,
     required this.searching,
     required this.ttl,
@@ -350,6 +374,9 @@ class _TopBar extends StatelessWidget {
   });
 
   final List<String> peers;
+
+  /// Peers can be reached but cannot reach us back.
+  final bool oneWay;
   final String self;
   final bool searching;
   final Duration ttl;
@@ -361,7 +388,7 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (dot, label) = peers.isNotEmpty
-        ? (Palette.live, '${peers.length} nearby')
+        ? (oneWay ? Palette.warn : Palette.live, '${peers.length} nearby')
         : searching
         ? (Palette.faint, 'looking…')
         : (Palette.faint, 'just you');
@@ -392,7 +419,11 @@ class _TopBar extends StatelessWidget {
             ],
             const Spacer(),
             Tooltip(
-              message: ['you · $self', ...peers].join('\n'),
+              message: [
+                'you · $self',
+                ...peers,
+                if (oneWay) "they can't open your plops",
+              ].join('\n'),
               triggerMode: isDesktop ? null : TooltipTriggerMode.tap,
               child: Row(
                 mainAxisSize: MainAxisSize.min,

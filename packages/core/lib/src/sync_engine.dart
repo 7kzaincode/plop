@@ -15,6 +15,9 @@ class _PeerState {
   bool again = false;
   int failures = 0;
 
+  /// Since when this peer has answered every poll; null while unreachable.
+  DateTime? okSince;
+
   List<Uri> get candidates => [
     ?base,
     for (final u in peer.baseUris)
@@ -55,6 +58,12 @@ class SyncEngine {
     for (final s in _peers.values)
       if (s.base != null && s.failures == 0) s.peer,
   ];
+
+  /// Since when [id] has been continuously reachable; null if it is not.
+  DateTime? okSince(String id) => _peers[id]?.okSince;
+
+  /// Tests only: backdate a peer's reachability.
+  void debugSetOkSince(String id, DateTime t) => _peers[id]?.okSince = t;
 
   void start() {
     _subs
@@ -112,12 +121,13 @@ class SyncEngine {
   Future<void> _refreshOnce(_PeerState s) async {
     for (final base in s.candidates) {
       try {
-        final list = await client.fetchList(base);
+        final list = await client.fetchList(base, store.nodeId);
         if (_peers[s.peer.id] != s) return; // went away meanwhile
         final changed = s.base != base || s.failures != 0;
         s
           ..base = base
-          ..failures = 0;
+          ..failures = 0
+          ..okSince ??= DateTime.now();
         if (changed) _peerChanges.add(null);
         _reconcile(s, list);
         return;
@@ -126,6 +136,7 @@ class SyncEngine {
       }
     }
     s.failures++;
+    s.okSince = null;
     if (s.failures == maxFailures) {
       _dropUncopied(s.peer.id);
       _peerChanges.add(null);

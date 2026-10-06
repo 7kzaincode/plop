@@ -57,6 +57,10 @@ abstract class PeerDiscovery {
   /// Subscribe before calling [start].
   Stream<PeerEvent> get events;
   Future<void> start(LocalNode self);
+
+  /// Advertises [self] again, after the OS dropped the registration (iOS
+  /// does this while the app is suspended). Must not close [events].
+  Future<void> rebroadcast(LocalNode self);
   Future<void> stop();
 }
 
@@ -79,6 +83,9 @@ class StaticDiscovery implements PeerDiscovery {
 
   void add(Peer p) => _events.add(PeerUp(p));
   void remove(String id) => _events.add(PeerDown(id));
+
+  @override
+  Future<void> rebroadcast(LocalNode self) async {}
 
   @override
   Future<void> stop() => _events.close();

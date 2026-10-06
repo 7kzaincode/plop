@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'discovery.dart';
 import 'item.dart';
+import 'node_client.dart';
 import 'node_server.dart';
 import 'shelf_store.dart';
 import 'sync_engine.dart';
@@ -60,6 +61,56 @@ class PlopNode {
   int get port => server.port;
   List<ShelfItem> get items => store.items;
   List<Peer> get peers => engine.reachablePeers;
+
+  /// How long a reachable peer may go without reaching us before it counts
+  /// as one-way. Peers poll every 3 s.
+  static const oneWayAfter = Duration(seconds: 12);
+
+  /// Peers this node can reach that cannot reach it back: they see our list
+  /// is unavailable, usually because a firewall here blocks inbound
+  /// connections. Only flagged after [oneWayAfter] of being reachable.
+  List<Peer> get oneWay {
+    final now = DateTime.now();
+    return [
+      for (final p in engine.reachablePeers)
+        if (now.difference(server.seenBy[p.id] ?? engine.okSince(p.id) ?? now) >
+            oneWayAfter)
+          p,
+    ];
+  }
+
+  /// Brings networking back after the app was suspended: re-binds the
+  /// server if the OS reclaimed its socket, re-advertises on mDNS when asked
+  /// to, and polls every peer right away.
+  Future<void> revive({bool rebroadcast = false}) async {
+    var listening = false;
+    final probe = NodeClient();
+    try {
+      await probe
+          .fetchList(Uri(scheme: 'http', host: '127.0.0.1', port: port), id)
+          .timeout(const Duration(seconds: 1));
+      listening = true;
+    } catch (_) {
+      // Not listening any more.
+    } finally {
+      probe.close();
+    }
+    if (!listening) {
+      await server.restart();
+      rebroadcast = true; // the port may have changed
+    }
+    if (rebroadcast) {
+      await discovery.rebroadcast(
+        LocalNode(
+          id: id,
+          name: store.nodeName,
+          port: port,
+          ips: await localIPv4s(),
+        ),
+      );
+    }
+    engine.onNudge(null);
+  }
 
   /// Fires when items or peers change.
   Stream<void> get changes {

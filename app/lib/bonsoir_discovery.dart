@@ -23,21 +23,7 @@ class BonsoirPeerDiscovery implements PeerDiscovery {
   @override
   Future<void> start(LocalNode self) async {
     _selfId = self.id;
-    final broadcast = _broadcast = BonsoirBroadcast(
-      service: BonsoirService(
-        name: self.name,
-        type: serviceType,
-        port: self.port,
-        attributes: {
-          'id': self.id,
-          'v': '1',
-          'name': self.name,
-          'ips': self.ips.join(','),
-        },
-      ),
-    );
-    await broadcast.initialize();
-    await broadcast.start();
+    await _advertise(self);
 
     final discovery = _discovery = BonsoirDiscovery(type: serviceType);
     await discovery.initialize();
@@ -56,6 +42,36 @@ class BonsoirPeerDiscovery implements PeerDiscovery {
       }
     });
     await discovery.start();
+  }
+
+  Future<void> _advertise(LocalNode self) async {
+    final broadcast = _broadcast = BonsoirBroadcast(
+      service: BonsoirService(
+        name: self.name,
+        type: serviceType,
+        port: self.port,
+        attributes: {
+          'id': self.id,
+          'v': '1',
+          'name': self.name,
+          'ips': self.ips.join(','),
+        },
+      ),
+    );
+    await broadcast.initialize();
+    await broadcast.start();
+  }
+
+  /// iOS drops the registration while the app is suspended; register again
+  /// with the current port. Discovery is left alone so peer state survives.
+  @override
+  Future<void> rebroadcast(LocalNode self) async {
+    try {
+      await _broadcast?.stop();
+    } catch (_) {
+      // Already gone.
+    }
+    await _advertise(self);
   }
 
   void _onResolved(BonsoirService s) {
