@@ -23,7 +23,10 @@ String formatTtl(Duration d) => d.inHours > 0
 class Settings {
   Settings._(this._file, this._data);
 
-  final File _file;
+  /// Kept only in memory, for tests.
+  Settings.inMemory() : _file = null, _data = {};
+
+  final File? _file;
   final Map<String, Object?> _data;
 
   static Future<Settings> load() async {
@@ -49,9 +52,11 @@ class Settings {
   }
 
   void _save() {
-    _file.parent
+    final file = _file;
+    if (file == null) return;
+    file.parent
         .create(recursive: true)
-        .then((_) => _file.writeAsString(jsonEncode(_data)))
-        .catchError((_) => _file);
+        .then((_) => file.writeAsString(jsonEncode(_data)))
+        .catchError((_) => file);
   }
 }

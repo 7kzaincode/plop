@@ -12,10 +12,15 @@ import 'package:share_plus/share_plus.dart';
 
 import 'type_icons.dart';
 
-final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+bool get isDesktop =>
+    debugDesktopOverride ??
+    (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
+
+/// Tests set this to lay out the phone UI on a desktop host, and back.
+bool? debugDesktopOverride;
 
 /// desktop_drop has no iOS support; on Android it is only a preview.
-final canDrop = isDesktop;
+bool get canDrop => isDesktop;
 
 /// Scratch space for grabbed items that must outlive the shelf entry (files
 /// handed to the clipboard or share sheet). Set by main, wiped on launch.

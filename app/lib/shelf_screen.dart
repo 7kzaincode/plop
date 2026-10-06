@@ -215,25 +215,45 @@ class ShelfScreenState extends State<ShelfScreen> {
     );
   }
 
+  /// Keyboard hints. Drops the global-shortcut half when the window is too
+  /// narrow for both, rather than clipping.
   Widget _hints() => Container(
     height: 32,
     padding: const EdgeInsets.symmetric(horizontal: 16),
     decoration: const BoxDecoration(
       border: Border(top: BorderSide(color: Palette.line)),
     ),
-    child: Row(
-      children: [
-        Text(
-          '${_mod}v paste    ${_mod}o add',
-          style: monoStyle(size: 11, color: Palette.faint),
-        ),
-        const Spacer(),
-        Text(
-          '${Hotkeys.snipLabel} snip    ${Hotkeys.clipLabel} clipboard'
-          '  →  plop from anywhere',
-          style: monoStyle(size: 11, color: Palette.faint),
-        ),
-      ],
+    child: LayoutBuilder(
+      builder: (context, box) {
+        final style = monoStyle(size: 11, color: Palette.faint);
+        final local = Text(
+          '${_mod}v paste   ${_mod}o add',
+          maxLines: 1,
+          overflow: TextOverflow.fade,
+          softWrap: false,
+          style: style,
+        );
+        if (box.maxWidth < 380) return Row(children: [Expanded(child: local)]);
+        return Row(
+          children: [
+            local,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Tooltip(
+                message: 'works from any app, even with plop in the background',
+                child: Text(
+                  '${Hotkeys.snipLabel} snip   ${Hotkeys.clipLabel} clipboard',
+                  maxLines: 1,
+                  overflow: TextOverflow.fade,
+                  softWrap: false,
+                  textAlign: TextAlign.right,
+                  style: style,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     ),
   );
 
