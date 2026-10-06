@@ -298,14 +298,49 @@ abstract final class Hotkeys {
     return null;
   }
 
+  /// A sound either way: the shortcuts are pressed from other apps, where
+  /// the toast in plop's window can't be seen. Fire and forget.
   static void _feedback(bool ok) {
-    if (ok && Platform.isMacOS) {
-      Process.run('/usr/bin/afplay', [
-        '/System/Library/Sounds/Pop.aiff',
-      ]).ignore();
-    } else if (!ok) {
-      SystemSound.play(SystemSoundType.alert);
+    if (Platform.isMacOS) {
+      if (ok) {
+        Process.run('/usr/bin/afplay', [
+          '/System/Library/Sounds/Pop.aiff',
+        ]).ignore();
+      } else {
+        SystemSound.play(SystemSoundType.alert);
+      }
+    } else if (Platform.isWindows) {
+      // Asterisk is the soft "Background" chime, Hand the "Critical Stop";
+      // SystemSound's MB_OK sounds the same as Asterisk on the default scheme.
+      _messageBeep(ok ? 0x40 : 0x10);
+    } else {
+      _playLinux(ok ? 'complete' : 'dialog-error').then((played) {
+        if (!played && !ok) SystemSound.play(SystemSoundType.alert);
+      });
     }
+  }
+
+  static final _messageBeep = DynamicLibrary.open('user32.dll')
+      .lookupFunction<Int32 Function(Uint32), int Function(int)>('MessageBeep');
+
+  /// Plays a freedesktop sound theme event with whichever player is here;
+  /// the X11 bell behind SystemSound is muted on most desktops.
+  static Future<bool> _playLinux(String event) async {
+    final file = '/usr/share/sounds/freedesktop/stereo/$event.oga';
+    for (final cmd in [
+      ['canberra-gtk-play', '-i', event],
+      ['paplay', file],
+      ['pw-play', file],
+    ]) {
+      try {
+        if ((await Process.run(cmd.first, cmd.sublist(1))).exitCode == 0) {
+          return true;
+        }
+      } on ProcessException {
+        // not installed
+      }
+    }
+    return false;
   }
 }
 
