@@ -118,8 +118,11 @@ class ShelfScreenState extends State<ShelfScreen> {
       _toastTap = msg == null ? null : onTap;
     });
     if (msg == null || sticky) return;
+    // Reading time: 1.8 s plus 40 ms per character past the first 20, so
+    // "plopped clipboard" is brief and the Screen Recording steps get ~5 s.
+    final ms = min(6000, 1800 + 40 * (msg.length - 20));
     _toastTimer = Timer(
-      Duration(milliseconds: onTap == null ? 1800 : 4000),
+      Duration(milliseconds: max(onTap == null ? 1800 : 4000, ms)),
       () {
         if (mounted) setState(() => _toast = _toastTap = null);
       },
