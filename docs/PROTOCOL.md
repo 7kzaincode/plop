@@ -1,0 +1,73 @@
+# plop protocol, v1
+
+Every running app is a node. There is no server. Each node serves only the
+items it originated, and mirrors other nodes' items locally.
+
+## Discovery
+
+mDNS / DNS-SD (Bonjour) service type `_plop._tcp`, advertising the node's HTTP
+port. TXT attributes:
+
+| key    | value                                                                 |
+|--------|-----------------------------------------------------------------------|
+| `id`   | Random node id, generated at launch. A node ignores its own id.       |
+| `v`    | Protocol version, `1`.                                                |
+| `name` | Human-readable device name, shown as "from" on the shelf.             |
+| `ips`  | Comma-separated IPv4 addresses, fallback when the resolved host is unusable. |
+
+Address choice: resolved IPv4 host addresses first, then `ips`. IPv6 link-local
+addresses are skipped (they need a scope id that URIs do not carry well), and
+`.local` hostnames are not relied on for sockets.
+
+## HTTP routes
+
+Plain HTTP on the advertised port. Only items this node originated are served.
+
+### `GET /v1/items`
+
+```json
+[
+  {"id": "9f2c…", "name": "photo.png", "size": 102400,
+   "mime": "image/png", "kind": "file", "ttlMs": 87412}
+]
+```
+
+- `kind` is `file` or `text`. For `text`, the bytes are UTF-8 and `name` is a
+  short label (the first line).
+- `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:
+  clocks on a LAN disagree.
+
+### `GET /v1/items/{id}`
+
+The item's bytes, with `Content-Length` and `Content-Type`. `404` once expired
+or unknown.
+
+### `POST /v1/changed`
+
+No body. Means "my list changed, re-fetch it". The sender sets header
+`X-Plop-Node: <its node id>` so the receiver re-fetches just that peer; without
+the header the receiver re-fetches all peers. Responds `204`.
+
+## Sync behaviour
+
+- On peer discovered: fetch its list immediately, then poll every 3 s as a
+  fallback (nudges can be lost).
+- On local add or expiry: nudge all known peers.
+- On receiving an item: start a local timer for `ttlMs`; delete the copy when
+  it ends. The timer is not reset by later polls.
+- An item that disappears from its origin's list is dropped.
+- Items at or under 25 MB are downloaded as soon as they are seen ("eager
+  copy"), so they survive the sender's app being suspended. Larger items are
+  fetched on tap.
+- Items over 2 GB are refused, both locally and from peers.
+- Mirrored copies are never re-served. Only the origin serves an item.
+- Peer gone (mDNS lost event, or 3 failed polls in a row): keep fully copied
+  items until their timers end; drop items that were never copied.
+- Downloads are written to `<name>.part` and renamed when complete and the
+  byte count matches `size`.
+
+## Storage
+
+Each node uses one temp directory, wiped on launch. Owned bytes live at
+`<dir>/<originId>/<itemId>/<name>`. A file the user picked on this device is
+served from where it is and is never deleted by the app.
