@@ -706,7 +706,10 @@ class _RowState extends State<_Row> {
       canRequestFocus: actions.isNotEmpty,
       onFocusChange: (f) => setState(() => _focused = f),
       onKeyEvent: (_, e) {
-        if (!_grabKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
+        // Keys also bubble up from a focused child icon, e.g. the × on an
+        // own folder row, which has no actions of its own.
+        if (actions.isEmpty ||
+            !_grabKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
           return KeyEventResult.ignored;
         }
         _act(actions.first);
@@ -838,7 +841,7 @@ class _Name extends StatelessWidget {
   );
 
   /// Hebrew through Arabic Extended-A.
-  static final _rtl = RegExp(r'[֐-ࣿ]');
+  static final _rtl = RegExp(r'[\u0590-\u08FF]');
 
   @override
   Widget build(BuildContext context) {
@@ -1171,23 +1174,52 @@ class _Toast extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: monoStyle(color: Palette.text),
               )
-            // The action is its own Text: however long the message, the
-            // ellipsis can only ever eat the message, never the one word
-            // that says what a tap does.
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      text,
+            // Inline while it fits in two lines; otherwise the action gets
+            // its own line, so the ellipsis can only ever eat the message,
+            // never the one word that says what a tap does.
+            : LayoutBuilder(
+                builder: (context, c) {
+                  final span = TextSpan(
+                    text: text,
+                    style: monoStyle(color: Palette.dim),
+                    children: [
+                      TextSpan(
+                        text: '  ·  $action',
+                        style: monoStyle(color: Palette.text),
+                      ),
+                    ],
+                  );
+                  final p = TextPainter(
+                    text: span,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    textDirection: TextDirection.ltr,
+                    textScaler: MediaQuery.textScalerOf(context),
+                  )..layout(maxWidth: c.maxWidth);
+                  final over = p.didExceedMaxLines;
+                  p.dispose();
+                  if (!over) {
+                    return Text.rich(
+                      span,
                       maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
-                      style: monoStyle(color: Palette.dim),
-                    ),
-                  ),
-                  Text('  ·  $action', style: monoStyle(color: Palette.text)),
-                ],
+                    );
+                  }
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        text,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: monoStyle(color: Palette.dim),
+                      ),
+                      Text('·  $action', style: monoStyle(color: Palette.text)),
+                    ],
+                  );
+                },
               ),
       ),
     ),

@@ -420,6 +420,22 @@ void main() {
     final screen = GlobalKey<ShelfScreenState>();
     await pumpApp(tester, screenKey: screen);
 
+    // The everyday case stays on one inline span: the whole message, tail
+    // of the file name included, plus the action in two lines.
+    const usual = 'saved to Downloads/Quarterly report FINAL final v3.pdf';
+    screen.currentState!.toast(usual, action: 'show', onTap: () {});
+    await tester.pump();
+    final inline = find.byWidgetPredicate(
+      (w) => w is RichText && w.text.toPlainText().startsWith(usual),
+    );
+    expect(inline, findsOneWidget);
+    expect(
+      tester.renderObject<RenderParagraph>(inline).didExceedMaxLines,
+      isFalse,
+      reason: 'the file name must not lose its tail to the action word',
+    );
+
+    // Far too long: the message gives way, the action never does.
     final msg = 'saved to Downloads/${'a' * 80}.pdf';
     screen.currentState!.toast(msg, action: 'show', onTap: () {});
     await tester.pump();
@@ -429,7 +445,7 @@ void main() {
       isTrue,
       reason: 'the message is the part that gives way',
     );
-    final action = find.text('  ·  show');
+    final action = find.text('·  show');
     expect(action, findsOneWidget);
     expect(
       tester.renderObject<RenderParagraph>(action).didExceedMaxLines,
