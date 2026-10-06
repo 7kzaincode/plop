@@ -46,7 +46,10 @@ shown as one-way (usually a firewall on this side).
   name. Entries carry a mode of 0755 (folders, and files executable on the
   sender) or 0644; a receiver restores the executable bit and nothing else. A link inside the folder is sent as a
   copy of its target if that is also inside the folder, and left out if it
-  leads outside. A node that does not know a kind treats it as `file`.
+  leads outside. A receiver refuses a zip with compressed entries, or one
+  that unpacks to more than its own size (overlapping entries); either is a
+  bomb, since stored content can do neither. A node that does not know a
+  kind treats it as `file`.
 - `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:
   clocks on a LAN disagree. The sender picks the lifetime (2 minutes by
   default); it can differ per item. A receiver clamps it to 24 hours.

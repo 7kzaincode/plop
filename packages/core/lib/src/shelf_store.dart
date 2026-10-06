@@ -17,39 +17,85 @@ import 'item.dart';
 /// the colon would address an NTFS stream rather than fail.
 /// Of the sender's permissions only the executable bit is kept, so a script
 /// or binary still runs; the rest is the receiver's business.
-Future<void> extractFolder(String zipPath, String outDir) =>
-    Isolate.run(() async {
-      await Directory(outDir).create(recursive: true);
-      final input = InputFileStream(zipPath);
-      try {
-        for (final f in ZipDecoder().decodeStream(input)) {
-          final parts = f.name.split(RegExp(r'[/\\]'))
-            ..removeWhere((s) => s.isEmpty || s == '.');
-          if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
-            continue;
-          }
-          final path = [
-            outDir,
-            ...parts.map(safeFileName),
-          ].join(Platform.pathSeparator);
-          if (f.isDirectory) {
-            await Directory(path).create(recursive: true);
-            continue;
-          }
-          final out = OutputFileStream(path); // creates parent folders
-          try {
-            f.writeContent(out);
-          } finally {
-            await out.close();
-          }
-          if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
-            _setExecutable(path);
-          }
+///
+/// plop only ever stores entries, so a compressed one comes from a hostile
+/// or foreign peer and is refused with a [FormatException]: the archive
+/// package inflates into memory whole, and a 1 MB deflate can unpack to
+/// gigabytes. Stored entries can only add up to more than the zip itself
+/// when their headers overlap, another bomb, so the output is bounded by
+/// the zip's own size. A failure removes [outDir] if this call created it.
+Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
+  () async {
+    final target = Directory(outDir);
+    final fresh = !target.existsSync();
+    await target.create(recursive: true);
+    final budget = File(zipPath).lengthSync();
+    var written = 0;
+    final input = InputFileStream(zipPath);
+    try {
+      for (final f in ZipDecoder().decodeStream(input)) {
+        final parts = f.name.split(RegExp(r'[/\\]'))
+          ..removeWhere((s) => s.isEmpty || s == '.');
+        if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
+          continue;
         }
-      } finally {
-        await input.close();
+        if (f.isCompressed) {
+          throw const FormatException('folder zip is compressed');
+        }
+        final path = [
+          outDir,
+          ...parts.map(safeFileName),
+        ].join(Platform.pathSeparator);
+        if (f.isDirectory) {
+          await Directory(path).create(recursive: true);
+          continue;
+        }
+        final out = _BoundedOutput(path, budget - written);
+        try {
+          f.writeContent(out);
+        } finally {
+          written += out.length;
+          await out.close();
+        }
+        if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
+          _setExecutable(path);
+        }
       }
-    });
+    } catch (_) {
+      if (fresh) await target.delete(recursive: true).catchError((_) => target);
+      rethrow;
+    } finally {
+      await input.close();
+    }
+  },
+);
+
+/// An [OutputFileStream] that throws rather than grow past [limit] bytes.
+/// Creates parent folders, as [OutputFileStream] itself does.
+class _BoundedOutput extends OutputFileStream {
+  _BoundedOutput(String path, this.limit)
+    : super.withFileHandle(FileHandle(path, mode: FileAccess.write));
+
+  final int limit;
+
+  @override
+  void writeByte(int value) {
+    _fit(1);
+    super.writeByte(value);
+  }
+
+  @override
+  void writeBytes(List<int> bytes, {int? length}) {
+    _fit(length ?? bytes.length);
+    super.writeBytes(bytes, length: length);
+  }
+
+  void _fit(int n) {
+    if (length + n > limit) {
+      throw const FormatException('folder zip unpacks to more than its size');
+    }
+  }
+}
 
 /// Makes [path] executable for whoever can already read it, as `chmod +x`
 /// would under the receiver's umask. dart:io cannot change permissions, so

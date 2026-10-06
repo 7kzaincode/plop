@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:plop_core/plop_core.dart';
@@ -80,6 +81,60 @@ Future<File> tempFile(Directory root, String name, int size) async {
   final f = File('${root.path}/$name');
   await f.writeAsBytes(List.generate(size, (i) => i % 251));
   return f;
+}
+
+/// A zip entry stored the way plop sends them; ZipEncoder deflates otherwise.
+ArchiveFile stored(String name, List<int> bytes) =>
+    ArchiveFile.bytes(name, bytes)..compression = CompressionType.none;
+
+/// A stored zip of [entries] files whose data regions overlap: each claims
+/// every byte from its own header to the end of the data block, so the zip
+/// unpacks to about [entries] times its size. Nothing in the format forbids
+/// it, and the archive package does not check.
+List<int> overlappingZip(int entries) {
+  const header = 32, data = 4096; // 30-byte local header + a 2-char name
+  final end = entries * header + data;
+  final out = BytesBuilder();
+  void u16(int v) => out.add([v & 0xff, v >> 8 & 0xff]);
+  void u32(int v) => out.add([for (var i = 0; i < 32; i += 8) v >> i & 0xff]);
+  for (var i = 0; i < entries; i++) {
+    u32(0x04034b50); // local file header
+    for (final v in [20, 0, 0, 0, 0]) {
+      u16(v); // version, flags, method (stored), time, date
+    }
+    u32(0); // crc, not verified
+    u32(end - header * (i + 1)); // compressed size
+    u32(end - header * (i + 1)); // uncompressed size
+    u16(2); // name length
+    u16(0); // extra length
+    out.add(ascii.encode('x$i'));
+  }
+  out.add(List.filled(data, 7));
+  final cdStart = out.length;
+  for (var i = 0; i < entries; i++) {
+    u32(0x02014b50); // central directory entry
+    for (final v in [20, 20, 0, 0, 0, 0]) {
+      u16(v); // made by, needed, flags, method, time, date
+    }
+    u32(0);
+    u32(end - header * (i + 1));
+    u32(end - header * (i + 1));
+    for (final v in [2, 0, 0, 0, 0]) {
+      u16(v); // name, extra and comment lengths, disk, internal attributes
+    }
+    u32(0); // external attributes
+    u32(header * i); // local header offset
+    out.add(ascii.encode('x$i'));
+  }
+  final cdSize = out.length - cdStart;
+  u32(0x06054b50); // end of central directory
+  for (final v in [0, 0, entries, entries]) {
+    u16(v); // disk, directory disk, entries on disk, entries total
+  }
+  u32(cdSize);
+  u32(cdStart);
+  u16(0); // comment length
+  return out.takeBytes();
 }
 
 void main() {
@@ -655,8 +710,8 @@ void main() {
   test('unpacking a folder never writes outside the target', () async {
     c = await Cluster.start(1);
     final evil = Archive()
-      ..add(ArchiveFile.bytes('../escaped.txt', [1, 2, 3]))
-      ..add(ArchiveFile.bytes('ok.txt', [4]));
+      ..add(stored('../escaped.txt', [1, 2, 3]))
+      ..add(stored('ok.txt', [4]));
     final zip = File('${c.root.path}/evil.zip')
       ..writeAsBytesSync(ZipEncoder().encode(evil));
     final out = Directory('${c.root.path}/x/out');
@@ -667,22 +722,51 @@ void main() {
 
   test('unpacking a folder sanitises each name like a single file', () async {
     c = await Cluster.start(1);
-    // Stored, as plop sends them.
     final odd = Archive()
-      ..add(
-        ArchiveFile.bytes('dir?/a:b?.txt', [1])
-          ..compression = CompressionType.none,
-      )
-      ..add(
-        ArchiveFile.bytes('dir?/.gitignore', [2])
-          ..compression = CompressionType.none,
-      );
+      ..add(stored('dir?/a:b?.txt', [1]))
+      ..add(stored('dir?/.gitignore', [2]));
     final zip = File('${c.root.path}/odd.zip')
       ..writeAsBytesSync(ZipEncoder().encode(odd));
     final out = '${c.root.path}/out';
     await extractFolder(zip.path, out);
     expect(File('$out/dir_/a_b_.txt').existsSync(), isTrue);
     expect(File('$out/dir_/.gitignore').existsSync(), isTrue);
+  });
+
+  test('a folder zip that inflates is refused and leaves nothing', () async {
+    c = await Cluster.start(1);
+    // Deflated (the encoder's default): 4 MB of zeros in a few KB.
+    final bomb = Archive()
+      ..add(stored('readme.txt', [1]))
+      ..add(ArchiveFile.bytes('zeros.bin', List.filled(4 << 20, 0)));
+    final zip = File('${c.root.path}/bomb.zip')
+      ..writeAsBytesSync(ZipEncoder().encode(bomb));
+    expect(zip.lengthSync(), lessThan(64 * 1024), reason: 'not a bomb');
+    // By message: a malformed zip is a FormatException too (ArchiveException).
+    Matcher refused(String why) => throwsA(
+      isA<FormatException>().having((e) => e.message, 'message', contains(why)),
+    );
+    final out = Directory('${c.root.path}/x/out');
+    await expectLater(extractFolder(zip.path, out.path), refused('compressed'));
+    expect(out.existsSync(), isFalse, reason: 'half a folder left behind');
+
+    // Stored entries can still overlap, so one block unpacks many times.
+    final overlap = File('${c.root.path}/overlap.zip')
+      ..writeAsBytesSync(overlappingZip(8));
+    await expectLater(
+      extractFolder(overlap.path, out.path),
+      refused('more than its size'),
+    );
+    expect(out.existsSync(), isFalse);
+
+    // A folder the receiver already had is not swept away with the failure.
+    final mine = Directory('${c.root.path}/mine')..createSync();
+    File('${mine.path}/keep.txt').writeAsStringSync('keep');
+    await expectLater(
+      extractFolder(zip.path, mine.path),
+      refused('compressed'),
+    );
+    expect(File('${mine.path}/keep.txt').existsSync(), isTrue);
   });
 
   test('unpacking a folder ignores symlinks that chain outside', () async {
