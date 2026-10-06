@@ -434,7 +434,9 @@ class _TopBar extends StatelessWidget {
         padding: EdgeInsets.only(left: mac ? 78 : 12, right: 12),
         child: Row(
           children: [
-            if (!mac) ...[
+            // Desktop windows already carry the name in their title bar;
+            // only phones need the wordmark here.
+            if (!isDesktop) ...[
               const SizedBox(width: 4),
               Image.asset('assets/brand/logo.png', height: 16),
               const SizedBox(width: 8),
