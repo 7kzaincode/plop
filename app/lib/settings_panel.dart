@@ -156,7 +156,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 380),
-        child: Padding(
+        // At the smallest window (360x320) a two-line note puts the panel a
+        // few lines over the height it has; it scrolls rather than clips.
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,

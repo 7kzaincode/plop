@@ -230,18 +230,43 @@ void main() {
 
   testWidgets('settings panel fits on small desktop windows', (tester) async {
     debugDesktopOverride = true;
+    // Stand in for the Swift side of the login item: macOS holding the item
+    // for approval puts the panel's longest note under the toggle.
+    const window = MethodChannel('plop/window');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(window, (call) async {
+      if (call.method == 'loginItem') return false;
+      if (call.method == 'setLoginItem') return 'needsApproval';
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(window, null));
     await startNodes(tester, withItems: false);
     for (final size in const [Size(360, 320), Size(460, 560)]) {
       final key = await pumpApp(tester, size);
       await tester.tap(find.byIcon(Icons.tune_rounded));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'settings $size');
-      await tester.runAsync(
-        () => _shot(
-          key,
-          'desktop-settings-${size.width.toInt()}x${size.height.toInt()}',
-        ),
-      );
+      final tag =
+          'desktop-settings-${size.width.toInt()}x${size.height.toInt()}';
+      await tester.runAsync(() => _shot(key, tag));
+
+      // Only macOS goes through the mocked channel; elsewhere the toggle
+      // would edit the real OS. With the note the panel is taller than the
+      // smallest window: it must scroll to the note, not overflow.
+      if (Platform.isMacOS) {
+        final toggle = find.byWidgetPredicate(
+          (w) => w is Semantics && w.properties.toggled == false,
+        );
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        final note = find.textContaining('approve plop in System Settings');
+        expect(note, findsOneWidget);
+        await tester.ensureVisible(note);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: 'settings $size note');
+        await tester.runAsync(() => _shot(key, '$tag-note'));
+      }
       await tester.tap(find.text('snip a screen region').hitTestable().first);
       await tester.tapAt(const Offset(5, 5)); // close the dialog
       await tester.pumpAndSettle();
