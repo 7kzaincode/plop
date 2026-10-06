@@ -9,11 +9,8 @@ import 'package:plop/settings.dart';
 import 'package:plop/settings_panel.dart';
 
 void main() {
-  /// Opens the panel and starts recording the snip shortcut.
-  Future<Settings> startRecording(
-    WidgetTester tester, {
-    Settings? settings,
-  }) async {
+  /// Opens the panel as on desktop.
+  Future<Settings> openPanel(WidgetTester tester, {Settings? settings}) async {
     debugDesktopOverride = true;
     addTearDown(() => debugDesktopOverride = null);
     // No plugin in the test runner: answer the (un)register calls quietly.
@@ -34,12 +31,46 @@ void main() {
     );
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
+    return s;
+  }
 
+  /// Opens the panel and starts recording the snip shortcut.
+  Future<Settings> startRecording(
+    WidgetTester tester, {
+    Settings? settings,
+  }) async {
+    final s = await openPanel(tester, settings: settings);
     await tester.tap(find.text(Hotkeys.snipLabel));
     await tester.pump();
     expect(find.text('…'), findsOneWidget);
     return s;
   }
+
+  Finder toggled(bool on) => find.byWidgetPredicate(
+    (w) => w is Semantics && w.properties.toggled == on,
+  );
+
+  testWidgets('the login toggle flips when the platform agrees', (
+    tester,
+  ) async {
+    // Stand in for the Swift side: remember the setting and report it.
+    const window = MethodChannel('plop/window');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    var on = false;
+    messenger.setMockMethodCallHandler(window, (call) async {
+      if (call.method == 'setLoginItem') on = call.arguments as bool;
+      return on;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(window, null));
+    await openPanel(tester);
+    expect(toggled(false), findsOneWidget);
+
+    await tester.tap(toggled(false));
+    await tester.pumpAndSettle();
+    expect(toggled(true), findsOneWidget);
+    expect(on, isTrue);
+    expect(find.textContaining("couldn't change"), findsNothing);
+  }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
 
   testWidgets('a Shift-only combo is refused and recording goes on', (
     tester,
