@@ -1,0 +1,30 @@
+name: plop
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  bonsoir: ^7.1.5
+  desktop_drop: ^0.8.4
+  device_info_plus: ^13.3.0
+  file_picker: ^13.1.0
+  flutter:
+    sdk: flutter
+  pasteboard: ^0.5.0
+  path_provider: ^2.1.6
+  plop_core:
+    path: ../packages/core
+  share_plus: ^13.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

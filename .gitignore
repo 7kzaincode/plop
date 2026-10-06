@@ -5,3 +5,4 @@ build/
 *.iml
 .vscode/
 pubspec_overrides.yaml
+app/.flutter-plugins-dependencies
