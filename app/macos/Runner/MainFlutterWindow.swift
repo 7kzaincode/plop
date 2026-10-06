@@ -87,16 +87,26 @@ class MainFlutterWindow: NSWindow {
           result(false)
         }
       case "setLoginItem":
-        guard #available(macOS 13.0, *) else { return result(false) }
+        // Answers with what the item is now: "on", "off", or "needsApproval"
+        // when macOS holds a registered item until the user switches it on
+        // in System Settings > General > Login Items, which then opens.
+        guard #available(macOS 13.0, *) else { return result("off") }
+        let on = call.arguments as? Bool == true
         do {
-          if call.arguments as? Bool == true {
+          if on {
             try SMAppService.mainApp.register()
           } else {
             try SMAppService.mainApp.unregister()
           }
-          result(SMAppService.mainApp.status == .enabled)
-        } catch {
-          result(SMAppService.mainApp.status == .enabled)
+        } catch {}
+        switch SMAppService.mainApp.status {
+        case .enabled:
+          result("on")
+        case .requiresApproval:
+          if on { SMAppService.openSystemSettingsLoginItems() }
+          result("needsApproval")
+        default:
+          result("off")
         }
       case "badge":
         // Things from other devices that landed while plop was closed or

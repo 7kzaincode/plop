@@ -58,8 +58,9 @@ void main() {
     final messenger = tester.binding.defaultBinaryMessenger;
     var on = false;
     messenger.setMockMethodCallHandler(window, (call) async {
+      if (call.method == 'loginItem') return on;
       if (call.method == 'setLoginItem') on = call.arguments as bool;
-      return on;
+      return on ? 'on' : 'off';
     });
     addTearDown(() => messenger.setMockMethodCallHandler(window, null));
     await openPanel(tester);
@@ -88,6 +89,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(toggled(true), findsOneWidget);
     expect(on, isTrue);
+  }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
+
+  testWidgets('a login item macOS holds for approval says where to go', (
+    tester,
+  ) async {
+    // macOS registered it but the user once switched it off in System
+    // Settings; the toggle stays off and the note says where to fix it.
+    const window = MethodChannel('plop/window');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(window, (call) async {
+      if (call.method == 'loginItem') return false;
+      return 'needsApproval';
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(window, null));
+    await openPanel(tester);
+
+    await tester.tap(toggled(false));
+    await tester.pumpAndSettle();
+    expect(toggled(false), findsOneWidget);
+    expect(find.textContaining('approve plop in System Settings'), findsOne);
+    expect(find.textContaining("couldn't change"), findsNothing);
   }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
 
   testWidgets('a Shift-only combo is refused and recording goes on', (

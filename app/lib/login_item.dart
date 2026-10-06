@@ -3,6 +3,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+/// What the login item is after a change. [needsApproval] is macOS holding
+/// a registered item until the user switches it on in System Settings ›
+/// General › Login Items, which the change opens.
+enum LoginState { on, off, needsApproval }
+
 /// Starting plop when the user logs in, so the global shortcuts are always
 /// there. Desktop only.
 abstract final class LoginItem {
@@ -65,11 +70,18 @@ abstract final class LoginItem {
     return false;
   }
 
-  /// Returns whether the change took.
-  static Future<bool> set(bool on) async {
+  /// Returns what the item is now, which is the old state when the change
+  /// did not take.
+  static Future<LoginState> set(bool on) async {
+    final asked = on ? LoginState.on : LoginState.off;
+    final kept = on ? LoginState.off : LoginState.on;
     try {
       if (Platform.isMacOS) {
-        return await _mac.invokeMethod<bool>('setLoginItem', on) ?? false;
+        return switch (await _mac.invokeMethod<String>('setLoginItem', on)) {
+          'on' => LoginState.on,
+          'needsApproval' => LoginState.needsApproval,
+          _ => LoginState.off,
+        };
       }
       final exe = Platform.resolvedExecutable;
       if (Platform.isWindows) {
@@ -79,7 +91,7 @@ abstract final class LoginItem {
                 '/d', '"$exe"', '/f',
               ])
             : await Process.run('reg', ['delete', _runKey, '/v', 'plop', '/f']);
-        return r.exitCode == 0;
+        return r.exitCode == 0 ? asked : kept;
       }
       if (Platform.isLinux) {
         if (on) {
@@ -91,9 +103,9 @@ abstract final class LoginItem {
         } else if (_linuxEntry.existsSync()) {
           _linuxEntry.deleteSync();
         }
-        return true;
+        return asked;
       }
     } catch (_) {}
-    return false;
+    return kept;
   }
 }

@@ -133,8 +133,12 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     final now = await LoginItem.set(on);
     if (!mounted) return;
     setState(() {
-      _login = now;
-      if (now != on) _note = "couldn't change that here";
+      _login = now == LoginState.on;
+      if (now == LoginState.needsApproval) {
+        _note = 'approve plop in System Settings › General › Login Items';
+      } else if (_login != on) {
+        _note = "couldn't change that here";
+      }
     });
   }
 
