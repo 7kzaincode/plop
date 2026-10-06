@@ -14,10 +14,12 @@ import 'type_icons.dart';
 /// How long to wait for a peer before saying none were found.
 const _peerGrace = Duration(seconds: 6);
 
+const _second = Duration(seconds: 1);
+
 /// Items fade out over this final stretch of their time.
 const _fadeOut = Duration(seconds: 5);
 
-final _mod = Platform.isMacOS ? '⌘' : 'ctrl ';
+final _mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
 
 class ShelfScreen extends StatefulWidget {
   const ShelfScreen({super.key, required this.node, required this.settings});
@@ -34,8 +36,15 @@ class ShelfScreenState extends State<ShelfScreen> {
   late final Timer _tick;
   final _started = DateTime.now();
   bool _dragging = false;
-  String? _toast;
+
+  String? _toast; // null when hidden
+  String _toastText = ''; // kept so the pill fades out with its text
+  VoidCallback? _toastTap;
   Timer? _toastTimer;
+
+  /// Where each grabbed item was saved, so a second tap shows the file
+  /// instead of saving another copy.
+  final _saved = <String, String>{};
 
   PlopNode get node => widget.node;
 
@@ -43,8 +52,13 @@ class ShelfScreenState extends State<ShelfScreen> {
   void initState() {
     super.initState();
     _changes = node.changes.listen((_) => setState(() {}));
-    // Drives the countdowns.
-    _tick = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+    // Redraw once a second only while there is a countdown to show or the
+    // "looking for devices" grace period is running; an empty shelf idles.
+    _tick = Timer.periodic(_second, (_) {
+      final looking =
+          DateTime.now().difference(_started) <= _peerGrace + _second;
+      if (node.items.isNotEmpty || looking) setState(() {});
+    });
   }
 
   @override
@@ -55,12 +69,22 @@ class ShelfScreenState extends State<ShelfScreen> {
     super.dispose();
   }
 
-  void toast(String msg) {
+  /// Shows a short message. [onTap] makes it clickable and keeps it up
+  /// longer; [sticky] keeps it until the next message.
+  void toast(String? msg, {VoidCallback? onTap, bool sticky = false}) {
     _toastTimer?.cancel();
-    setState(() => _toast = msg);
-    _toastTimer = Timer(const Duration(milliseconds: 1800), () {
-      if (mounted) setState(() => _toast = null);
+    setState(() {
+      _toast = msg;
+      if (msg != null) _toastText = msg;
+      _toastTap = msg == null ? null : onTap;
     });
+    if (msg == null || sticky) return;
+    _toastTimer = Timer(
+      Duration(milliseconds: onTap == null ? 1800 : 4000),
+      () {
+        if (mounted) setState(() => _toast = _toastTap = null);
+      },
+    );
   }
 
   /// Runs a UI action, showing its message or a friendly error.
@@ -73,16 +97,57 @@ class ShelfScreenState extends State<ShelfScreen> {
     }
   }
 
+  /// One tap on an item.
+  Future<void> _act(BuildContext ctx, ShelfItem item, GrabAction a) async {
+    if (a != GrabAction.save) return run(() => grab(ctx, node, item, a));
+    final known = _saved[item.key];
+    if (known != null &&
+        FileSystemEntity.typeSync(known) != FileSystemEntityType.notFound) {
+      await reveal(known);
+      return;
+    }
+    try {
+      final path = await saveItem(node, item);
+      _saved[item.key] = path;
+      final where = path.split(Platform.pathSeparator).reversed.skip(1).first;
+      toast('saved to $where  ·  show', onTap: () => reveal(path));
+    } catch (e) {
+      toast(friendlyError(e));
+    }
+  }
+
+  /// Adds picked or dropped paths, carrying on past failures.
   Future<String?> _add(Future<List<String>> Function() pick) async {
     final paths = await pick();
+    Object? first;
+    var failed = 0;
     for (final p in paths) {
-      await node.addPath(p);
+      final name = p.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
+      // Zipping a big folder takes a while before its row appears.
+      if (await FileSystemEntity.isDirectory(p)) {
+        toast('packing $name…', sticky: true);
+      }
+      try {
+        await node.addPath(p);
+      } catch (e) {
+        failed++;
+        first ??= e;
+      }
     }
-    return null;
+    if (_toast?.startsWith('packing') ?? false) toast(null);
+    if (first == null) return null;
+    final why = friendlyError(first);
+    return failed > 1 ? '$why · ${failed - 1} more failed' : why;
   }
 
   Future<String?> paste() async =>
       await pasteInto(node) ? null : 'nothing to paste';
+
+  /// ⌘C / Enter: grab the newest thing someone else put on the shelf.
+  void _grabNewest() {
+    final it = node.items.where((i) => i.originId != node.id).firstOrNull;
+    if (it != null) _act(context, it, actionsFor(it).first);
+  }
 
   void _setTtl(Duration d) {
     setState(() => node.ttl = d);
@@ -98,7 +163,8 @@ class ShelfScreenState extends State<ShelfScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _TopBar(
-              peers: node.peers.length,
+              peers: [for (final p in node.peers) p.name],
+              self: node.store.nodeName,
               searching: DateTime.now().difference(_started) < _peerGrace,
               ttl: node.ttl,
               onTtl: _setTtl,
@@ -109,33 +175,40 @@ class ShelfScreenState extends State<ShelfScreen> {
             Expanded(
               child: items.isEmpty
                   ? _empty()
-                  : ListView.builder(
-                      padding: EdgeInsets.zero,
-                      itemCount: items.length,
-                      itemBuilder: (_, i) => _Row(
-                        key: ValueKey(items[i].key),
-                        item: items[i],
-                        mine: items[i].originId == node.id,
-                        onAction: (ctx, a) =>
-                            run(() => grab(ctx, node, items[i], a)),
-                        onRemove: () => node.remove(items[i].key),
+                  // Not lazy: the shelf is short, and keyed rows keep their
+                  // state, so entrance animations don't replay on scroll.
+                  : SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (final it in items)
+                            _Row(
+                              key: ValueKey(it.key),
+                              item: it,
+                              mine: it.originId == node.id,
+                              saved: _saved.containsKey(it.key),
+                              onAction: (ctx, a) => _act(ctx, it, a),
+                              onRemove: () => node.remove(it.key),
+                            ),
+                        ],
                       ),
                     ),
             ),
-            if (isDesktop) _hints() else _mobileBar(),
+            if (!isDesktop) _mobileBar(),
           ],
         ),
         if (_dragging) const _DropOverlay(),
         Positioned(
-          left: 0,
-          right: 0,
-          bottom: isDesktop ? 44 : 84,
+          left: 16,
+          right: 16,
+          bottom: isDesktop ? 20 : 84,
           child: IgnorePointer(
+            ignoring: _toast == null || _toastTap == null,
             child: Center(
               child: AnimatedOpacity(
                 opacity: _toast == null ? 0 : 1,
                 duration: const Duration(milliseconds: 150),
-                child: _Toast(_toast ?? ''),
+                child: _Toast(_toastText, onTap: _toastTap),
               ),
             ),
           ),
@@ -143,20 +216,14 @@ class ShelfScreenState extends State<ShelfScreen> {
       ],
     );
 
+    SingleActivator cmd(LogicalKeyboardKey k) =>
+        SingleActivator(k, meta: Platform.isMacOS, control: !Platform.isMacOS);
     return CallbackShortcuts(
       bindings: {
-        SingleActivator(
-          LogicalKeyboardKey.keyV,
-          meta: Platform.isMacOS,
-          control: !Platform.isMacOS,
-        ): () =>
-            run(paste),
-        SingleActivator(
-          LogicalKeyboardKey.keyO,
-          meta: Platform.isMacOS,
-          control: !Platform.isMacOS,
-        ): () =>
-            run(() => _add(pickFiles)),
+        cmd(LogicalKeyboardKey.keyV): () => run(paste),
+        cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
+        cmd(LogicalKeyboardKey.keyC): _grabNewest,
+        const SingleActivator(LogicalKeyboardKey.enter): _grabNewest,
       },
       child: Focus(
         autofocus: true,
@@ -189,8 +256,9 @@ class ShelfScreenState extends State<ShelfScreen> {
             const SizedBox(height: 20),
             Text(
               isDesktop
-                  ? 'drop anything  ·  ${_mod}v to paste'
+                  ? 'drop anything  ·  ${_mod}V to paste'
                   : 'add a photo, a file, or paste',
+              textAlign: TextAlign.center,
               style: monoStyle(color: Palette.dim),
             ),
             const SizedBox(height: 6),
@@ -200,13 +268,21 @@ class ShelfScreenState extends State<ShelfScreen> {
               textAlign: TextAlign.center,
               style: monoStyle(size: 11, color: Palette.faint),
             ),
+            if (Hotkeys.supported) ...[
+              const SizedBox(height: 14),
+              Text(
+                '${Hotkeys.snipLabel} snip  ·  ${Hotkeys.clipLabel} clipboard'
+                '  ·  from any app',
+                textAlign: TextAlign.center,
+                style: monoStyle(size: 11, color: Palette.faint),
+              ),
+            ],
             if (alone) ...[
               const SizedBox(height: 18),
               Text(
-                'no one else found · guest and campus wi-fi often block\n'
-                'devices from seeing each other',
+                'other device not showing up?\n${_fixHint()}',
                 textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.warn),
+                style: monoStyle(size: 11, color: Palette.dim),
               ),
             ],
           ],
@@ -214,48 +290,6 @@ class ShelfScreenState extends State<ShelfScreen> {
       ),
     );
   }
-
-  /// Keyboard hints. Drops the global-shortcut half when the window is too
-  /// narrow for both, rather than clipping.
-  Widget _hints() => Container(
-    height: 32,
-    padding: const EdgeInsets.symmetric(horizontal: 16),
-    decoration: const BoxDecoration(
-      border: Border(top: BorderSide(color: Palette.line)),
-    ),
-    child: LayoutBuilder(
-      builder: (context, box) {
-        final style = monoStyle(size: 11, color: Palette.faint);
-        final local = Text(
-          '${_mod}v paste   ${_mod}o add',
-          maxLines: 1,
-          overflow: TextOverflow.fade,
-          softWrap: false,
-          style: style,
-        );
-        if (box.maxWidth < 380) return Row(children: [Expanded(child: local)]);
-        return Row(
-          children: [
-            local,
-            const SizedBox(width: 16),
-            Expanded(
-              child: Tooltip(
-                message: 'works from any app, even with plop in the background',
-                child: Text(
-                  '${Hotkeys.snipLabel} snip   ${Hotkeys.clipLabel} clipboard',
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  softWrap: false,
-                  textAlign: TextAlign.right,
-                  style: style,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    ),
-  );
 
   Widget _mobileBar() => Container(
     padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -275,7 +309,7 @@ class ShelfScreenState extends State<ShelfScreen> {
             'file',
             () => run(() => _add(pickFiles)),
           ),
-          (Icons.content_paste_rounded, 'paste', () => run(paste)),
+          (Icons.content_paste_outlined, 'paste', () => run(paste)),
         ])
           Expanded(
             child: Padding(
@@ -288,9 +322,19 @@ class ShelfScreenState extends State<ShelfScreen> {
   );
 }
 
+/// What to check when no other device shows up.
+String _fixHint() => Platform.isIOS
+    ? 'allow Settings › plop › Local Network'
+    : Platform.isMacOS
+    ? 'allow plop in System Settings › Privacy & Security › Local Network'
+    : Platform.isWindows
+    ? 'allow plop in Windows Firewall, or set this wi-fi to Private'
+    : 'guest and campus wi-fi often block devices from seeing each other';
+
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.peers,
+    required this.self,
     required this.searching,
     required this.ttl,
     required this.onTtl,
@@ -298,7 +342,8 @@ class _TopBar extends StatelessWidget {
     required this.onAddFolder,
   });
 
-  final int peers;
+  final List<String> peers;
+  final String self;
   final bool searching;
   final Duration ttl;
   final ValueChanged<Duration> onTtl;
@@ -307,11 +352,14 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (dot, label) = peers > 0
-        ? (Palette.live, '$peers nearby')
+    final (dot, label) = peers.isNotEmpty
+        ? (Palette.live, '${peers.length} nearby')
         : searching
         ? (Palette.faint, 'looking…')
-        : (Palette.warn, 'no one nearby');
+        : (Palette.faint, 'just you');
+    final menuShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(6),
+    );
     return SizedBox(
       height: 44,
       child: Padding(
@@ -330,19 +378,32 @@ class _TopBar extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            Container(
-              width: 6,
-              height: 6,
-              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            Tooltip(
+              message: ['you · $self', ...peers].join('\n'),
+              triggerMode: isDesktop ? null : TooltipTriggerMode.tap,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: dot,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(label, style: monoStyle()),
+                ],
+              ),
             ),
-            const SizedBox(width: 6),
-            Text(label, style: monoStyle()),
             const SizedBox(width: 12),
             PopupMenuButton<Duration>(
               tooltip: 'how long things stay',
               initialValue: ttl,
               onSelected: onTtl,
               position: PopupMenuPosition.under,
+              borderRadius: BorderRadius.circular(6),
               itemBuilder: (_) => [
                 for (final d in ttlChoices)
                   PopupMenuItem(
@@ -363,13 +424,15 @@ class _TopBar extends StatelessWidget {
               if (Platform.isMacOS)
                 _IconAction(
                   icon: Icons.add,
-                  tip: 'add files or folders',
+                  tip: 'add files or folders (⌘O)',
                   onTap: onAddFiles,
                 )
               else
                 PopupMenuButton<bool>(
-                  tooltip: 'add',
+                  tooltip: 'add (Ctrl+O)',
                   position: PopupMenuPosition.under,
+                  borderRadius: BorderRadius.circular(6),
+                  shape: menuShape,
                   onSelected: (folder) => folder ? onAddFolder() : onAddFiles(),
                   itemBuilder: (_) => [
                     PopupMenuItem(
@@ -391,7 +454,7 @@ class _TopBar extends StatelessWidget {
                   ],
                   child: const Padding(
                     padding: EdgeInsets.all(6),
-                    child: Icon(Icons.add, size: 18, color: Palette.dim),
+                    child: Icon(Icons.add, size: 16, color: Palette.dim),
                   ),
                 ),
             ],
@@ -407,13 +470,15 @@ class _Row extends StatefulWidget {
     super.key,
     required this.item,
     required this.mine,
+    required this.saved,
     required this.onAction,
     required this.onRemove,
   });
 
   final ShelfItem item;
   final bool mine;
-  final void Function(BuildContext context, GrabAction action) onAction;
+  final bool saved;
+  final Future<void> Function(BuildContext context, GrabAction action) onAction;
   final VoidCallback onRemove;
 
   @override
@@ -422,6 +487,26 @@ class _Row extends StatefulWidget {
 
 class _RowState extends State<_Row> {
   bool _hover = false;
+  bool _flash = false;
+  bool _busy = false;
+
+  /// Runs an action once: the second click of a double-click, or taps while
+  /// a transfer is running, are ignored (two saves of a big item would race
+  /// on the same .part file).
+  Future<void> _act(GrabAction a) async {
+    if (_busy) return;
+    _busy = true;
+    setState(() => _flash = true);
+    Timer(const Duration(milliseconds: 160), () {
+      if (mounted) setState(() => _flash = false);
+    });
+    try {
+      await widget.onAction(context, a);
+    } finally {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      _busy = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -431,27 +516,60 @@ class _RowState extends State<_Row> {
     final fraction = item.ttl.inMilliseconds == 0
         ? 0.0
         : (left.inMilliseconds / item.ttl.inMilliseconds).clamp(0.0, 1.0);
-    final actions = widget.mine ? const <GrabAction>[] : actionsFor(item);
-    final showActions = !isDesktop || _hover;
+    // Your own text and images copy on tap, handy right after a snip.
+    final actions = widget.mine
+        ? [
+            for (final a in actionsFor(item))
+              if (a == GrabAction.copy) a,
+          ]
+        : actionsFor(item);
 
     final meta = [
       if (item.kind != ItemKind.text) formatSize(item.size),
       widget.mine ? 'you' : item.originName,
       if (item.progress != null) '${(item.progress! * 100).round()}%',
+      if (widget.saved) 'saved',
       if (widget.mine && item.size > defaultEagerCopyBytes)
         'keep plop open until grabbed',
     ].join('  ·  ');
 
+    final icons = [
+      for (final a in actions)
+        _IconAction(
+          icon: switch (a) {
+            GrabAction.copy => Icons.copy_rounded,
+            GrabAction.save => Icons.arrow_downward_rounded,
+            GrabAction.share => Icons.ios_share_rounded,
+          },
+          tip: a.name,
+          onTap: () => _act(a),
+        ),
+      if (widget.mine)
+        _IconAction(
+          icon: Icons.close_rounded,
+          tip: 'remove',
+          onTap: widget.onRemove,
+        ),
+    ];
+    final countdown = Text(
+      _countdown(left),
+      textAlign: TextAlign.right,
+      style: monoStyle(color: ending ? Palette.warn : Palette.dim),
+    );
+
     final row = MouseRegion(
+      cursor: actions.isEmpty ? MouseCursor.defer : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: actions.isEmpty
-            ? null
-            : () => widget.onAction(context, actions.first),
+        onTap: actions.isEmpty ? null : () => _act(actions.first),
         child: Container(
-          color: _hover ? Palette.hover : Colors.transparent,
+          color: _flash
+              ? Palette.pressed
+              : _hover
+              ? Palette.hover
+              : Colors.transparent,
           child: Column(
             children: [
               Padding(
@@ -484,34 +602,26 @@ class _RowState extends State<_Row> {
                         ],
                       ),
                     ),
-                    if (showActions)
-                      for (final a in actions)
-                        _IconAction(
-                          icon: switch (a) {
-                            GrabAction.copy => Icons.copy_rounded,
-                            GrabAction.save => Icons.arrow_downward_rounded,
-                            GrabAction.share => Icons.ios_share_rounded,
-                          },
-                          tip: a.name,
-                          onTap: () => widget.onAction(context, a),
-                        ),
-                    if (widget.mine && showActions)
-                      _IconAction(
-                        icon: Icons.close_rounded,
-                        tip: 'remove',
-                        onTap: widget.onRemove,
-                      ),
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 44,
-                      child: Text(
-                        _countdown(left),
-                        textAlign: TextAlign.right,
-                        style: monoStyle(
-                          color: ending ? Palette.warn : Palette.dim,
-                        ),
-                      ),
-                    ),
+                    // Desktop: one fixed slot that swaps the countdown for the
+                    // actions on hover, so the name never reflows.
+                    if (isDesktop)
+                      SizedBox(
+                        width: 60,
+                        child: _hover && icons.isNotEmpty
+                            ? Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: icons,
+                              )
+                            : Align(
+                                alignment: Alignment.centerRight,
+                                child: countdown,
+                              ),
+                      )
+                    else ...[
+                      ...icons,
+                      const SizedBox(width: 6),
+                      SizedBox(width: 44, child: countdown),
+                    ],
                   ],
                 ),
               ),
@@ -558,7 +668,7 @@ class _RowState extends State<_Row> {
   }
 }
 
-/// Type icon, or a thumbnail once an image is on this device.
+/// Type icon, or a bucket-shaped thumbnail once an image is on this device.
 class _Leading extends StatelessWidget {
   const _Leading(this.item);
   final ShelfItem item;
@@ -566,20 +676,19 @@ class _Leading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const size = 30.0;
-    if (item.isReady && isCopyableImage(item)) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(6),
-        child: Image.file(
-          File(item.path!),
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          cacheWidth: 90,
-          errorBuilder: (_, _, _) => TypeIcon(categoryOf(item), size: size),
-        ),
-      );
-    }
-    return TypeIcon(categoryOf(item), size: size);
+    final icon = TypeIcon(categoryOf(item), size: size);
+    if (!item.isReady || !isCopyableImage(item)) return icon;
+    return BucketThumb(
+      Image.file(
+        File(item.path!),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        cacheWidth: 90,
+        errorBuilder: (_, _, _) => icon,
+      ),
+      size: size,
+    );
   }
 }
 
@@ -598,7 +707,7 @@ class _Hairline extends StatelessWidget {
         FractionallySizedBox(
           widthFactor: fraction,
           child: Container(
-            color: bright ? Palette.text : const Color(0xFF2C2C2C),
+            color: bright ? Palette.text : const Color(0x12FFFFFF),
           ),
         ),
       ],
@@ -622,6 +731,7 @@ class _IconAction extends StatefulWidget {
 
 class _IconActionState extends State<_IconAction> {
   bool _hover = false;
+  bool _flash = false;
 
   @override
   Widget build(BuildContext context) => Tooltip(
@@ -632,9 +742,22 @@ class _IconActionState extends State<_IconAction> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(6),
+        onTap: () {
+          setState(() => _flash = true);
+          Timer(const Duration(milliseconds: 160), () {
+            if (mounted) setState(() => _flash = false);
+          });
+          widget.onTap();
+        },
+        child: Container(
+          // Phones get a 36x40 target that still fits the row height.
+          padding: isDesktop
+              ? const EdgeInsets.all(6)
+              : const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          decoration: BoxDecoration(
+            color: _flash ? Palette.pressed : null,
+            borderRadius: BorderRadius.circular(6),
+          ),
           child: Icon(
             widget.icon,
             size: 16,
@@ -688,6 +811,7 @@ class _GhostButton extends StatelessWidget {
     ),
     child: InkWell(
       borderRadius: BorderRadius.circular(10),
+      highlightColor: Palette.pressed,
       onTap: onTap,
       child: SizedBox(
         height: 46,
@@ -730,18 +854,31 @@ class _DropOverlay extends StatelessWidget {
 }
 
 class _Toast extends StatelessWidget {
-  const _Toast(this.text);
+  const _Toast(this.text, {this.onTap});
   final String text;
+  final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    decoration: BoxDecoration(
-      color: const Color(0xFF161616),
-      border: Border.all(color: Palette.border),
-      borderRadius: BorderRadius.circular(8),
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: onTap == null ? MouseCursor.defer : SystemMouseCursors.click,
+    child: GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF161616),
+          border: Border.all(color: const Color(0xFF2A2A2A)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          text,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: monoStyle(color: Palette.text),
+        ),
+      ),
     ),
-    child: Text(text, style: monoStyle(color: Palette.text)),
   );
 }
 
