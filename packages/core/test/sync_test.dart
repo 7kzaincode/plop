@@ -838,6 +838,16 @@ void main() {
       refused('compressed'),
     );
     expect(File('${mine.path}/keep.txt').existsSync(), isTrue);
+    // Nor is a file that happens to be at the target path: creating the
+    // folder fails, and "no folder there" must never be read as "nothing
+    // there", since the cleanup deletes whatever is at the path.
+    final taken = File('${c.root.path}/taken')..writeAsStringSync('keep');
+    await expectLater(
+      extractFolder(zip.path, taken.path),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(taken.existsSync(), isTrue, reason: 'file at the target deleted');
+    expect(taken.readAsStringSync(), 'keep');
   });
 
   test('unpacking a folder ignores symlinks that chain outside', () async {

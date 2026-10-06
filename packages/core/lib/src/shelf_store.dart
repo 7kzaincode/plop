@@ -27,7 +27,11 @@ import 'item.dart';
 Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
   () async {
     final target = Directory(outDir);
-    final fresh = !target.existsSync();
+    // Not `target.existsSync()`, which is false for a file at [outDir] too:
+    // the cleanup below deletes whatever is at the path, so `fresh` must
+    // mean nothing was there.
+    final fresh =
+        FileSystemEntity.typeSync(outDir) == FileSystemEntityType.notFound;
     await target.create(recursive: true);
     final budget = File(zipPath).lengthSync();
     var written = 0;
