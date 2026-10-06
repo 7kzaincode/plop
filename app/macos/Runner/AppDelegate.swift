@@ -17,6 +17,16 @@ class AppDelegate: FlutterAppDelegate {
     return true
   }
 
+  // ⌘Tab and Mission Control only activate the app, with no reopen event, so
+  // bring a closed window back here too. Closing the window does not
+  // deactivate the app, so this never fires on close. A minimized (⌘M)
+  // window is left alone, as macOS's own ⌘Tab does.
+  override func applicationDidBecomeActive(_ notification: Notification) {
+    if let w = mainFlutterWindow, !w.isVisible, !w.isMiniaturized {
+      w.makeKeyAndOrderFront(nil)
+    }
+  }
+
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
     return true
   }

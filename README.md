@@ -23,7 +23,8 @@ each system warns once; the steps below get past it.
 3. Allow plop to find devices on your local network when asked.
 
 Closing the window keeps plop running, so the shortcuts and your items stay
-live. Click its Dock icon to bring the window back; ⌘Q quits.
+live. Click its Dock icon or ⌘Tab back to it to bring the window back; ⌘Q
+quits.
 
 ### Windows (10 or 11)
 
