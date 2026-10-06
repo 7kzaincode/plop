@@ -11,7 +11,7 @@ port. TXT attributes:
 | key    | value                                                                 |
 |--------|-----------------------------------------------------------------------|
 | `id`   | Random node id, generated at launch. A node ignores its own id.       |
-| `v`    | Protocol version, `1`.                                                |
+| `v`    | Protocol version, `1`. A node ignores services advertising any other value, so a newer version is invisible to v1 nodes unless it also advertises `v=1`. |
 | `name` | Human-readable device name, shown as "from" on the shelf.             |
 | `ips`  | Comma-separated IPv4 addresses, fallback when the resolved host is unusable. |
 
@@ -19,6 +19,10 @@ Address choice: resolved IPv4 host addresses first, then `ips`, then routable
 IPv6 addresses. IPv6 link-local addresses are skipped (they need a scope id
 that URIs do not carry well), and `.local` hostnames are not relied on for
 sockets. A node listens on IPv6 and IPv4 both where the host allows it.
+
+A later advertisement carrying a known `id` replaces that peer's addresses and
+port. A node may re-register after a suspend (iOS drops the registration),
+keeping its id and, when it can, its port.
 
 ## HTTP routes
 
@@ -40,20 +44,24 @@ shown as one-way (usually a firewall on this side).
 - `id` is 1–64 characters from `A-Z a-z 0-9 _ -` (plop sends 16 hex
   digits). Items with any other id are ignored.
 - `size` is 0 to the receiver's cap (100 GB); items outside that are
-  ignored. A `name` longer than 255 characters is cut to that.
+  ignored. A `name` longer than 255 characters is cut to that. `mime` is
+  optional and defaults to `application/octet-stream`.
 - `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
   `name` is a short label (the first line). For `folder`, the bytes are a zip
   of the folder's contents (stored, not compressed) and `name` is the folder
   name. Entries carry a mode of 0755 (folders, and files executable on the
   sender) or 0644; a receiver restores the executable bit and nothing else. A link inside the folder is sent as a
   copy of its target if that is also inside the folder, and left out if it
-  leads outside. A receiver refuses a zip with compressed entries, or one
-  that unpacks to more than its own size (overlapping entries); either is a
-  bomb, since stored content can do neither. A node that does not know a
-  kind treats it as `file`.
+  leads outside. A receiver writes only plain files and folders: entries that
+  are symlinks, or whose path contains `..`, are skipped, and each name
+  segment is sanitised as a single file's name is. It refuses a zip with
+  compressed entries, or one that unpacks to more than its own size
+  (overlapping entries); either is a bomb, since stored content can do
+  neither. A node that does not know a kind treats it as `file`.
 - `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:
   clocks on a LAN disagree. The sender picks the lifetime (2 minutes by
-  default); it can differ per item. A receiver clamps it to 24 hours.
+  default); it can differ per item. A receiver clamps it to 24 hours, and
+  ignores entries with `ttlMs` ≤ 0, which are already expired.
 
 ### `GET /v1/items/{id}`
 
