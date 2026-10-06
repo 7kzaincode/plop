@@ -183,16 +183,20 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 ),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    onPressed: _reset,
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 28),
-                      foregroundColor: Palette.dim,
-                    ),
-                    child: Text(
-                      'reset to defaults',
-                      style: monoStyle(size: 11),
+                  child: _Hover(
+                    builder: (_, hover) => GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _reset,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Text(
+                          'reset to defaults',
+                          style: monoStyle(
+                            size: 11,
+                            color: hover ? Palette.text : Palette.dim,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -211,16 +215,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
               if (LoginItem.supported)
                 _row(
                   'open plop at login',
-                  Switch(
+                  _Toggle(
                     value: _login ?? false,
                     onChanged: _login == null ? null : _toggleLogin,
-                    activeTrackColor: Palette.text,
-                    activeThumbColor: Palette.bg,
-                    inactiveTrackColor: const Color(0xFF2A2A2A),
-                    inactiveThumbColor: Palette.dim,
-                    trackOutlineColor: const WidgetStatePropertyAll(
-                      Colors.transparent,
-                    ),
                   ),
                   label,
                 ),
@@ -254,16 +251,21 @@ class _Key extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    child: GestureDetector(
+  Widget build(BuildContext context) => _Hover(
+    builder: (_, hover) => GestureDetector(
       onTap: onTap,
       child: Container(
         constraints: const BoxConstraints(minWidth: 64),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: active ? const Color(0x1FFFFFFF) : null,
-          border: Border.all(color: active ? Palette.text : Palette.border),
+          border: Border.all(
+            color: active
+                ? Palette.text
+                : hover
+                ? Palette.dim
+                : Palette.border,
+          ),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(
@@ -273,5 +275,86 @@ class _Key extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+/// A hand-drawn on/off switch in the panel's hairline language: 34x18, the
+/// track fills with the text colour when on. Material's Switch is 48px tall
+/// with a hover halo the theme cannot turn off.
+class _Toggle extends StatelessWidget {
+  const _Toggle({required this.value, required this.onChanged});
+  final bool value;
+  final ValueChanged<bool>? onChanged; // null while loading
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onChanged != null;
+    const quick = Duration(milliseconds: 150);
+    return Semantics(
+      button: true,
+      toggled: value,
+      enabled: enabled,
+      child: _Hover(
+        enabled: enabled,
+        builder: (_, hover) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? () => onChanged!(!value) : null,
+          child: Opacity(
+            opacity: enabled ? 1 : 0.5,
+            child: AnimatedContainer(
+              duration: quick,
+              width: 34,
+              height: 18,
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: value ? Palette.text : Colors.transparent,
+                border: Border.all(
+                  color: value
+                      ? Palette.text
+                      : hover
+                      ? Palette.dim
+                      : Palette.border,
+                ),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: AnimatedAlign(
+                duration: quick,
+                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: value ? Palette.bg : Palette.dim,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Click cursor plus a hover flag for the panel's hand-drawn controls.
+class _Hover extends StatefulWidget {
+  const _Hover({required this.builder, this.enabled = true});
+  final Widget Function(BuildContext context, bool hover) builder;
+  final bool enabled;
+
+  @override
+  State<_Hover> createState() => _HoverState();
+}
+
+class _HoverState extends State<_Hover> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: widget.enabled ? SystemMouseCursors.click : MouseCursor.defer,
+    onEnter: (_) => setState(() => _hover = true),
+    onExit: (_) => setState(() => _hover = false),
+    child: widget.builder(context, _hover && widget.enabled),
   );
 }
