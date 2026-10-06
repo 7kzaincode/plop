@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/main.dart';
 import 'package:plop/settings.dart';
+import 'package:plop/shelf_screen.dart';
 import 'package:plop_core/plop_core.dart';
 
 void main() {
@@ -58,8 +59,13 @@ void main() {
     });
   }
 
-  Future<void> pumpApp(WidgetTester tester) async {
-    await tester.pumpWidget(PlopApp(node: me, settings: Settings.inMemory()));
+  Future<void> pumpApp(
+    WidgetTester tester, {
+    GlobalKey<ShelfScreenState>? screenKey,
+  }) async {
+    await tester.pumpWidget(
+      PlopApp(node: me, settings: Settings.inMemory(), screenKey: screenKey),
+    );
     await tester.pump(); // autofocus
     // Rows fade in from nothing, and a row that is not painted cannot
     // report an overflow; let them arrive before a test looks at them.
@@ -359,6 +365,77 @@ void main() {
       tester.renderObject<RenderParagraph>(find.text(head)).didExceedMaxLines,
       isTrue,
     );
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('a toast stays up long enough to read, six seconds at most', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    final screen = GlobalKey<ShelfScreenState>();
+    await pumpApp(tester, screenKey: screen);
+
+    // The pill keeps its text while it fades, so visibility is its opacity.
+    bool shown(String msg) =>
+        tester
+            .widget<AnimatedOpacity>(
+              find.ancestor(
+                of: find.text(msg),
+                matching: find.byType(AnimatedOpacity),
+              ),
+            )
+            .opacity >
+        0;
+
+    // 1.8 s, plus 40 ms for every character past the first twenty.
+    Future<void> upFor(String msg, Duration d) async {
+      screen.currentState!.toast(msg);
+      await tester.pump();
+      expect(shown(msg), isTrue);
+      await tester.pump(d - const Duration(milliseconds: 100));
+      expect(shown(msg), isTrue, reason: '${msg.length} chars, before $d');
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(shown(msg), isFalse, reason: '${msg.length} chars, after $d');
+    }
+
+    await upFor('x' * 20, const Duration(milliseconds: 1800));
+    await upFor('y' * 100, const Duration(seconds: 5));
+    await upFor('z' * 200, const Duration(seconds: 6));
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('a long toast gives up its message, never its action word', (
+    tester,
+  ) async {
+    debugDesktopOverride = false;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final screen = GlobalKey<ShelfScreenState>();
+    await pumpApp(tester, screenKey: screen);
+
+    final msg = 'saved to Downloads/${'a' * 80}.pdf';
+    screen.currentState!.toast(msg, action: 'show', onTap: () {});
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.renderObject<RenderParagraph>(find.text(msg)).didExceedMaxLines,
+      isTrue,
+      reason: 'the message is the part that gives way',
+    );
+    final action = find.text('  ·  show');
+    expect(action, findsOneWidget);
+    expect(
+      tester.renderObject<RenderParagraph>(action).didExceedMaxLines,
+      isFalse,
+    );
+    expect(tester.getRect(action).right, lessThanOrEqualTo(320 - 16));
 
     await stopNodes(tester);
   });
