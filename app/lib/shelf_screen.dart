@@ -783,7 +783,9 @@ class _Leading extends StatelessWidget {
   }
 }
 
-/// The row divider, doubling as a countdown (or download progress) bar.
+/// The row divider, doubling as a countdown (or download progress) bar. The
+/// fill is opaque: translucent white on [Palette.line] came out a shade
+/// nobody could tell from the line itself.
 class _Hairline extends StatelessWidget {
   const _Hairline({required this.fraction, required this.bright});
   final double fraction;
@@ -797,9 +799,7 @@ class _Hairline extends StatelessWidget {
         Container(color: Palette.line),
         FractionallySizedBox(
           widthFactor: fraction,
-          child: Container(
-            color: bright ? Palette.text : const Color(0x12FFFFFF),
-          ),
+          child: Container(color: bright ? Palette.text : Palette.faint),
         ),
       ],
     ),
