@@ -21,10 +21,17 @@ each system warns once; the steps below get past it.
    **Open Anyway** next to plop. Or, in Terminal:
    `xattr -dr com.apple.quarantine /Applications/plop.app`.
 3. Allow plop to find devices on your local network when asked.
+4. The first screen snip (⌃⌥P) asks for Screen Recording. Allow it, then quit
+   plop (⌘Q) and open it again: macOS only applies it to a fresh launch. After
+   an update macOS treats plop as a new app, so if a snip just opens the
+   Screen Recording settings with plop already switched on, remove that entry
+   with −, press ⌃⌥P again and allow it.
 
 Closing the window keeps plop running, so the shortcuts and your items stay
 live. Click its Dock icon or ⌘Tab back to it to bring the window back; ⌘Q
-quits.
+quits. Files dropped on the Dock icon land on the shelf, and when something
+arrives while the window is closed or behind other apps the Dock icon shows
+a count.
 
 ### Windows (10 or 11)
 
@@ -38,6 +45,10 @@ No installer: unzip `plop-windows-x64.zip` and run `plop.exe`. When Windows
 Firewall asks, tick both Private and Public. If you clicked Cancel, remove the
 plop entries under Windows Security > Firewall & network protection > Allow an
 app through firewall (or run the installer, which clears them).
+
+Unlike on macOS, closing the window quits plop and stops the shortcuts;
+minimize it instead if you want them to stay live. Its taskbar button flashes
+when something arrives while plop is in the background.
 
 ### Android
 
@@ -54,7 +65,18 @@ tar xzf plop-linux-x64.tar.gz && ./plop/plop
 ```
 
 `avahi-daemon` does discovery and is already running on most desktops; GTK 3
-comes with the desktop and the shortcut library with the tarball.
+comes with the desktop and the shortcut library with the tarball. The first
+launch registers plop with your desktop's launcher, so it can be pinned and
+found by search.
+
+The global shortcuts work only in an X11 session. Ubuntu and Debian GNOME log
+in to Wayland by default: pick the "… on Xorg" option from the gear menu at
+the login screen, or just use the in-window drop and paste (on Wayland the
+shortcut rows are hidden). Snipping runs `gnome-screenshot`, `spectacle` or
+`scrot`, whichever is installed (`sudo apt install gnome-screenshot` on stock
+Ubuntu). Unlike on macOS, closing the window quits plop and stops the
+shortcuts; minimize it instead. If you turned on ufw or firewalld, allow your
+LAN subnet in: plop listens on a random port.
 
 ### iPhone and iPad
 
@@ -62,10 +84,12 @@ There is no download: handing out iOS apps needs a paid Apple Developer
 account. Build it from source with a free Apple ID instead, on a Mac with
 Xcode and Flutter:
 
-1. Clone this repo, then `cd app && open ios/Runner.xcworkspace`. In Xcode,
-   select Runner > Signing & Capabilities and set Team to your Apple ID
-   (Add Account… if it isn't listed). If Xcode says the bundle identifier is
-   taken, change it to something unique, like `com.yourname.plop`.
+1. Clone this repo, then `cd app && flutter pub get && open ios/Runner.xcworkspace`
+   (`pub get` writes the generated Swift package and xcconfig Xcode expects;
+   opened without it, Xcode reports a missing FlutterGeneratedPluginSwiftPackage).
+   In Xcode, select Runner > Signing & Capabilities and set Team to your Apple
+   ID (Add Account… if it isn't listed). If Xcode says the bundle identifier
+   is taken, change it to something unique, like `com.yourname.plop`.
 2. Connect the iPhone by cable and trust the Mac. Then on the iPhone turn on
    Settings > Privacy & Security > Developer Mode (it restarts).
 3. `flutter run --release -d <iPhone>` (`flutter devices` lists it).
