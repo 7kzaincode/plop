@@ -42,8 +42,11 @@ Future<void> extractFolder(String zipPath, String outDir) =>
 /// [CompressionType.none], which the archive package streams; it would
 /// deflate anything else into memory whole. Links are skipped, not followed:
 /// they can point outside the folder.
-Future<void> _zipFolder(String dir, String zip) async {
+Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
   final entries = Directory(dir).listSync(recursive: true, followLinks: false);
+  // Refuse before writing anything rather than after copying it all.
+  final total = entries.whereType<File>().fold(0, (n, f) => n + f.lengthSync());
+  if (total > maxBytes) throw ItemTooLargeException(total, maxBytes);
   final enc = ZipFileEncoder()..create(zip);
   for (final e in entries) {
     final name = e.path
@@ -150,7 +153,13 @@ class ShelfStore {
     final id = randomId();
     final zip = _itemPath(nodeId, id, '$name.zip');
     await File(zip).parent.create(recursive: true);
-    await Isolate.run(() => _zipFolder(path, zip));
+    final max = maxItemBytes; // so the closure does not capture `this`
+    try {
+      await Isolate.run(() => _zipFolder(path, zip, max));
+    } catch (_) {
+      _deleteItemDir(nodeId, id);
+      rethrow;
+    }
     final size = await File(zip).length();
     if (size > maxItemBytes) {
       _deleteItemDir(nodeId, id);

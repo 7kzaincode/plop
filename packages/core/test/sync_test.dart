@@ -251,6 +251,20 @@ void main() {
       () => a.addBytes(List.filled(1001, 0), 'x.bin'),
       throwsA(isA<ItemTooLargeException>()),
     );
+    // A folder is refused before it is zipped, and leaves nothing behind.
+    final folder = Directory('${c.root.path}/big');
+    File('${folder.path}/a.bin')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(List.filled(600, 0));
+    File('${folder.path}/b.bin').writeAsBytesSync(List.filled(600, 0));
+    await expectLater(
+      a.addPath(folder.path),
+      throwsA(isA<ItemTooLargeException>().having((e) => e.size, 'size', 1200)),
+    );
+    await eventually(
+      () => Directory('${c.root.path}/n0/${a.id}').listSync().isEmpty,
+      reason: 'item dir left behind',
+    );
 
     // A peer that ignores the cap still cannot make B mirror an oversized item.
     b.store.addRemote(
