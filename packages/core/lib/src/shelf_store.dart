@@ -200,10 +200,10 @@ class ShelfStore {
   /// Fires when this node's own items are added or removed.
   Stream<void> get localChanges => _localChanges.stream;
 
-  /// Newest first.
-  List<ShelfItem> get items =>
-      _items.values.toList()
-        ..sort((a, b) => b.expiresAt.compareTo(a.expiresAt));
+  /// Newest first, by [ShelfItem.addedAt]. `_items` keeps insertion order
+  /// and no key is ever re-inserted, so reversing it is that order exactly,
+  /// where a sort would tie for files dropped in one gesture.
+  List<ShelfItem> get items => _items.values.toList().reversed.toList();
 
   Iterable<ShelfItem> get localItems =>
       _items.values.where((i) => i.originId == nodeId);

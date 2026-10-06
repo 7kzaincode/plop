@@ -55,6 +55,10 @@ class ShelfItem {
   String get key => itemKey(originId, id);
   bool get isReady => path != null;
 
+  /// When this node first saw the item: the add for its own, first sight of
+  /// a mirror. Shelf order, which [expiresAt] is not once lifetimes differ.
+  DateTime get addedAt => expiresAt.subtract(ttl);
+
   Duration get remaining {
     final r = expiresAt.difference(DateTime.now());
     return r.isNegative ? Duration.zero : r;

@@ -564,6 +564,26 @@ void main() {
     expect(m.ttl.inSeconds, inInclusiveRange(595, 600));
   });
 
+  test('the shelf is ordered by arrival, not by expiry', () async {
+    c = await Cluster.start(2, ttl: const Duration(hours: 1));
+    final [a, b] = c.nodes;
+    final own = await b.addText('b first');
+    await eventually(() => a.items.isNotEmpty);
+    final long = await a.addText('an hour');
+    a.ttl = const Duration(seconds: 30);
+    final short = await a.addText('half a minute');
+    // The 30 s item expires long before the others but is the newest.
+    expect(a.items.map((i) => i.id), [short.id, long.id, own.id]);
+    expect(
+      DateTime.now().difference(short.addedAt),
+      lessThan(const Duration(seconds: 5)),
+    );
+
+    // Mirrors arrive in A's order, so B's newest is A's newest too.
+    await eventually(() => b.items.length == 3);
+    expect(b.items.map((i) => i.id), [short.id, long.id, own.id]);
+  });
+
   test('unpacking a folder never writes outside the target', () async {
     c = await Cluster.start(1);
     final evil = Archive()
