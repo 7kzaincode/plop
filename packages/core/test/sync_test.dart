@@ -428,6 +428,25 @@ void main() {
     expect(File(dest).existsSync(), isTrue);
   });
 
+  test('a failed saveTo does not leave progress showing', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    final big = await a.addBytes(List.filled(5000, 5), 'big.bin');
+    await eventually(() => b.items.isNotEmpty);
+    final key = itemKey(a.id, big.id);
+    // A file where a folder should be makes the download fail.
+    final blocker = File('${c.root.path}/blocker')..createSync();
+    await expectLater(
+      b.saveTo(key, '${blocker.path}/big.bin'),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(b.store[key]!.progress, isNull);
+  });
+
   test('a failed download leaves no .part behind', () async {
     c = await Cluster.start(1);
     final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
