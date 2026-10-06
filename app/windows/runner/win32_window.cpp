@@ -16,15 +16,12 @@ namespace {
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+/// Newer attributes, by value for the same reason.
+constexpr DWORD kDwmCaptionColor = 35;        // DWMWA_CAPTION_COLOR, Windows 11
+constexpr DWORD kDwmSystemBackdropType = 38;  // DWMWA_SYSTEMBACKDROP_TYPE, 22H2
+constexpr int kDwmBackdropMica = 2;           // DWMSBT_MAINWINDOW
 
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -226,10 +223,6 @@ Win32Window::MessageHandler(HWND hwnd,
         SetFocus(child_content_);
       }
       return 0;
-
-    case WM_DWMCOLORIZATIONCOLORCHANGED:
-      UpdateTheme(hwnd);
-      return 0;
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -287,16 +280,17 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
+  BOOL dark = TRUE;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
+                        sizeof(dark));
 
-  if (result == ERROR_SUCCESS) {
-    BOOL enable_dark_mode = light_mode == 0;
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                          &enable_dark_mode, sizeof(enable_dark_mode));
+  // Windows 11 22H2+ puts Mica behind the title bar. Older versions reject
+  // it; paint the caption the canvas colour (Palette.bg) instead, which
+  // Windows 10 ignores too, leaving its plain dark caption.
+  int backdrop = kDwmBackdropMica;
+  if (FAILED(DwmSetWindowAttribute(window, kDwmSystemBackdropType, &backdrop,
+                                   sizeof(backdrop)))) {
+    COLORREF caption = RGB(10, 10, 10);
+    DwmSetWindowAttribute(window, kDwmCaptionColor, &caption, sizeof(caption));
   }
 }
