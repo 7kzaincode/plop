@@ -920,12 +920,15 @@ class _Name extends StatelessWidget {
     );
   }
 
-  /// One line, giving way at the end.
+  /// One line, giving way at the end. Sized to the line as drawn, not to
+  /// the width offered, so a tail laid beside a cut head hugs its ellipsis
+  /// instead of leaving the slack of the glyph that did not fit.
   static Widget _end(String s) => Text(
     s,
     maxLines: 1,
     softWrap: false,
     overflow: TextOverflow.ellipsis,
+    textWidthBasis: TextWidthBasis.longestLine,
     style: _style,
   );
 }
