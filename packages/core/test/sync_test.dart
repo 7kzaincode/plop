@@ -550,6 +550,42 @@ void main() {
     expect(File('${blocked.path}.part').existsSync(), isFalse);
   });
 
+  test('an endless item list is cut off, not buffered', () async {
+    c = await Cluster.start(1);
+    final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => liar.close(force: true));
+    var sent = 0;
+    liar.listen((req) async {
+      final res = req.response..headers.contentType = ContentType.json;
+      // A JSON list that never ends, paced by the socket. The bound only
+      // guarantees the test ends if the client fails to hang up.
+      res.write('[');
+      final pad = List.filled(64 * 1024, 0x20);
+      try {
+        while (sent < 64 * 1024 * 1024) {
+          res.add(pad);
+          sent += pad.length;
+          await res.flush();
+        }
+      } catch (_) {
+        // The client hung up.
+      }
+      res.close().ignore();
+    });
+    final client = NodeClient();
+    addTearDown(client.close);
+    final clock = Stopwatch()..start();
+    await expectLater(
+      client.fetchList(Uri.parse('http://127.0.0.1:${liar.port}'), 'me'),
+      throwsA(isA<HttpException>()),
+    );
+    expect(
+      clock.elapsed,
+      lessThan(const Duration(seconds: 3)),
+      reason: 'should give up on the size cap, not the timeout',
+    );
+  });
+
   test('lifetime can change; each item keeps its own', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;

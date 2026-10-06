@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'item.dart';
 import 'node_server.dart';
@@ -13,6 +14,11 @@ class NodeClient {
 
   static const _listTimeout = Duration(seconds: 5);
 
+  /// A list entry is ~150 bytes, so this is thousands of items. Every node
+  /// polls every peer, so one that streams an endless list must not be
+  /// allowed to fill the memory of every device around it.
+  static const _maxListBytes = 1 << 20;
+
   /// [selfId] tells the peer who is asking, so it can tell that this node
   /// can reach it.
   Future<List<RemoteItem>> fetchList(Uri base, String selfId) async {
@@ -20,12 +26,20 @@ class NodeClient {
     req.headers.set(nodeIdHeader, selfId);
     final res = await req.close().timeout(_listTimeout);
     if (res.statusCode != HttpStatus.ok) {
-      await res.drain<void>();
+      await res.drain<void>().timeout(_listTimeout);
       throw HttpException('list failed: ${res.statusCode}', uri: base);
     }
-    final body = await utf8.decodeStream(res).timeout(_listTimeout);
+    // Throwing out of `await for` cancels the subscription and drops the
+    // socket; Future.timeout on a decodeStream would leave it buffering.
+    final buf = BytesBuilder(copy: false);
+    await for (final chunk in res.timeout(_listTimeout)) {
+      buf.add(chunk);
+      if (buf.length > _maxListBytes) {
+        throw HttpException('list too large', uri: base);
+      }
+    }
     return [
-      for (final j in jsonDecode(body) as List)
+      for (final j in jsonDecode(utf8.decode(buf.takeBytes())) as List)
         RemoteItem.fromJson(j as Map<String, dynamic>),
     ];
   }
