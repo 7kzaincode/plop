@@ -172,6 +172,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   _Key(
                     text: _recording == 'snip' ? '…' : Hotkeys.snipLabel,
                     active: _recording == 'snip',
+                    recording: _recording != null,
                     onTap: () => _record('snip'),
                   ),
                   label,
@@ -181,28 +182,14 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   _Key(
                     text: _recording == 'clip' ? '…' : Hotkeys.clipLabel,
                     active: _recording == 'clip',
+                    recording: _recording != null,
                     onTap: () => _record('clip'),
                   ),
                   label,
                 ),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: _Hover(
-                    builder: (_, hover) => GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: _reset,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Text(
-                          'reset to defaults',
-                          style: monoStyle(
-                            size: 11,
-                            color: hover ? Palette.text : Palette.dim,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: _Link('reset to defaults', onTap: _reset),
                 ),
                 const Divider(height: 20, color: Palette.line),
               ],
@@ -248,35 +235,151 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   );
 }
 
-/// A key-combo button that records a new binding when clicked.
-class _Key extends StatelessWidget {
-  const _Key({required this.text, required this.active, required this.onTap});
+/// Space or Enter, once, as a press of a hand-drawn control.
+final _pressKeys = [
+  const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
+  const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
+];
+
+bool _isPress(KeyEvent e) =>
+    _pressKeys.any((k) => k.accepts(e, HardwareKeyboard.instance));
+
+/// The hairline focus ring the panel's controls share, standing [inset]
+/// outside [child] so the control keeps its place.
+Widget _ring(
+  Widget child, {
+  required bool focused,
+  double inset = 3,
+  double radius = 9,
+}) => Stack(
+  clipBehavior: Clip.none,
+  children: [
+    child,
+    if (focused)
+      Positioned.fill(
+        left: -inset,
+        top: -inset,
+        right: -inset,
+        bottom: -inset,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: Palette.border),
+            borderRadius: BorderRadius.circular(radius),
+          ),
+        ),
+      ),
+  ],
+);
+
+/// A key-combo button that records a new binding when clicked, or on
+/// Enter or Space once Tab has reached it.
+class _Key extends StatefulWidget {
+  const _Key({
+    required this.text,
+    required this.active,
+    required this.recording,
+    required this.onTap,
+  });
   final String text;
   final bool active;
+
+  /// While any shortcut is being recorded, Enter and Space are keys being
+  /// offered as the new binding, not presses of this button.
+  final bool recording;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => _Hover(
-    builder: (_, hover) => GestureDetector(
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minWidth: 64),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: active ? const Color(0x1FFFFFFF) : null,
-          border: Border.all(
-            color: active
-                ? Palette.text
-                : hover
-                ? Palette.dim
-                : Palette.border,
+  State<_Key> createState() => _KeyState();
+}
+
+class _KeyState extends State<_Key> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    child: Focus(
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, e) {
+        if (widget.recording || !_isPress(e)) return KeyEventResult.ignored;
+        widget.onTap();
+        return KeyEventResult.handled;
+      },
+      child: _Hover(
+        builder: (_, hover) => GestureDetector(
+          onTap: widget.onTap,
+          child: _ring(
+            focused: _focused,
+            Container(
+              constraints: const BoxConstraints(minWidth: 64),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: widget.active ? const Color(0x1FFFFFFF) : null,
+                border: Border.all(
+                  color: widget.active
+                      ? Palette.text
+                      : hover || _focused
+                      ? Palette.dim
+                      : Palette.border,
+                ),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                widget.text,
+                textAlign: TextAlign.center,
+                style: monoStyle(color: Palette.text),
+              ),
+            ),
           ),
-          borderRadius: BorderRadius.circular(6),
         ),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: monoStyle(color: Palette.text),
+      ),
+    ),
+  );
+}
+
+/// A dim line of text that acts when clicked, brightening under the pointer
+/// or keyboard focus, which Tab gives it and Enter or Space press.
+class _Link extends StatefulWidget {
+  const _Link(this.text, {required this.onTap});
+  final String text;
+  final VoidCallback onTap;
+
+  @override
+  State<_Link> createState() => _LinkState();
+}
+
+class _LinkState extends State<_Link> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    child: Focus(
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, e) {
+        if (!_isPress(e)) return KeyEventResult.ignored;
+        widget.onTap();
+        return KeyEventResult.handled;
+      },
+      child: _Hover(
+        builder: (_, hover) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: _ring(
+              focused: _focused,
+              inset: 2,
+              radius: 4,
+              Text(
+                widget.text,
+                style: monoStyle(
+                  size: 11,
+                  color: hover || _focused ? Palette.text : Palette.dim,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     ),
@@ -307,11 +410,6 @@ class _Toggle extends StatefulWidget {
 class _ToggleState extends State<_Toggle> {
   bool _focused = false;
 
-  static final _flipKeys = [
-    const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
-    const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final value = widget.value;
@@ -327,9 +425,7 @@ class _ToggleState extends State<_Toggle> {
         canRequestFocus: enabled,
         onFocusChange: (f) => setState(() => _focused = f),
         onKeyEvent: (_, e) {
-          if (!_flipKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
-            return KeyEventResult.ignored;
-          }
+          if (!_isPress(e)) return KeyEventResult.ignored;
           flip();
           return KeyEventResult.handled;
         },
@@ -341,59 +437,43 @@ class _ToggleState extends State<_Toggle> {
             // The padding draws nothing; it makes the target 34x30.
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Opacity(
-                    opacity: enabled ? 1 : 0.5,
-                    child: AnimatedContainer(
-                      duration: quick,
-                      width: 34,
-                      height: 18,
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: value ? Palette.text : Colors.transparent,
-                        border: Border.all(
-                          color: value
-                              ? Palette.text
-                              : hover || _focused
-                              ? Palette.dim
-                              : Palette.border,
-                        ),
-                        borderRadius: BorderRadius.circular(9),
+              child: _ring(
+                focused: _focused,
+                radius: 12,
+                Opacity(
+                  opacity: enabled ? 1 : 0.5,
+                  child: AnimatedContainer(
+                    duration: quick,
+                    width: 34,
+                    height: 18,
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: value ? Palette.text : Colors.transparent,
+                      border: Border.all(
+                        color: value
+                            ? Palette.text
+                            : hover || _focused
+                            ? Palette.dim
+                            : Palette.border,
                       ),
-                      child: AnimatedAlign(
-                        duration: quick,
-                        alignment: value
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          width: 12,
-                          height: 12,
-                          decoration: BoxDecoration(
-                            color: value ? Palette.bg : Palette.dim,
-                            shape: BoxShape.circle,
-                          ),
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                    child: AnimatedAlign(
+                      duration: quick,
+                      alignment: value
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: value ? Palette.bg : Palette.dim,
+                          shape: BoxShape.circle,
                         ),
                       ),
                     ),
                   ),
-                  // The focus ring stands 3px off the pill, outside its box,
-                  // so the pill keeps its place against the row's edge.
-                  if (_focused)
-                    Positioned.fill(
-                      left: -3,
-                      top: -3,
-                      right: -3,
-                      bottom: -3,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Palette.border),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
             ),
           ),

@@ -72,9 +72,11 @@ void main() {
     expect(on, isTrue);
     expect(find.textContaining("couldn't change"), findsNothing);
 
-    // Tab reaches it (nothing else in the panel takes focus); Space flips
-    // it back, Enter flips it again.
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    // Tab reaches it, after the two shortcut keys and the reset link; Space
+    // flips it back, Enter flips it again.
+    for (var i = 0; i < 4; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    }
     await tester.pump();
     final inside = find.descendant(
       of: toggled(true),
@@ -111,6 +113,58 @@ void main() {
     expect(find.textContaining('approve plop in System Settings'), findsOne);
     expect(find.textContaining("couldn't change"), findsNothing);
   }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
+
+  testWidgets('Tab reaches the shortcut keys and reset; Enter presses them', (
+    tester,
+  ) async {
+    final settings = await openPanel(tester);
+    // The ring is the one bordered box with nothing inside it.
+    final ring = find.byWidgetPredicate(
+      (w) =>
+          w is DecoratedBox &&
+          w.child == null &&
+          (w.decoration as BoxDecoration).border != null,
+    );
+    bool focused(Finder f) => Focus.of(tester.element(f)).hasPrimaryFocus;
+
+    // Tab lands on the snip key; Enter starts recording, as a click would.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(focused(find.text(Hotkeys.snipLabel)), isTrue);
+    expect(ring, findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget);
+
+    // While recording, Enter is a key being offered, not a press: the
+    // recorder refuses it and goes on, rather than starting over.
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget);
+    expect(find.textContaining('everywhere'), findsOneWidget);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(Hotkeys.keyName(Hotkeys.snip.physicalKey), 'S');
+    expect(settings.hotkey('snip'), isNotNull);
+
+    // Tab on to the clipboard key, then the reset link; Space resets.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(focused(find.text('reset to defaults')), isTrue);
+    expect(ring, findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+    expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
+    expect(settings.hotkey('snip'), isNull);
+    expect(find.text(Hotkeys.label(Hotkeys.defaultSnip)), findsOneWidget);
+  });
 
   testWidgets('a Shift-only combo is refused and recording goes on', (
     tester,
