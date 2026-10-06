@@ -665,6 +665,26 @@ void main() {
     expect(File('${c.root.path}/x/escaped.txt').existsSync(), isFalse);
   });
 
+  test('unpacking a folder sanitises each name like a single file', () async {
+    c = await Cluster.start(1);
+    // Stored, as plop sends them.
+    final odd = Archive()
+      ..add(
+        ArchiveFile.bytes('dir?/a:b?.txt', [1])
+          ..compression = CompressionType.none,
+      )
+      ..add(
+        ArchiveFile.bytes('dir?/.gitignore', [2])
+          ..compression = CompressionType.none,
+      );
+    final zip = File('${c.root.path}/odd.zip')
+      ..writeAsBytesSync(ZipEncoder().encode(odd));
+    final out = '${c.root.path}/out';
+    await extractFolder(zip.path, out);
+    expect(File('$out/dir_/a_b_.txt').existsSync(), isTrue);
+    expect(File('$out/dir_/.gitignore').existsSync(), isTrue);
+  });
+
   test('unpacking a folder ignores symlinks that chain outside', () async {
     c = await Cluster.start(1);
     // Made with Python's zipfile: a/b/l -> .., a/b/l/m -> ../../escaped,

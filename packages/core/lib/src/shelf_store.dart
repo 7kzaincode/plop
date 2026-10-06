@@ -12,6 +12,9 @@ import 'item.dart';
 /// Unpacks a folder item's zip into [outDir]. Only plain files and folders
 /// are written: symlinks are skipped (plop never sends them, and a chain of
 /// them can steer later entries outside [outDir]), as are names with `..`.
+/// Each name segment goes through [safeFileName], as a single file's name
+/// does: a Mac's `Meeting 10:3.txt` is not a valid name on Windows, where
+/// the colon would address an NTFS stream rather than fail.
 /// Of the sender's permissions only the executable bit is kept, so a script
 /// or binary still runs; the rest is the receiver's business.
 Future<void> extractFolder(String zipPath, String outDir) =>
@@ -25,7 +28,10 @@ Future<void> extractFolder(String zipPath, String outDir) =>
           if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
             continue;
           }
-          final path = [outDir, ...parts].join(Platform.pathSeparator);
+          final path = [
+            outDir,
+            ...parts.map(safeFileName),
+          ].join(Platform.pathSeparator);
           if (f.isDirectory) {
             await Directory(path).create(recursive: true);
             continue;
