@@ -48,6 +48,7 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   String? _toast; // null when hidden
   String _toastText = ''; // kept so the pill fades out with its text
+  String? _toastAction; // the tappable word after the message
   VoidCallback? _toastTap;
   Timer? _toastTimer;
 
@@ -99,12 +100,21 @@ class ShelfScreenState extends State<ShelfScreen> {
   }
 
   /// Shows a short message. [onTap] makes it clickable and keeps it up
-  /// longer; [sticky] keeps it until the next message.
-  void toast(String? msg, {VoidCallback? onTap, bool sticky = false}) {
+  /// longer, with [action] naming what the tap does; [sticky] keeps it until
+  /// the next message.
+  void toast(
+    String? msg, {
+    String? action,
+    VoidCallback? onTap,
+    bool sticky = false,
+  }) {
     _toastTimer?.cancel();
     setState(() {
       _toast = msg;
-      if (msg != null) _toastText = msg;
+      if (msg != null) {
+        _toastText = msg;
+        _toastAction = action;
+      }
       _toastTap = msg == null ? null : onTap;
     });
     if (msg == null || sticky) return;
@@ -147,7 +157,7 @@ class ShelfScreenState extends State<ShelfScreen> {
     final path = await saveItem(node, item);
     _saved[item.key] = path;
     final where = path.split(Platform.pathSeparator).reversed.skip(1).first;
-    toast('saved to $where  ·  show', onTap: () => reveal(path));
+    toast('saved to $where', action: 'show', onTap: () => reveal(path));
     return null;
   }
 
@@ -258,7 +268,11 @@ class ShelfScreenState extends State<ShelfScreen> {
               child: AnimatedOpacity(
                 opacity: _toast == null ? 0 : 1,
                 duration: const Duration(milliseconds: 150),
-                child: _Toast(_toastText, onTap: _toastTap),
+                child: _Toast(
+                  _toastText,
+                  action: _toastAction,
+                  onTap: _toastTap,
+                ),
               ),
             ),
           ),
@@ -991,9 +1005,13 @@ class _DropOverlay extends StatelessWidget {
   );
 }
 
+/// The message pill. With an [action] the message goes dim and the action
+/// word takes the text colour, the app's usual passive/active split, so it
+/// reads as something to click rather than the end of a sentence.
 class _Toast extends StatelessWidget {
-  const _Toast(this.text, {this.onTap});
+  const _Toast(this.text, {this.action, this.onTap});
   final String text;
+  final String? action;
   final VoidCallback? onTap;
 
   @override
@@ -1008,12 +1026,23 @@ class _Toast extends StatelessWidget {
           border: Border.all(color: const Color(0xFF2A2A2A)),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          text,
+        child: Text.rich(
+          TextSpan(
+            text: text,
+            style: monoStyle(
+              color: action == null ? Palette.text : Palette.dim,
+            ),
+            children: [
+              if (action != null)
+                TextSpan(
+                  text: '  ·  $action',
+                  style: monoStyle(color: Palette.text),
+                ),
+            ],
+          ),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: monoStyle(color: Palette.text),
         ),
       ),
     ),
