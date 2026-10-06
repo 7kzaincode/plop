@@ -7,6 +7,25 @@
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // One plop per session: launching it again (Start menu, the installer's
+  // "Open plop") brings the running window forward instead of starting a
+  // second node. PLOP_INSTANCE (see lib/main.dart) opts out, so dev copies
+  // can still run side by side.
+  if (::GetEnvironmentVariableW(L"PLOP_INSTANCE", nullptr, 0) == 0) {
+    ::CreateMutexW(nullptr, FALSE, L"Local\\dev.plop.plop");  // held until exit
+    if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+      // Window class from win32_window.cpp, title from below.
+      HWND running = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"plop");
+      if (running) {
+        if (::IsIconic(running)) {
+          ::ShowWindow(running, SW_RESTORE);
+        }
+        ::SetForegroundWindow(running);
+      }
+      return EXIT_SUCCESS;
+    }
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
