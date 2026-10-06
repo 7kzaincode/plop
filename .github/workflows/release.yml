@@ -17,8 +17,10 @@ on:
 permissions:
   contents: read
 
+# Every dev run rewrites the same "dev" release, so they take turns; tag runs
+# only queue behind a rerun of the same tag.
 concurrency:
-  group: release-${{ github.ref }}
+  group: ${{ github.ref_type == 'tag' && format('release-{0}', github.ref) || 'release-dev' }}
 
 env:
   FLUTTER_VERSION: 3.47.6
@@ -113,7 +115,9 @@ jobs:
           name: plop-${{ matrix.target }}
           path: dist/
           if-no-files-found: error
-          retention-days: 7
+          # Only a hand-off to the release job; the release assets are the
+          # lasting copy and don't count against Actions storage.
+          retention-days: 1
 
   release:
     needs: build

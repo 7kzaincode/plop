@@ -16,10 +16,8 @@ namespace {
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-/// Newer attributes, by value for the same reason.
-constexpr DWORD kDwmCaptionColor = 35;        // DWMWA_CAPTION_COLOR, Windows 11
-constexpr DWORD kDwmSystemBackdropType = 38;  // DWMWA_SYSTEMBACKDROP_TYPE, 22H2
-constexpr int kDwmBackdropMica = 2;           // DWMSBT_MAINWINDOW
+/// Newer attribute, by value for the same reason.
+constexpr DWORD kDwmCaptionColor = 35;  // DWMWA_CAPTION_COLOR, Windows 11
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
@@ -284,13 +282,9 @@ void Win32Window::UpdateTheme(HWND const window) {
   DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
                         sizeof(dark));
 
-  // Windows 11 22H2+ puts Mica behind the title bar. Older versions reject
-  // it; paint the caption the canvas colour (Palette.bg) instead, which
-  // Windows 10 ignores too, leaving its plain dark caption.
-  int backdrop = kDwmBackdropMica;
-  if (FAILED(DwmSetWindowAttribute(window, kDwmSystemBackdropType, &backdrop,
-                                   sizeof(backdrop)))) {
-    COLORREF caption = RGB(10, 10, 10);
-    DwmSetWindowAttribute(window, kDwmCaptionColor, &caption, sizeof(caption));
-  }
+  // Paint the caption the canvas colour (Palette.bg) so the title bar blends
+  // into the window, as on macOS. Windows 10 ignores it and keeps the plain
+  // dark caption from above.
+  COLORREF caption = RGB(10, 10, 10);
+  DwmSetWindowAttribute(window, kDwmCaptionColor, &caption, sizeof(caption));
 }

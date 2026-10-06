@@ -6,6 +6,9 @@ default). No accounts, no pairing, no picking a recipient.
 
 ## Install
 
+> Downloads need the repo to be public (or collaborator access); it is private
+> while the first release is being finished.
+
 Downloads are on the [Releases](https://github.com/7kzaincode/plop/releases)
 page. They aren't signed by Apple or Microsoft (that needs paid accounts), so
 each system warns once; the steps below get past it.

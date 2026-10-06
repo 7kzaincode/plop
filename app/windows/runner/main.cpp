@@ -10,7 +10,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // One plop per session: launching it again (Start menu, the installer's
   // "Open plop") brings the running window forward instead of starting a
   // second node. PLOP_INSTANCE (see lib/main.dart) opts out, so dev copies
-  // can still run side by side.
+  // can still run side by side; Debug builds are exempt too, so `flutter run`
+  // works while an installed plop is open.
+#ifndef _DEBUG
   if (::GetEnvironmentVariableW(L"PLOP_INSTANCE", nullptr, 0) == 0) {
     ::CreateMutexW(nullptr, FALSE, L"Local\\dev.plop.plop");  // held until exit
     if (::GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -25,6 +27,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       return EXIT_SUCCESS;
     }
   }
+#endif
 
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.

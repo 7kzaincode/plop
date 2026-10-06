@@ -21,6 +21,14 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
+  // A second launch (see my_application_new) lands here in the running copy:
+  // bring its window forward instead of adding another.
+  GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
+  if (windows != nullptr) {
+    gtk_window_present(GTK_WINDOW(windows->data));
+    return;
+  }
+
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
@@ -144,7 +152,20 @@ MyApplication* my_application_new() {
   // the application to be recognized beyond its binary name.
   g_set_prgname(APPLICATION_ID);
 
+  // One plop per session: a second launch activates the running copy over
+  // D-Bus (my_application_activate presents its window) and exits, instead
+  // of starting a second node that wipes this one's scratch folders.
+  // PLOP_INSTANCE (see lib/main.dart) opts out, so dev copies can still run
+  // side by side; Debug builds are exempt too, so `flutter run` works while
+  // an installed plop is open.
+  GApplicationFlags flags = G_APPLICATION_NON_UNIQUE;
+#ifdef NDEBUG
+  if (g_getenv("PLOP_INSTANCE") == nullptr) {
+    flags = G_APPLICATION_DEFAULT_FLAGS;
+  }
+#endif
+
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+                                     flags, nullptr));
 }
