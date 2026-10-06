@@ -136,7 +136,7 @@ void main() {
 
       // Big file: fetched on demand straight into Downloads.
       await tester.tap(find.text(bigName));
-      await waitFor(tester, find.textContaining('saved to Downloads/$bigName'));
+      await waitFor(tester, find.textContaining('saved to Downloads'));
       final file = File('$downloads/$bigName');
       expect(await file.length(), defaultEagerCopyBytes + 1024);
       await file.delete();

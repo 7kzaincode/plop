@@ -1,8 +1,7 @@
 import 'dart:async';
+import 'dart:ffi';
 import 'dart:io';
-import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:pasteboard/pasteboard.dart';
@@ -12,48 +11,70 @@ import 'grab.dart';
 
 /// System-wide shortcuts on desktop, so things can go on the shelf without
 /// switching to plop:
-///   ⌃⌥P / Ctrl+Alt+P  select a region of the screen; it lands on the shelf
-///   ⌃⌥V / Ctrl+Alt+V  put whatever is on the clipboard on the shelf
+///   ⌃⌥P / Ctrl+Shift+Alt+P  select a region of the screen; it lands on the shelf
+///   ⌃⌥V / Ctrl+Shift+Alt+V  put whatever is on the clipboard on the shelf
+/// Windows and Linux add Shift: Ctrl+Alt alone is AltGr on many layouts and
+/// clashes with Office and JetBrains shortcuts.
 abstract final class Hotkeys {
-  static final snip = HotKey(
-    key: PhysicalKeyboardKey.keyP,
-    modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-  );
-  static final clip = HotKey(
-    key: PhysicalKeyboardKey.keyV,
-    modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
-  );
+  static final _mods = Platform.isMacOS
+      ? [HotKeyModifier.control, HotKeyModifier.alt]
+      : [HotKeyModifier.control, HotKeyModifier.shift, HotKeyModifier.alt];
+  static final snip = HotKey(key: PhysicalKeyboardKey.keyP, modifiers: _mods);
+  static final clip = HotKey(key: PhysicalKeyboardKey.keyV, modifiers: _mods);
 
-  static String get snipLabel => Platform.isMacOS ? '⌃⌥P' : 'ctrl+alt+P';
-  static String get clipLabel => Platform.isMacOS ? '⌃⌥V' : 'ctrl+alt+V';
+  static String get snipLabel => Platform.isMacOS ? '⌃⌥P' : 'Ctrl+Shift+Alt+P';
+  static String get clipLabel => Platform.isMacOS ? '⌃⌥V' : 'Ctrl+Shift+Alt+V';
+
+  /// Global shortcuts only work on X11 under Linux, not Wayland.
+  static bool get supported =>
+      isDesktop &&
+      !(Platform.isLinux &&
+          (Platform.environment['XDG_SESSION_TYPE'] == 'wayland' ||
+              (Platform.environment['WAYLAND_DISPLAY'] ?? '').isNotEmpty));
 
   static bool _busy = false;
+  static int _snipGen = 0;
+  static bool _askedForScreen = false;
 
   /// [onPlopped] gets a short message after something lands (or fails).
   static Future<void> register(
     PlopNode node,
     void Function(String message) onPlopped,
   ) async {
-    if (!isDesktop) return;
+    if (!supported) return;
     await hotKeyManager.unregisterAll();
     await hotKeyManager.register(
       snip,
-      keyDownHandler: (_) => _once(() async {
-        final item = await _snipInto(node);
-        if (item != null) {
-          _pop();
-          onPlopped('plopped ${item.name}');
+      keyDownHandler: (_) {
+        Future<void> run() async {
+          final item = await _snipInto(node);
+          if (item != null) {
+            _feedback(true);
+            onPlopped('plopped ${item.name}');
+          }
         }
-      }, onPlopped),
+
+        // The Windows snip waits on the user, so it must not hold the lock
+        // that the other shortcut shares.
+        if (Platform.isWindows) {
+          run().catchError((Object e) {
+            _feedback(false);
+            onPlopped(friendlyError(e));
+          });
+        } else {
+          _once(run, onPlopped);
+        }
+      },
     );
     await hotKeyManager.register(
       clip,
       keyDownHandler: (_) => _once(() async {
         if (await pasteInto(node)) {
-          _pop();
+          _feedback(true);
           onPlopped('plopped clipboard');
         } else {
-          onPlopped('clipboard is empty');
+          _feedback(false);
+          onPlopped('nothing to paste');
         }
       }, onPlopped),
     );
@@ -68,6 +89,7 @@ abstract final class Hotkeys {
     try {
       await f();
     } catch (e) {
+      _feedback(false);
       onPlopped(friendlyError(e));
     } finally {
       _busy = false;
@@ -77,30 +99,16 @@ abstract final class Hotkeys {
   /// Lets the user drag out a region with the OS's own tool. Returns null if
   /// they cancel.
   static Future<ShelfItem?> _snipInto(PlopNode node) async {
-    final name = 'Screenshot ${_stamp()}.png';
+    final name = 'Screenshot ${_dateStamp()}.png';
+    final path = '${outDir.path}${Platform.pathSeparator}$name';
     if (Platform.isMacOS) {
-      final path = '${outDir.path}/$name';
+      _checkScreenAccess();
       // -i: interactive region/window selection (space toggles), -x: silent.
       await Process.run('/usr/sbin/screencapture', ['-i', '-x', path]);
-      if (!File(path).existsSync()) return null;
-      return node.addFile(path);
+      return _addAndDelete(node, path, name);
     }
-    if (Platform.isWindows) {
-      // The Snipping Tool overlay puts its result on the clipboard.
-      final before = await Pasteboard.image;
-      await Process.start('explorer.exe', ['ms-screenclip:']);
-      final end = DateTime.now().add(const Duration(minutes: 1));
-      while (DateTime.now().isBefore(end)) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        final now = await Pasteboard.image;
-        if (now != null && now.isNotEmpty && !listEquals(now, before)) {
-          return node.addBytes(await _toPng(now), name);
-        }
-      }
-      return null;
-    }
-    // Linux: whichever common tool is installed.
-    final path = '${outDir.path}/$name';
+    if (Platform.isWindows) return _snipWindows(node, name);
+    // Linux: the first tool that launches decides; a cancel means stop.
     for (final cmd in [
       ['gnome-screenshot', '-a', '-f', path],
       ['spectacle', '-r', '-b', '-n', '-o', path],
@@ -108,35 +116,94 @@ abstract final class Hotkeys {
     ]) {
       try {
         await Process.run(cmd.first, cmd.sublist(1));
-        if (File(path).existsSync()) return await node.addFile(path);
       } on ProcessException {
-        continue;
+        continue; // not installed
       }
+      return _addAndDelete(node, path, name);
+    }
+    throw const PlopMessage('install gnome-screenshot, spectacle or scrot');
+  }
+
+  /// Owned bytes, so the screenshot is deleted when it expires.
+  static Future<ShelfItem?> _addAndDelete(
+    PlopNode node,
+    String path,
+    String name,
+  ) async {
+    final f = File(path);
+    if (!f.existsSync()) return null;
+    final bytes = await f.readAsBytes();
+    await f.delete();
+    return node.addBytes(bytes, name);
+  }
+
+  /// Without Screen Recording permission, screencapture silently saves only
+  /// the wallpaper and menu bar.
+  static void _checkScreenAccess() {
+    final cg = DynamicLibrary.open(
+      '/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics',
+    );
+    bool call(String fn) =>
+        cg.lookupFunction<Bool Function(), bool Function()>(fn)();
+    if (call('CGPreflightScreenCaptureAccess')) return;
+    // The first request shows the system prompt; later ones return false
+    // silently, so open the settings pane instead.
+    if (!_askedForScreen) {
+      _askedForScreen = true;
+      if (call('CGRequestScreenCaptureAccess')) return;
+    } else {
+      Process.run('/usr/bin/open', [
+        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+      ]);
+    }
+    throw const PlopMessage(
+      'allow plop under Screen Recording in System Settings, then reopen plop',
+    );
+  }
+
+  /// The Snipping Tool overlay puts its result on the clipboard. Watch the
+  /// clipboard's sequence number rather than its contents, so nothing is read
+  /// until it changes; a newer press cancels this wait.
+  static Future<ShelfItem?> _snipWindows(PlopNode node, String name) async {
+    final seqOf = DynamicLibrary.open('user32.dll')
+        .lookupFunction<Uint32 Function(), int Function()>(
+          'GetClipboardSequenceNumber',
+        );
+    final gen = ++_snipGen;
+    final start = seqOf();
+    await Process.start('explorer.exe', ['ms-screenclip:']);
+    final end = DateTime.now().add(const Duration(minutes: 2));
+    while (DateTime.now().isBefore(end) && gen == _snipGen) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (seqOf() == start) continue;
+      // Another process may still hold the clipboard for a moment.
+      for (var tries = 0; tries < 10; tries++) {
+        try {
+          final image = await Pasteboard.image;
+          if (image == null || image.isEmpty) return null; // not an image
+          return await addImageBytes(node, image, prefix: 'Screenshot');
+        } on PlatformException {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+      }
+      return null;
     }
     return null;
   }
 
-  static void _pop() {
-    if (Platform.isMacOS) {
+  static void _feedback(bool ok) {
+    if (ok && Platform.isMacOS) {
       Process.run('/usr/bin/afplay', [
         '/System/Library/Sounds/Pop.aiff',
-      ]).catchError((_) => ProcessResult(0, 0, '', ''));
+      ]).ignore();
+    } else if (!ok) {
+      SystemSound.play(SystemSoundType.alert);
     }
   }
 }
 
-/// Re-encodes any image Flutter can decode (e.g. the BMP Windows hands back)
-/// as PNG.
-Future<Uint8List> _toPng(Uint8List bytes) async {
-  final codec = await ui.instantiateImageCodec(bytes);
-  final frame = await codec.getNextFrame();
-  final png = await frame.image.toByteData(format: ui.ImageByteFormat.png);
-  return png!.buffer.asUint8List();
-}
-
-String _stamp() {
+String _dateStamp() {
   final t = DateTime.now();
   String two(int v) => v.toString().padLeft(2, '0');
-  return '${t.year}-${two(t.month)}-${two(t.day)} at '
-      '${two(t.hour)}.${two(t.minute)}.${two(t.second)}';
+  return '${t.year}-${two(t.month)}-${two(t.day)} at ${stamp()}';
 }
