@@ -423,15 +423,15 @@ class ShelfScreenState extends State<ShelfScreen> {
 }
 
 /// What to check when peers can see this device but cannot connect to it.
-/// Phones have no firewall of their own, so there the cause is on the
-/// other device (a Mac without Local Network permission, a PC firewall).
+/// Phones have no firewall of their own, and the other device's firewall
+/// only guards what comes in to it; what keeps it from reaching us is a
+/// Mac without Local Network permission for plop.
 String _inboundHint() => Platform.isWindows
     ? 'Windows Security › Firewall › Allow an app › plop (Private and Public)'
     : Platform.isMacOS
     ? 'System Settings › Network › Firewall › allow plop'
     : Platform.isIOS || Platform.isAndroid
-    ? 'check the other device: allow plop in its firewall, '
-          'or Local Network on a Mac'
+    ? 'check the other device · a Mac needs Local Network permission for plop'
     : 'a firewall here is blocking incoming connections';
 
 /// What to check when no other device shows up.
