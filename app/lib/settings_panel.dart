@@ -108,11 +108,14 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     // can never strand the panel on "…" with the shortcuts paused.
     _stopRecording(apply: true);
     setState(() => _note = null);
-    try {
-      widget.settings.setHotkey(which, k);
-    } catch (_) {
-      setState(() => _note = "couldn't save that · it works until plop quits");
-    }
+    // Future.sync also catches a synchronous throw while encoding the key.
+    Future.sync(() => widget.settings.setHotkey(which, k)).catchError((_) {
+      if (mounted) {
+        setState(() {
+          _note = "couldn't save that · it works until plop quits";
+        });
+      }
+    });
     return true;
   }
 
@@ -120,9 +123,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _stopRecording(apply: false);
     Hotkeys.snip = Hotkeys.defaultSnip;
     Hotkeys.clip = Hotkeys.defaultClip;
-    widget.settings
-      ..setHotkey('snip', null)
-      ..setHotkey('clip', null);
+    widget.settings.setHotkey('snip', null).ignore();
+    widget.settings.setHotkey('clip', null).ignore();
     Hotkeys.apply();
     setState(() => _note = null);
   }

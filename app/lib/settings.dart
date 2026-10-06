@@ -28,6 +28,9 @@ class Settings {
   /// Kept only in memory, for tests.
   Settings.inMemory() : _file = null, _data = {};
 
+  /// Backed by [file], starting empty; for tests that need a real write.
+  Settings.at(File file) : _file = file, _data = {};
+
   final File? _file;
   final Map<String, Object?> _data;
 
@@ -50,7 +53,7 @@ class Settings {
 
   set ttl(Duration d) {
     _data['ttlMs'] = d.inMilliseconds;
-    _save();
+    _save().ignore(); // the picker has nowhere to say it failed
   }
 
   /// A custom global shortcut, or null for the default.
@@ -70,7 +73,9 @@ class Settings {
     }
   }
 
-  void setHotkey(String name, HotKey? k) {
+  /// Completes once the file is written, or fails if it could not be: the
+  /// new binding still works until plop quits, and the panel says so.
+  Future<void> setHotkey(String name, HotKey? k) {
     if (k == null) {
       _data.remove('hotkey.$name');
     } else {
@@ -81,15 +86,13 @@ class Settings {
         ],
       };
     }
-    _save();
+    return _save();
   }
 
-  void _save() {
+  Future<void> _save() async {
     final file = _file;
     if (file == null) return;
-    file.parent
-        .create(recursive: true)
-        .then((_) => file.writeAsString(jsonEncode(_data)))
-        .catchError((_) => file);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode(_data));
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,15 +10,23 @@ import 'package:plop/settings_panel.dart';
 
 void main() {
   /// Opens the panel and starts recording the snip shortcut.
-  Future<Settings> startRecording(WidgetTester tester) async {
+  Future<Settings> startRecording(
+    WidgetTester tester, {
+    Settings? settings,
+  }) async {
     debugDesktopOverride = true;
     addTearDown(() => debugDesktopOverride = null);
-    final settings = Settings.inMemory();
+    // No plugin in the test runner: answer the (un)register calls quietly.
+    const hotkeys = MethodChannel('dev.leanflutter.plugins/hotkey_manager');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(hotkeys, (_) async => null);
+    addTearDown(() => messenger.setMockMethodCallHandler(hotkeys, null));
+    final s = settings ?? Settings.inMemory();
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (context) => TextButton(
-            onPressed: () => showSettings(context, settings),
+            onPressed: () => showSettings(context, s),
             child: const Text('open'),
           ),
         ),
@@ -28,7 +38,7 @@ void main() {
     await tester.tap(find.text(Hotkeys.snipLabel));
     await tester.pump();
     expect(find.text('…'), findsOneWidget);
-    return settings;
+    return s;
   }
 
   testWidgets('a Shift-only combo is refused and recording goes on', (
@@ -74,6 +84,36 @@ void main() {
     final saved = settings.hotkey('snip');
     expect(saved, isNotNull);
     expect(Hotkeys.same(saved!, Hotkeys.snip), isTrue);
+    Hotkeys.snip = Hotkeys.defaultSnip;
+  });
+
+  testWidgets('a shortcut that cannot be saved says so and still works', (
+    tester,
+  ) async {
+    // A settings path under a plain file: creating its directory fails.
+    // (Sync IO: an awaited real IO future never resolves under FakeAsync.)
+    final dir = Directory.systemTemp.createTempSync('plop_settings');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final blocker = File('${dir.path}/blocker')..writeAsStringSync('');
+    await startRecording(
+      tester,
+      settings: Settings.at(File('${blocker.path}/settings.json')),
+    );
+
+    // Press the keys in real time, so the disk write runs and fails.
+    await tester.runAsync(() async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+
+    expect(find.textContaining("couldn't save"), findsOneWidget);
+    expect(Hotkeys.keyName(Hotkeys.snip.physicalKey), 'S');
     Hotkeys.snip = Hotkeys.defaultSnip;
   });
 }
