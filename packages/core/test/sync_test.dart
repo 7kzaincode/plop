@@ -789,6 +789,32 @@ void main() {
     expect(b.items.map((i) => i.id), [short.id, long.id, own.id]);
   });
 
+  test('a mirror that drops out and comes back keeps its place', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    // Too big for an eager copy, so losing the peer drops it.
+    final big = await a.addBytes(List.filled(5000, 1), 'big.bin');
+    await eventually(() => b.store[big.key] != null);
+    final firstSeen = b.store[big.key]!.addedAt;
+    final mine = await b.addText('mine, later');
+    expect(b.items.map((i) => i.id), [mine.id, big.id]);
+
+    // A's mDNS record flickers: gone, then back a moment later.
+    c.discoveries[1].remove(a.id);
+    await eventually(() => b.store[big.key] == null);
+    c.connect(1, 0);
+    await eventually(() => b.store[big.key] != null);
+    expect(b.items.map((i) => i.id), [
+      mine.id,
+      big.id,
+    ], reason: 'came back as the newest');
+    expect(b.store[big.key]!.addedAt, firstSeen);
+  });
+
   test('unpacking a folder never writes outside the target', () async {
     c = await Cluster.start(1);
     final evil = Archive()

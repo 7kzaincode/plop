@@ -248,6 +248,13 @@ class ShelfStore {
 
   final _items = <String, ShelfItem>{};
   final _timers = <String, Timer>{};
+
+  /// First sight of mirrors that left the shelf before their time, by key,
+  /// with the time they had. A peer that misses three polls, or whose mDNS
+  /// record flickers while a phone sleeps, takes its uncopied items with it
+  /// and brings them back a moment later; without this they would come back
+  /// as the newest. Pruned of expired entries whenever one is added.
+  final _firstSeen = <String, ({DateTime addedAt, DateTime expiresAt})>{};
   final _changes = StreamController<void>.broadcast();
   final _localChanges = StreamController<void>.broadcast();
 
@@ -257,10 +264,17 @@ class ShelfStore {
   /// Fires when this node's own items are added or removed.
   Stream<void> get localChanges => _localChanges.stream;
 
-  /// Newest first, by [ShelfItem.addedAt]. `_items` keeps insertion order
-  /// and no key is ever re-inserted, so reversing it is that order exactly,
-  /// where a sort would tie for files dropped in one gesture.
-  List<ShelfItem> get items => _items.values.toList().reversed.toList();
+  /// Newest first, by [ShelfItem.addedAt]. Files dropped in one gesture can
+  /// tie to the microsecond and `sort` is not stable, so insertion order,
+  /// which `_items` keeps, breaks ties.
+  List<ShelfItem> get items {
+    final indexed = _items.values.indexed.toList()
+      ..sort((a, b) {
+        final byTime = b.$2.addedAt.compareTo(a.$2.addedAt);
+        return byTime != 0 ? byTime : b.$1.compareTo(a.$1);
+      });
+    return [for (final (_, item) in indexed) item];
+  }
 
   Iterable<ShelfItem> get localItems =>
       _items.values.where((i) => i.originId == nodeId);
@@ -424,6 +438,8 @@ class ShelfStore {
     final name = r.name.length > maxNameLength
         ? r.name.substring(0, maxNameLength)
         : r.name;
+    final now = DateTime.now();
+    final seen = _firstSeen.remove(key);
     final item = ShelfItem(
       id: r.id,
       originId: peerId,
@@ -432,8 +448,11 @@ class ShelfStore {
       size: r.size,
       mime: r.mime,
       kind: r.kind,
-      expiresAt: DateTime.now().add(ttl),
+      expiresAt: now.add(ttl),
       ttl: ttl,
+      addedAt: seen != null && seen.expiresAt.isAfter(now)
+          ? seen.addedAt
+          : null,
     );
     _insert(item, ttl);
     return item;
@@ -470,8 +489,20 @@ class ShelfStore {
     final item = _items.remove(key);
     if (item == null) return;
     if (item.ownsFile) _deleteItemDir(item.originId, item.id);
+    if (item.originId != nodeId) _rememberFirstSeen(item);
     _changes.add(null);
     if (item.originId == nodeId) _localChanges.add(null);
+  }
+
+  void _rememberFirstSeen(ShelfItem mirror) {
+    final now = DateTime.now();
+    _firstSeen.removeWhere((_, v) => !v.expiresAt.isAfter(now));
+    if (mirror.expiresAt.isAfter(now)) {
+      _firstSeen[mirror.key] = (
+        addedAt: mirror.addedAt,
+        expiresAt: mirror.expiresAt,
+      );
+    }
   }
 
   void _insert(ShelfItem item, Duration ttl) {
@@ -517,6 +548,7 @@ class ShelfStore {
     }
     _timers.clear();
     _items.clear();
+    _firstSeen.clear();
     await _changes.close();
     await _localChanges.close();
   }

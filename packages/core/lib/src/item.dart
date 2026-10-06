@@ -26,10 +26,11 @@ class ShelfItem {
     required this.kind,
     required this.expiresAt,
     required this.ttl,
+    DateTime? addedAt,
     this.path,
     this.ownsFile = true,
     this.sourceModified,
-  });
+  }) : addedAt = addedAt ?? expiresAt.subtract(ttl);
 
   final String id;
   final String originId;
@@ -67,7 +68,9 @@ class ShelfItem {
 
   /// When this node first saw the item: the add for its own, first sight of
   /// a mirror. Shelf order, which [expiresAt] is not once lifetimes differ.
-  DateTime get addedAt => expiresAt.subtract(ttl);
+  /// The start of [ttl] unless given: a mirror that left the shelf early
+  /// and came back is handed its first date, so it keeps its place.
+  final DateTime addedAt;
 
   Duration get remaining {
     final r = expiresAt.difference(DateTime.now());
