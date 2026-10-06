@@ -91,6 +91,18 @@ class MainFlutterWindow: NSWindow {
         } catch {
           result(SMAppService.mainApp.status == .enabled)
         }
+      case "badge":
+        // Things from other devices that landed while plop was closed or
+        // behind other windows; lib/window.dart counts them and sends 0 once
+        // the window is focused again. AppKit drops the bounce request when
+        // plop is already frontmost.
+        let args = call.arguments as? [String: Any]
+        let count = args?["count"] as? Int ?? 0
+        NSApp.dockTile.badgeLabel = count == 0 ? nil : String(count)
+        if args?["fresh"] as? Bool == true {
+          NSApp.requestUserAttention(.informationalRequest)
+        }
+        result(nil)
       default:
         result(FlutterMethodNotImplemented)
       }
