@@ -3,6 +3,7 @@ package dev.plop.plop
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -17,6 +18,18 @@ class MainActivity : FlutterActivity() {
   private var initial: Map<String, Any>? = null
   private var initialReady = false
   private var waiting: MethodChannel.Result? = null
+  private var restored = false
+
+  override fun onCreate(savedInstanceState: Bundle?) {
+    // configureFlutterEngine runs inside super.onCreate, so decide first.
+    // After Android kills the process, reopening plop from Recents or the
+    // launcher recreates the activity with the SEND intent it was first
+    // started with (URI grant still attached); only a genuinely new launch
+    // should plop it, or an hours-old share lands on the shelf again.
+    restored = savedInstanceState != null ||
+      (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+    super.onCreate(savedInstanceState)
+  }
 
   override fun configureFlutterEngine(engine: FlutterEngine) {
     super.configureFlutterEngine(engine)
@@ -33,7 +46,7 @@ class MainActivity : FlutterActivity() {
         }
       }
     }
-    val launch = intent
+    val launch = if (restored) null else intent
     Thread {
       val shared = take(launch)
       runOnUiThread {
