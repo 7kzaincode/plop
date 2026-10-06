@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
-/// A near-black, mostly monochrome palette.
+/// A near-black, mostly monochrome palette. Overlays are translucent white so
+/// they read the same on an opaque canvas and on the macOS glass. The three
+/// text tiers all pass WCAG AA on [bg].
 abstract final class Palette {
   static const bg = Color(0xFF0A0A0A);
-  static const hover = Color(0xFF141414);
-  static const line = Color(0xFF1F1F1F);
-  static const border = Color(0xFF2A2A2A);
-  static const text = Color(0xFFEDEDED);
-  static const dim = Color(0xFF8B8B8B);
-  static const faint = Color(0xFF555555);
+  static const hover = Color(0x0AFFFFFF);
+  static const pressed = Color(0x17FFFFFF);
+  static const line = Color(0x14FFFFFF);
+  static const border = Color(0x24FFFFFF);
+  static const text = Color(0xFFEDEDED); // 16.9:1
+  static const dim = Color(0xFFA1A1A1); // 7.7:1
+  static const faint = Color(0xFF7A7A7A); // 4.6:1
   static const live = Color(0xFF3FB950);
   static const warn = Color(0xFFE5484D);
 }
@@ -47,10 +50,15 @@ ThemeData plopTheme() {
     highlightColor: Colors.transparent,
     hoverColor: Palette.hover,
     dividerColor: Palette.line,
+    scrollbarTheme: const ScrollbarThemeData(
+      thickness: WidgetStatePropertyAll(4),
+      radius: Radius.circular(2),
+      thumbColor: WidgetStatePropertyAll(Color(0x33FFFFFF)),
+    ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A1A),
-        border: Border.all(color: Palette.border),
+        border: Border.all(color: const Color(0xFF2A2A2A)),
         borderRadius: BorderRadius.circular(6),
       ),
       textStyle: monoStyle(size: 11, color: Palette.text),
@@ -61,7 +69,7 @@ ThemeData plopTheme() {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: Palette.border),
+        side: const BorderSide(color: Color(0xFF2A2A2A)),
       ),
       textStyle: monoStyle(color: Palette.text),
     ),

@@ -141,15 +141,15 @@ class TypeIcon extends StatelessWidget {
         fontSize: s * k,
         height: 1,
         color: ink,
-        letterSpacing: -0.2,
+        letterSpacing: 0,
       ),
     );
     return switch (category) {
       FileCategory.image => icon(Icons.landscape_rounded),
       FileCategory.video => icon(Icons.play_arrow_rounded),
       FileCategory.audio => icon(Icons.music_note_rounded),
-      FileCategory.document => icon(Icons.short_text_rounded),
-      FileCategory.pdf => label('PDF', 0.5),
+      FileCategory.document => icon(Icons.notes_rounded),
+      FileCategory.pdf => label('PDF', 0.62),
       FileCategory.code => icon(Icons.code_rounded),
       FileCategory.spreadsheet => icon(Icons.grid_view_rounded),
       FileCategory.presentation => icon(Icons.pie_chart_rounded),
@@ -163,7 +163,7 @@ class TypeIcon extends StatelessWidget {
       FileCategory.executable => icon(Icons.settings_rounded),
       FileCategory.terminal => icon(Icons.terminal_rounded),
       FileCategory.font => label('Aa', 0.72),
-      FileCategory.note => icon(Icons.sticky_note_2_outlined),
+      FileCategory.note => icon(Icons.sticky_note_2_rounded),
       FileCategory.web => icon(Icons.language_rounded),
       FileCategory.folder => icon(Icons.folder_rounded),
       FileCategory.unknown => Container(
@@ -175,32 +175,67 @@ class TypeIcon extends StatelessWidget {
   }
 }
 
+/// The plop bucket silhouette: a rounded top, sides that flare slightly, and
+/// a concave bottom edge.
+Path bucketPath(Size size) {
+  final w = size.width, h = size.height;
+  return Path()
+    ..moveTo(0.22 * w, 0.04 * h)
+    ..lineTo(0.78 * w, 0.04 * h)
+    // top-right corner
+    ..cubicTo(0.89 * w, 0.04 * h, 0.93 * w, 0.09 * h, 0.935 * w, 0.19 * h)
+    // right side, flaring out slightly
+    ..lineTo(0.975 * w, 0.76 * h)
+    // bottom-right flare, curling back in
+    ..cubicTo(0.99 * w, 0.92 * h, 0.92 * w, 0.97 * h, 0.82 * w, 0.92 * h)
+    // concave bottom edge
+    ..cubicTo(0.64 * w, 0.84 * h, 0.36 * w, 0.84 * h, 0.18 * w, 0.92 * h)
+    ..cubicTo(0.08 * w, 0.97 * h, 0.01 * w, 0.92 * h, 0.025 * w, 0.76 * h)
+    ..lineTo(0.065 * w, 0.19 * h)
+    ..cubicTo(0.07 * w, 0.09 * h, 0.11 * w, 0.04 * h, 0.22 * w, 0.04 * h)
+    ..close();
+}
+
 class _BucketPainter extends CustomPainter {
   const _BucketPainter();
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final p = Path()
-      ..moveTo(0.22 * w, 0.04 * h)
-      ..lineTo(0.78 * w, 0.04 * h)
-      // top-right corner
-      ..cubicTo(0.89 * w, 0.04 * h, 0.93 * w, 0.09 * h, 0.935 * w, 0.19 * h)
-      // right side, flaring out slightly
-      ..lineTo(0.975 * w, 0.76 * h)
-      // bottom-right flare, curling back in
-      ..cubicTo(0.99 * w, 0.92 * h, 0.92 * w, 0.97 * h, 0.82 * w, 0.92 * h)
-      // concave bottom edge
-      ..cubicTo(0.64 * w, 0.84 * h, 0.36 * w, 0.84 * h, 0.18 * w, 0.92 * h)
-      ..cubicTo(0.08 * w, 0.97 * h, 0.01 * w, 0.92 * h, 0.025 * w, 0.76 * h)
-      ..lineTo(0.065 * w, 0.19 * h)
-      ..cubicTo(0.07 * w, 0.09 * h, 0.11 * w, 0.04 * h, 0.22 * w, 0.04 * h)
-      ..close();
-    canvas.drawPath(p, Paint()..color = const Color(0xFFF5F5F5));
-  }
+  void paint(Canvas canvas, Size size) => canvas.drawPath(
+    bucketPath(size),
+    Paint()..color = const Color(0xFFF5F5F5),
+  );
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _BucketClipper extends CustomClipper<Path> {
+  const _BucketClipper();
+
+  @override
+  Path getClip(Size size) => bucketPath(size);
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+/// An image thumbnail in the bucket silhouette, so a row keeps its shape when
+/// a download finishes. The mid-grey backing keeps transparent PNGs visible
+/// whether their artwork is dark or light.
+class BucketThumb extends StatelessWidget {
+  const BucketThumb(this.image, {super.key, this.size = 32});
+
+  final Widget image;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => SizedBox.square(
+    dimension: size,
+    child: ClipPath(
+      clipper: const _BucketClipper(),
+      child: ColoredBox(color: const Color(0xFF3A3A3A), child: image),
+    ),
+  );
 }
 
 /// Zipper teeth over a pull tab, for archives.
