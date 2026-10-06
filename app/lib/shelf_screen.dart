@@ -39,6 +39,7 @@ class ShelfScreenState extends State<ShelfScreen> {
   late final AppLifecycleListener _lifecycle;
   final _started = DateTime.now();
   bool _dragging = false;
+  bool _oneWay = false; // as last drawn
 
   String? _toast; // null when hidden
   String _toastText = ''; // kept so the pill fades out with its text
@@ -59,12 +60,17 @@ class ShelfScreenState extends State<ShelfScreen> {
   void initState() {
     super.initState();
     _changes = node.changes.listen((_) => setState(() {}));
-    // Redraw once a second only while there is a countdown to show or the
-    // "looking for devices" grace period is running; an empty shelf idles.
+    // Redraw once a second only while there is a countdown to show, the
+    // "looking for devices" grace period is running, or the one-way flag
+    // (purely time-based in the core, so nothing announces it) has flipped;
+    // an empty shelf idles.
     _tick = Timer.periodic(_second, (_) {
       final looking =
           DateTime.now().difference(_started) <= _peerGrace + _second;
-      if (node.items.isNotEmpty || looking) setState(() {});
+      final oneWay = node.oneWay.isNotEmpty;
+      if (node.items.isNotEmpty || looking || oneWay != _oneWay) {
+        setState(() {});
+      }
     });
     // Coming back from the background: phones lose their socket and Bonjour
     // registration while suspended, so bring networking back and re-poll.
@@ -176,6 +182,7 @@ class ShelfScreenState extends State<ShelfScreen> {
   @override
   Widget build(BuildContext context) {
     final items = node.items;
+    final oneWay = _oneWay = node.oneWay.isNotEmpty;
     final body = Stack(
       children: [
         Column(
@@ -183,7 +190,7 @@ class ShelfScreenState extends State<ShelfScreen> {
           children: [
             _TopBar(
               peers: [for (final p in node.peers) p.name],
-              oneWay: node.oneWay.isNotEmpty,
+              oneWay: oneWay,
               self: node.store.nodeName,
               searching: DateTime.now().difference(_started) < _peerGrace,
               ttl: node.ttl,
@@ -196,7 +203,7 @@ class ShelfScreenState extends State<ShelfScreen> {
               },
             ),
             const Divider(height: 1, thickness: 1, color: Palette.line),
-            if (node.oneWay.isNotEmpty)
+            if (oneWay)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
                 child: Text(
