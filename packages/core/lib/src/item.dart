@@ -28,6 +28,7 @@ class ShelfItem {
     required this.ttl,
     this.path,
     this.ownsFile = true,
+    this.sourceModified,
   });
 
   final String id;
@@ -48,6 +49,11 @@ class ShelfItem {
   /// Whether expiry should delete [path]. False for a local file the user
   /// picked, which is served in place rather than copied.
   final bool ownsFile;
+
+  /// Modification time of a file served in place, as it was when added.
+  /// With the size, this is how a rewrite of that file is noticed; null
+  /// for anything the store owns.
+  final DateTime? sourceModified;
 
   /// 0..1 while downloading, otherwise null.
   double? progress;

@@ -284,7 +284,8 @@ class ShelfStore {
 
   /// Puts a file on the shelf. The file is served in place, not copied.
   Future<ShelfItem> addFile(String path, {String? name}) async {
-    final size = await File(path).length();
+    final file = File(path);
+    final size = await file.length();
     _checkSize(size);
     name ??= _baseName(path);
     return _addLocal(
@@ -293,6 +294,9 @@ class ShelfStore {
       kind: ItemKind.file,
       path: path,
       ownsFile: false,
+      // From stat(), as the check against it is, so the two agree to the
+      // same precision.
+      sourceModified: (await file.stat()).modified,
     );
   }
 
@@ -365,6 +369,7 @@ class ShelfStore {
     required ItemKind kind,
     required String path,
     required bool ownsFile,
+    DateTime? sourceModified,
   }) {
     final item = ShelfItem(
       id: id ?? randomId(),
@@ -382,6 +387,7 @@ class ShelfStore {
       ttl: ttl,
       path: path,
       ownsFile: ownsFile,
+      sourceModified: sourceModified,
     );
     _insert(item, ttl);
     _localChanges.add(null);

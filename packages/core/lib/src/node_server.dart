@@ -69,7 +69,11 @@ class NodeServer {
   Future<bool> _stillThere(ShelfItem i) async {
     if (i.ownsFile || i.path == null) return true;
     final st = await File(i.path!).stat();
-    if (st.type != FileSystemEntityType.notFound && st.size == i.size) {
+    // Size alone misses a rewrite that keeps it, so the modification time
+    // counts too; a store that never recorded one only has the size.
+    if (st.type != FileSystemEntityType.notFound &&
+        st.size == i.size &&
+        (i.sourceModified == null || st.modified == i.sourceModified)) {
       return true;
     }
     store.remove(i.key);

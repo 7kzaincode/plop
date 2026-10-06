@@ -235,18 +235,29 @@ void main() {
     final [a, b] = c.nodes;
     final gone = await tempFile(c.root, 'gone.txt', 100);
     final grown = await tempFile(c.root, 'grown.txt', 100);
-    await a.addFile(gone.path);
-    await a.addFile(grown.path);
+    final same = await tempFile(c.root, 'same.txt', 100);
+    final kept = await tempFile(c.root, 'kept.txt', 100);
+    for (final f in [gone, grown, same, kept]) {
+      await a.addFile(f.path);
+    }
     await eventually(
-      () => b.items.length == 2 && b.items.every((i) => i.isReady),
+      () => b.items.length == 4 && b.items.every((i) => i.isReady),
     );
 
     gone.deleteSync();
     grown.writeAsBytesSync([1, 2, 3], mode: FileMode.append);
+    // Rewritten to the same size: only the modification time gives it
+    // away. Set explicitly, since a file system's clock can be coarse.
+    same.writeAsBytesSync(List.filled(100, 0));
+    same.setLastModifiedSync(
+      same.lastModifiedSync().add(const Duration(seconds: 2)),
+    );
     await eventually(
-      () => a.items.isEmpty && b.items.isEmpty,
+      () => a.items.length == 1 && b.items.length == 1,
       reason: 'stale items still listed',
     );
+    expect(a.items.single.name, 'kept.txt');
+    expect(b.items.single.name, 'kept.txt');
   });
 
   test(
