@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'item.dart';
 import 'shelf_store.dart';
 
 /// Header a node sets on its requests so the receiver knows which peer is
@@ -51,20 +52,35 @@ class NodeServer {
     if (from != null) seenBy[from] = DateTime.now();
   }
 
+  /// A file served in place can be deleted or rewritten after it was
+  /// dropped. Listing it then leaves every peer a row it can never fetch,
+  /// so instead it leaves the shelf, which nudges them to drop theirs.
+  bool _stillThere(ShelfItem i) {
+    if (i.ownsFile || i.path == null) return true;
+    final st = File(i.path!).statSync();
+    if (st.type != FileSystemEntityType.notFound && st.size == i.size) {
+      return true;
+    }
+    store.remove(i.key);
+    return false;
+  }
+
   Future<void> _handle(HttpRequest req) async {
     final res = req.response;
     switch ((req.method, req.uri.pathSegments)) {
       case ('GET', ['v1', 'items']):
         _noteCaller(req);
         final items = [
-          for (final i in store.localItems)
-            if (i.isReady) i.toJson(),
+          for (final i in store.localItems.toList()) // remove() mutates
+            if (i.isReady && _stillThere(i)) i.toJson(),
         ];
         res.headers.contentType = ContentType.json;
         res.write(jsonEncode(items));
       case ('GET', ['v1', 'items', final id]):
         final item = store.local(id);
-        final file = item?.path == null ? null : File(item!.path!);
+        final file = item?.path == null || !_stillThere(item!)
+            ? null
+            : File(item.path!);
         if (file == null || !await file.exists()) {
           res.statusCode = HttpStatus.notFound;
           break;

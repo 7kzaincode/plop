@@ -230,6 +230,41 @@ void main() {
     expect(miss.statusCode, 404);
   });
 
+  test('a shared file deleted or rewritten later leaves every shelf', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    final gone = await tempFile(c.root, 'gone.txt', 100);
+    final grown = await tempFile(c.root, 'grown.txt', 100);
+    await a.addFile(gone.path);
+    await a.addFile(grown.path);
+    await eventually(
+      () => b.items.length == 2 && b.items.every((i) => i.isReady),
+    );
+
+    gone.deleteSync();
+    grown.writeAsBytesSync([1, 2, 3], mode: FileMode.append);
+    await eventually(
+      () => a.items.isEmpty && b.items.isEmpty,
+      reason: 'stale items still listed',
+    );
+  });
+
+  test(
+    'fetching a shared file that is gone drops it from the origin',
+    () async {
+      c = await Cluster.start(1, ttl: const Duration(seconds: 30));
+      final [a] = c.nodes; // no peers, so no poll gets there first
+      final src = await tempFile(c.root, 'gone.txt', 100);
+      final item = await a.addFile(src.path);
+      src.deleteSync();
+      final res = await HttpClient()
+          .getUrl(Uri.parse('http://127.0.0.1:${a.port}/v1/items/${item.id}'))
+          .then((r) => r.close());
+      expect(res.statusCode, 404);
+      expect(a.items, isEmpty);
+    },
+  );
+
   test(
     'when a peer goes away, copied items stay and uncopied ones go',
     () async {
