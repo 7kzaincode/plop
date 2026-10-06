@@ -21,6 +21,10 @@ const _second = Duration(seconds: 1);
 /// Items fade out over this final stretch of their time.
 const _fadeOut = Duration(seconds: 5);
 
+/// Padding around a desktop icon button. The countdown that swaps places
+/// with the icons uses the same inset, so the row's right edge holds still.
+const _iconInset = 6.0;
+
 final _mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
 
 class ShelfScreen extends StatefulWidget {
@@ -710,7 +714,12 @@ class _RowState extends State<_Row> {
                               )
                             : Align(
                                 alignment: Alignment.centerRight,
-                                child: countdown,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                    right: _iconInset,
+                                  ),
+                                  child: countdown,
+                                ),
                               ),
                       )
                     else ...[
@@ -847,7 +856,7 @@ class _IconActionState extends State<_IconAction> {
         child: Container(
           // Phones get a 36x40 target that still fits the row height.
           padding: isDesktop
-              ? const EdgeInsets.all(6)
+              ? const EdgeInsets.all(_iconInset)
               : const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           decoration: BoxDecoration(
             color: _flash ? Palette.pressed : null,
