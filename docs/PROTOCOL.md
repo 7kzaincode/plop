@@ -15,9 +15,10 @@ port. TXT attributes:
 | `name` | Human-readable device name, shown as "from" on the shelf.             |
 | `ips`  | Comma-separated IPv4 addresses, fallback when the resolved host is unusable. |
 
-Address choice: resolved IPv4 host addresses first, then `ips`. IPv6 link-local
-addresses are skipped (they need a scope id that URIs do not carry well), and
-`.local` hostnames are not relied on for sockets.
+Address choice: resolved IPv4 host addresses first, then `ips`, then routable
+IPv6 addresses. IPv6 link-local addresses are skipped (they need a scope id
+that URIs do not carry well), and `.local` hostnames are not relied on for
+sockets. A node listens on IPv6 and IPv4 both where the host allows it.
 
 ## HTTP routes
 

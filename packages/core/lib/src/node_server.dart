@@ -30,7 +30,15 @@ class NodeServer {
   int get port => _port;
 
   Future<void> start({int port = 0}) async {
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    try {
+      // Dual-stack (v6Only is off by default): IPv4 peers still connect, and
+      // the routable IPv6 addresses the app offers as fallbacks become
+      // usable instead of each costing a connection timeout.
+      _server = await HttpServer.bind(InternetAddress.anyIPv6, port);
+    } on SocketException {
+      // IPv6 is off on this host.
+      _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    }
     _port = _server!.port;
     _server!.listen((req) => _handle(req).catchError((_) {}), onError: (_) {});
   }

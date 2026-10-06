@@ -906,6 +906,34 @@ void main() {
     await eventually(() => a.oneWay.isEmpty && b.peers.isNotEmpty);
   });
 
+  test('the server answers over IPv6 too where the host has it', () async {
+    c = await Cluster.start(1, ttl: const Duration(seconds: 30));
+    final [a] = c.nodes;
+    Future<int> status(InternetAddress host) async {
+      final res = await HttpClient()
+          .getUrl(
+            Uri(
+              scheme: 'http',
+              host: host.address,
+              port: a.port,
+              path: '/v1/items',
+            ),
+          )
+          .then((r) => r.close());
+      await res.drain<void>();
+      return res.statusCode;
+    }
+
+    expect(await status(InternetAddress.loopbackIPv4), 200);
+    // Only where ::1 can be bound at all, so a v4-only runner still passes.
+    try {
+      await (await ServerSocket.bind(InternetAddress.loopbackIPv6, 0)).close();
+    } on SocketException {
+      return;
+    }
+    expect(await status(InternetAddress.loopbackIPv6), 200);
+  });
+
   test('revive re-binds a closed server and re-polls peers', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;
