@@ -30,9 +30,11 @@ Plain HTTP on the advertised port. Only items this node originated are served.
 
 ### `GET /v1/items`
 
-The caller sets `X-Plop-Node: <its node id>`. A node remembers when each
-peer last reached it; a peer it can reach that never reaches it back is
-shown as one-way (usually a firewall on this side).
+The caller sets `X-Plop-Node: <its node id>`. A node id is a plain token
+under the same rule as an item `id` below; a receiver treats a header that
+breaks it as absent, on every route. A node remembers when each peer last
+reached it; a peer it can reach that never reaches it back is shown as
+one-way (usually a firewall on this side).
 
 ```json
 [

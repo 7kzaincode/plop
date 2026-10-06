@@ -888,6 +888,39 @@ void main() {
     );
   });
 
+  test('a caller id that is not a plain token is ignored', () async {
+    c = await Cluster.start(1, ttl: const Duration(seconds: 30));
+    final [a] = c.nodes;
+    final item = await a.addText('x');
+    final http = HttpClient();
+    addTearDown(() => http.close(force: true));
+    Future<void> call(String method, String path, String from) async {
+      final req = await http.openUrl(
+        method,
+        Uri.parse('http://127.0.0.1:${a.port}$path'),
+      );
+      req.headers.set(nodeIdHeader, from);
+      await (await req.close()).drain<void>();
+    }
+
+    // Each distinct value would otherwise be one more entry for good.
+    for (final bad in ['../../x', 'a b', 'x' * 65, '<script>']) {
+      await call('GET', '/v1/items', bad);
+      await call('POST', '/v1/items/${item.id}/received', bad);
+      await call('POST', '/v1/changed', bad);
+    }
+    expect(a.server.seenBy, isEmpty);
+    expect(item.receivedBy, isEmpty);
+    expect(isValidId('../../x'), isFalse);
+
+    const odd = 'odd-but_OK';
+    expect(isValidId(odd), isTrue);
+    await call('GET', '/v1/items', odd);
+    await call('POST', '/v1/items/${item.id}/received', odd);
+    expect(a.server.seenBy.keys, [odd]);
+    expect(item.receivedBy, {odd});
+  });
+
   test('a peer we reach that never reaches us is flagged one-way', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;

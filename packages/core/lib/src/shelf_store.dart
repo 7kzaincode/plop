@@ -410,7 +410,7 @@ class ShelfStore {
   /// clamped and a long name cut rather than refused.
   ShelfItem? addRemote(String peerId, String peerName, RemoteItem r) {
     final key = itemKey(peerId, r.id);
-    if (!_validId.hasMatch(r.id) ||
+    if (!isValidId(r.id) ||
         _items.containsKey(key) ||
         r.size < 0 ||
         r.size > maxItemBytes ||
@@ -489,10 +489,6 @@ class ShelfStore {
       remove(key);
     }
   }
-
-  /// Ids become a directory name and part of a URL path, so a peer's ids
-  /// must be plain tokens. Ours come from [randomId].
-  static final _validId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
 
   String _itemDir(String originId, String id) => [
     dir.path,

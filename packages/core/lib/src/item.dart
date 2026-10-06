@@ -86,6 +86,14 @@ class ShelfItem {
 
 String itemKey(String originId, String id) => '$originId/$id';
 
+/// Whether a peer-supplied id, of a node or of an item, is a plain token:
+/// 1–64 characters from `A-Z a-z 0-9 _ -`. Ids become directory names,
+/// parts of URL paths and keys in per-peer maps, so anything else is
+/// refused. Ours come from [randomId].
+bool isValidId(String id) => _validId.hasMatch(id);
+
+final _validId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
+
 /// File name for an item's bytes on disk.
 String transferName(ShelfItem item) => switch (item.kind) {
   ItemKind.text => 'text.txt',

@@ -55,8 +55,17 @@ class NodeServer {
     }
   }
 
-  void _noteCaller(HttpRequest req) {
+  /// The caller's node id, if it sent one that passes [isValidId]. Anything
+  /// else is treated as no id: [seenBy] and an item's `receivedBy` grow by
+  /// one entry per distinct value, so a hostile peer must not be able to
+  /// supply an endless run of them.
+  String? _callerId(HttpRequest req) {
     final from = req.headers.value(nodeIdHeader);
+    return from != null && isValidId(from) ? from : null;
+  }
+
+  void _noteCaller(HttpRequest req) {
+    final from = _callerId(req);
     if (from != null) seenBy[from] = DateTime.now();
   }
 
@@ -112,14 +121,14 @@ class NodeServer {
         await req.drain<void>();
         _noteCaller(req);
         res.statusCode = HttpStatus.noContent;
-        final from = req.headers.value(nodeIdHeader);
+        final from = _callerId(req);
         final item = store.local(id);
         if (from != null && item != null) store.markReceived(item.key, from);
       case ('POST', ['v1', 'changed']):
         await req.drain<void>();
         _noteCaller(req);
         res.statusCode = HttpStatus.noContent;
-        onNudge?.call(req.headers.value(nodeIdHeader));
+        onNudge?.call(_callerId(req));
       default:
         res.statusCode = HttpStatus.notFound;
     }
