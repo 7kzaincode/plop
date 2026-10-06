@@ -1,0 +1,146 @@
+# Installable builds, attached to a GitHub Release:
+#   macOS    plop-macos.dmg, plop-macos.zip (universal, ad-hoc signed)
+#   Windows  plop-windows-setup.exe, plop-windows-x64.zip (VC++ runtime included)
+#   Linux    plop-linux-x64.tar.gz
+#   Android  plop-android.apk (debug-signed, for sideloading)
+# Push a tag for a release: git tag v0.2.0 && git push origin v0.2.0.
+# Running it by hand from a branch replaces the "dev" prerelease instead.
+# iPhone builds can't be distributed without a paid Apple account; see README.
+# Never runs on a plain push: macOS minutes are billed at 10x on private repos.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+env:
+  FLUTTER_VERSION: 3.47.6
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: macos, os: macos-latest }
+          - { target: windows, os: windows-latest }
+          # Pinned: the build host's glibc is the oldest one plop runs on.
+          - { target: linux, os: ubuntu-24.04 }
+          - { target: android, os: ubuntu-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - if: matrix.target == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libkeybinder-3.0-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # Optional secret ANDROID_DEBUG_KEYSTORE, the base64 of your
+      # ~/.android/debug.keystore: every APK then has the same signature and
+      # installs over the previous one. Without it each run gets a new key.
+      - if: matrix.target == 'android'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            mkdir -p ~/.android && echo "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
+          fi
+
+      # Tag v1.2.3 builds version 1.2.3, anything else pubspec's version. The
+      # run number keeps Android's versionCode rising from build to build.
+      - name: Build
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=${GITHUB_REF_NAME#v}
+          else version=$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' pubspec.yaml); fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          flutter build ${{ matrix.target == 'android' && 'apk' || matrix.target }} --release \
+            --build-name="$version" --build-number="$GITHUB_RUN_NUMBER"
+          mkdir -p ../dist
+
+      - if: matrix.target == 'macos'
+        run: |
+          app=build/macos/Build/Products/Release/plop.app
+          lipo "$app/Contents/MacOS/plop" -verify_arch arm64 x86_64
+          # Ad-hoc signed (no Apple account), so not notarized: see README for
+          # the first open. The app is signed again on its own to keep its
+          # sandbox and network entitlements.
+          codesign --force --deep --sign - "$app"
+          codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$app"
+          codesign --verify --deep --strict "$app"
+          # ditto, not zip, keeps the frameworks' symlinks intact.
+          ditto -c -k --keepParent "$app" ../dist/plop-macos.zip
+          mkdir dmg && ditto "$app" dmg/plop.app && ln -s /Applications dmg/Applications
+          # hdiutil sometimes fails with "Resource busy" on hosted runners.
+          for i in 1 2 3; do
+            hdiutil create -volname plop -srcfolder dmg -format UDZO -ov ../dist/plop-macos.dmg && break
+            [ "$i" -lt 3 ] && sleep 10 || exit 1
+          done
+
+      # Inno Setup 6 is preinstalled on windows-latest (runner-images readme).
+      - if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $out = 'build\windows\x64\runner\Release'
+          # The VC++ runtime, so plop.exe starts on PCs without the Visual C++
+          # Redistributable. Copies next to the exe take precedence.
+          Copy-Item "$env:WINDIR\System32\msvcp140.dll", "$env:WINDIR\System32\vcruntime140.dll", "$env:WINDIR\System32\vcruntime140_1.dll" $out
+          Compress-Archive "$out\*" ..\dist\plop-windows-x64.zip
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" ..\packaging\windows\plop.iss
+
+      - if: matrix.target == 'linux'
+        run: tar -czf ../dist/plop-linux-x64.tar.gz -C build/linux/x64/release --transform 's,^bundle,plop,' bundle
+
+      - if: matrix.target == 'android'
+        run: cp build/app/outputs/flutter-apk/app-release.apk ../dist/plop-android.apk
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plop-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        run: |
+          ls -l dist
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tag=$GITHUB_REF_NAME
+            if gh release view "$tag" > /dev/null 2>&1; then
+              gh release upload "$tag" dist/* --clobber
+            else
+              gh release create "$tag" dist/* --verify-tag --generate-notes --title "plop ${tag#v}"
+            fi
+          else
+            gh release delete dev --cleanup-tag --yes || true
+            gh release create dev dist/* --prerelease --target "$GITHUB_SHA" --title "dev build" \
+              --notes "Test build of $GITHUB_REF_NAME at ${GITHUB_SHA::7}. Not a release."
+          fi

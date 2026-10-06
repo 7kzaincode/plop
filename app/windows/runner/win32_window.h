@@ -32,7 +32,8 @@ class Win32Window {
   // |origin| and |size|. New windows are created on the default monitor. Window
   // sizes are specified to the OS in physical pixels, hence to ensure a
   // consistent size this function will scale the inputted width and height as
-  // as appropriate for the default monitor. The window is invisible until
+  // as appropriate for the default monitor. |size| is the client area; the
+  // title bar and borders are added to it. The window is invisible until
   // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
@@ -87,7 +88,7 @@ class Win32Window {
   // Retrieves a class instance pointer for |window|
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
-  // Update the window frame's theme to match the system theme.
+  // Gives the window frame plop's dark look, whatever the system theme.
   static void UpdateTheme(HWND const window);
 
   bool quit_on_close_ = false;

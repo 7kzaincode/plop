@@ -16,15 +16,12 @@ namespace {
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
-constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+/// Newer attributes, by value for the same reason.
+constexpr DWORD kDwmCaptionColor = 35;        // DWMWA_CAPTION_COLOR, Windows 11
+constexpr DWORD kDwmSystemBackdropType = 38;  // DWMWA_SYSTEMBACKDROP_TYPE, 22H2
+constexpr int kDwmBackdropMica = 2;           // DWMSBT_MAINWINDOW
 
-/// Registry key for app theme preference.
-///
-/// A value of 0 indicates apps should use dark mode. A non-zero or missing
-/// value indicates apps should use light mode.
-constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
-  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
-constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -134,10 +131,14 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  RECT frame = {0, 0, Scale(size.width, scale_factor),
+                Scale(size.height, scale_factor)};
+  AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
+
   HWND window = CreateWindow(
       window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      frame.right - frame.left, frame.bottom - frame.top,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
@@ -197,6 +198,16 @@ Win32Window::MessageHandler(HWND hwnd,
 
       return 0;
     }
+    case WM_GETMINMAXINFO: {
+      // Keep at least 360x320 of content, as on macOS (contentMinSize).
+      UINT dpi = FlutterDesktopGetDpiForHWND(hwnd);
+      RECT frame = {0, 0, MulDiv(360, dpi, 96), MulDiv(320, dpi, 96)};
+      AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
+      auto info = reinterpret_cast<MINMAXINFO*>(lparam);
+      info->ptMinTrackSize.x = frame.right - frame.left;
+      info->ptMinTrackSize.y = frame.bottom - frame.top;
+      return 0;
+    }
     case WM_SIZE: {
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
@@ -211,10 +222,6 @@ Win32Window::MessageHandler(HWND hwnd,
       if (child_content_ != nullptr) {
         SetFocus(child_content_);
       }
-      return 0;
-
-    case WM_DWMCOLORIZATIONCOLORCHANGED:
-      UpdateTheme(hwnd);
       return 0;
   }
 
@@ -273,16 +280,17 @@ void Win32Window::OnDestroy() {
 }
 
 void Win32Window::UpdateTheme(HWND const window) {
-  DWORD light_mode;
-  DWORD light_mode_size = sizeof(light_mode);
-  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
-                               kGetPreferredBrightnessRegValue,
-                               RRF_RT_REG_DWORD, nullptr, &light_mode,
-                               &light_mode_size);
+  BOOL dark = TRUE;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark,
+                        sizeof(dark));
 
-  if (result == ERROR_SUCCESS) {
-    BOOL enable_dark_mode = light_mode == 0;
-    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
-                          &enable_dark_mode, sizeof(enable_dark_mode));
+  // Windows 11 22H2+ puts Mica behind the title bar. Older versions reject
+  // it; paint the caption the canvas colour (Palette.bg) instead, which
+  // Windows 10 ignores too, leaving its plain dark caption.
+  int backdrop = kDwmBackdropMica;
+  if (FAILED(DwmSetWindowAttribute(window, kDwmSystemBackdropType, &backdrop,
+                                   sizeof(backdrop)))) {
+    COLORREF caption = RGB(10, 10, 10);
+    DwmSetWindowAttribute(window, kDwmCaptionColor, &caption, sizeof(caption));
   }
 }
