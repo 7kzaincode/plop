@@ -59,6 +59,15 @@ shown as one-way (usually a firewall on this side).
 The item's bytes, with `Content-Length` and `Content-Type`. `404` once expired
 or unknown.
 
+### `POST /v1/items/{id}/received`
+
+No body. Sent to an item's origin once the caller holds a complete copy of
+it (an eager copy or a save), with `X-Plop-Node: <its node id>`. The origin
+records which peers have the item, so the sender can see it arrived. Only
+the receiver knows a transfer finished: a sender cannot tell a peer that got
+everything from one that hung up. Responds `204`; a node that predates this
+route answers `404`, which the caller ignores.
+
 ### `POST /v1/changed`
 
 No body. Means "my list changed, re-fetch it". The sender sets header

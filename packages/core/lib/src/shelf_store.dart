@@ -449,6 +449,12 @@ class ShelfStore {
     _changes.add(null);
   }
 
+  /// Records that [peerId] holds a complete copy of an own item. Fires a
+  /// change only when that is news.
+  void markReceived(String key, String peerId) {
+    if (_items[key]?.receivedBy.add(peerId) ?? false) _changes.add(null);
+  }
+
   void remove(String key) {
     _timers.remove(key)?.cancel();
     final item = _items.remove(key);

@@ -89,6 +89,13 @@ class NodeServer {
         res.contentLength = await file.length();
         await file.openRead().pipe(res);
         return; // pipe closes the response
+      case ('POST', ['v1', 'items', final id, 'received']):
+        await req.drain<void>();
+        _noteCaller(req);
+        res.statusCode = HttpStatus.noContent;
+        final from = req.headers.value(nodeIdHeader);
+        final item = store.local(id);
+        if (from != null && item != null) store.markReceived(item.key, from);
       case ('POST', ['v1', 'changed']):
         await req.drain<void>();
         _noteCaller(req);

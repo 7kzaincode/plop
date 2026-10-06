@@ -617,6 +617,42 @@ void main() {
     expect(File(dest).existsSync(), isTrue);
   });
 
+  test('the sender learns which peers have received an item', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    final small = await a.addBytes(List.filled(100, 1), 'small.bin');
+    final big = await a.addBytes(List.filled(5000, 2), 'big.bin');
+    // The eager copy counts as received; the big one not until grabbed.
+    await eventually(() => small.receivedBy.contains(b.id));
+    await eventually(() => b.store[big.key] != null);
+    expect(big.receivedBy, isEmpty);
+    expect(a.peerName(b.id), 'node1');
+
+    // A transfer that fails is not reported; one that lands is.
+    final blocker = File('${c.root.path}/blocker')..createSync();
+    await expectLater(
+      b.saveTo(big.key, '${blocker.path}/big.bin'),
+      throwsA(isA<FileSystemException>()),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(big.receivedBy, isEmpty);
+    await b.saveTo(big.key, '${c.root.path}/big.bin');
+    await eventually(() => big.receivedBy.contains(b.id));
+
+    // Changes fire only for news.
+    var fired = 0;
+    final sub = a.changes.listen((_) => fired++);
+    addTearDown(sub.cancel);
+    a.store.markReceived(small.key, 'x');
+    a.store.markReceived(small.key, 'x');
+    await Future<void>.delayed(Duration.zero);
+    expect(fired, 1);
+  });
+
   test('a failed saveTo does not leave progress showing', () async {
     c = await Cluster.start(
       2,

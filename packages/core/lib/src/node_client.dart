@@ -103,9 +103,19 @@ class NodeClient {
 
   /// Tells a peer our list changed. Best effort: failures are ignored because
   /// the peer also polls.
-  Future<void> nudge(Uri base, String selfId) async {
+  Future<void> nudge(Uri base, String selfId) =>
+      _post(base, '/v1/changed', selfId);
+
+  /// Tells an item's origin that this node holds a complete copy of it, so
+  /// the sender can see it arrived. Best effort too. The origin cannot tell
+  /// this itself: dart:io hides a peer hanging up mid-response from the
+  /// server, so only the receiver knows the transfer finished.
+  Future<void> confirmReceived(Uri base, String id, String selfId) =>
+      _post(base, '/v1/items/$id/received', selfId);
+
+  Future<void> _post(Uri base, String path, String selfId) async {
     try {
-      final req = await _http.postUrl(base.replace(path: '/v1/changed'));
+      final req = await _http.postUrl(base.replace(path: path));
       req.headers.set(nodeIdHeader, selfId);
       final res = await req.close().timeout(const Duration(seconds: 3));
       await res.drain<void>();

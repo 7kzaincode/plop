@@ -52,6 +52,10 @@ class ShelfItem {
   /// 0..1 while downloading, otherwise null.
   double? progress;
 
+  /// Ids of the peers that have said they hold a complete copy of this item,
+  /// so the sender can see it arrived. Only ever filled for own items.
+  final receivedBy = <String>{};
+
   String get key => itemKey(originId, id);
   bool get isReady => path != null;
 

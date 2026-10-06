@@ -62,6 +62,10 @@ class PlopNode {
   List<ShelfItem> get items => store.items;
   List<Peer> get peers => engine.reachablePeers;
 
+  /// Name of a peer by id, for showing who an item's [ShelfItem.receivedBy]
+  /// lists; null once that peer has left the network.
+  String? peerName(String id) => engine.peerName(id);
+
   /// How long a reachable peer may go without reaching us before it counts
   /// as one-way. Peers poll every 3 s.
   static const oneWayAfter = Duration(seconds: 12);
