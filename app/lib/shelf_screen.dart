@@ -425,9 +425,6 @@ class _TopBar extends StatelessWidget {
         : searching
         ? (Palette.faint, 'looking…')
         : (Palette.faint, 'just you');
-    final menuShape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(6),
-    );
     // macOS: the bar shares the title bar's row, right of the traffic
     // lights, and dragging it moves the window.
     final mac = MacWindow.titlebar > 0;
@@ -509,7 +506,6 @@ class _TopBar extends StatelessWidget {
                   tooltip: 'add (Ctrl+O)',
                   position: PopupMenuPosition.under,
                   borderRadius: BorderRadius.circular(6),
-                  shape: menuShape,
                   onSelected: (folder) => folder ? onAddFolder() : onAddFiles(),
                   itemBuilder: (_) => [
                     PopupMenuItem(
@@ -529,14 +525,7 @@ class _TopBar extends StatelessWidget {
                       ),
                     ),
                   ],
-                  child: const Padding(
-                    padding: EdgeInsets.all(6),
-                    child: Icon(
-                      Icons.add_rounded,
-                      size: 16,
-                      color: Palette.dim,
-                    ),
-                  ),
+                  child: const _HoverIcon(Icons.add_rounded),
                 ),
               _IconAction(
                 icon: Icons.tune_rounded,
@@ -834,40 +823,65 @@ class _IconAction extends StatefulWidget {
 }
 
 class _IconActionState extends State<_IconAction> {
-  bool _hover = false;
   bool _flash = false;
 
   @override
   Widget build(BuildContext context) => Tooltip(
     message: widget.tip,
-    child: MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          setState(() => _flash = true);
-          Timer(const Duration(milliseconds: 160), () {
-            if (mounted) setState(() => _flash = false);
-          });
-          widget.onTap();
-        },
-        child: Container(
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() => _flash = true);
+        Timer(const Duration(milliseconds: 160), () {
+          if (mounted) setState(() => _flash = false);
+        });
+        widget.onTap();
+      },
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: _flash ? Palette.pressed : null,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: _HoverIcon(
+          widget.icon,
           // Phones get a 36x40 target that still fits the row height.
           padding: isDesktop
               ? const EdgeInsets.all(_iconInset)
               : const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-          decoration: BoxDecoration(
-            color: _flash ? Palette.pressed : null,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Icon(
-            widget.icon,
-            size: 16,
-            color: _hover ? Palette.text : Palette.dim,
-          ),
         ),
+      ),
+    ),
+  );
+}
+
+/// A 16px glyph that brightens under the pointer; the padding is part of
+/// the hover target.
+class _HoverIcon extends StatefulWidget {
+  const _HoverIcon(
+    this.icon, {
+    this.padding = const EdgeInsets.all(_iconInset),
+  });
+  final IconData icon;
+  final EdgeInsets padding;
+
+  @override
+  State<_HoverIcon> createState() => _HoverIconState();
+}
+
+class _HoverIconState extends State<_HoverIcon> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _hover = true),
+    onExit: (_) => setState(() => _hover = false),
+    child: Padding(
+      padding: widget.padding,
+      child: Icon(
+        widget.icon,
+        size: 16,
+        color: _hover ? Palette.text : Palette.dim,
       ),
     ),
   );
