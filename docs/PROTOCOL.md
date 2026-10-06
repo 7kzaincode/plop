@@ -32,6 +32,8 @@ Plain HTTP on the advertised port. Only items this node originated are served.
 ]
 ```
 
+- `id` is 1–64 characters from `A-Z a-z 0-9 _ -` (plop sends 16 hex
+  digits). Items with any other id are ignored.
 - `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
   `name` is a short label (the first line). For `folder`, the bytes are a zip
   of the folder's contents (stored, not compressed) and `name` is the folder

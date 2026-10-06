@@ -279,6 +279,39 @@ void main() {
     expect(path.split('/'), isNot(contains('..')));
   });
 
+  test('peer item ids with path tricks are refused', () async {
+    c = await Cluster.start(1);
+    final s = c.nodes.single.store;
+    RemoteItem remote(String id) => RemoteItem(
+      id: id,
+      name: 'x.txt',
+      size: 1,
+      mime: 'text/plain',
+      kind: ItemKind.file,
+      ttlMs: 1000,
+    );
+    for (final id in ['../../escape', 'a/b', r'..\x', '', 'x' * 65]) {
+      expect(s.addRemote('p', 'p', remote(id)), isNull, reason: id);
+    }
+    expect(s.addRemote('p', 'p', remote(randomId())), isNotNull);
+
+    // Even an id that slipped through stays a single path segment.
+    final odd = ShelfItem(
+      id: '../../escape',
+      originId: 'p',
+      originName: 'p',
+      name: 'x.txt',
+      size: 1,
+      mime: 'text/plain',
+      kind: ItemKind.file,
+      expiresAt: DateTime.now(),
+      ttl: Duration.zero,
+    );
+    final path = s.downloadPath(odd);
+    expect(path, startsWith('${s.dir.path}${Platform.pathSeparator}'));
+    expect(path.split(Platform.pathSeparator), isNot(contains('..')));
+  });
+
   test('a node ignores its own advertisement', () async {
     c = await Cluster.start(1, ttl: const Duration(seconds: 30));
     final [a] = c.nodes;

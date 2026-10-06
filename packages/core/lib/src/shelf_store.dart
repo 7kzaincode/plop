@@ -186,10 +186,13 @@ class ShelfStore {
   }
 
   /// Records a peer's item. Returns the new mirror, or null if it was already
-  /// known or is over the size cap.
+  /// known, is over the size cap, or has an id that is not a plain token.
   ShelfItem? addRemote(String peerId, String peerName, RemoteItem r) {
     final key = itemKey(peerId, r.id);
-    if (_items.containsKey(key) || r.size > maxItemBytes || r.ttlMs <= 0) {
+    if (!_validId.hasMatch(r.id) ||
+        _items.containsKey(key) ||
+        r.size > maxItemBytes ||
+        r.ttlMs <= 0) {
       return null;
     }
     final ttl = Duration(milliseconds: r.ttlMs);
@@ -243,8 +246,15 @@ class ShelfStore {
     _changes.add(null);
   }
 
-  String _itemDir(String originId, String id) =>
-      [dir.path, safeFileName(originId), id].join(Platform.pathSeparator);
+  /// Ids become a directory name and part of a URL path, so a peer's ids
+  /// must be plain tokens. Ours come from [randomId].
+  static final _validId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
+
+  String _itemDir(String originId, String id) => [
+    dir.path,
+    safeFileName(originId),
+    safeFileName(id),
+  ].join(Platform.pathSeparator);
 
   String _itemPath(String originId, String id, String fileName) =>
       '${_itemDir(originId, id)}${Platform.pathSeparator}${safeFileName(fileName)}';
