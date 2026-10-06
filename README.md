@@ -16,6 +16,12 @@ default). No accounts, no pairing, no picking a recipient.
   On phones, files open the share sheet.
 - **Lifetime:** the timer chip in the top bar (30s to 1h), remembered.
 
+## Linux
+
+Needs `avahi-daemon` (discovery) and `libkeybinder-3.0` (global shortcuts):
+`sudo apt install avahi-daemon libkeybinder-3.0-0`. Building also needs
+`libkeybinder-3.0-dev`.
+
 ## Layout
 
 - `packages/core`: protocol, shelf store and sync engine in pure Dart (`dart test`).
