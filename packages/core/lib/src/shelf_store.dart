@@ -38,6 +38,32 @@ Future<void> extractFolder(String zipPath, String outDir) =>
       }
     });
 
+/// Writes the contents of [dir] to [zip]. Entries are stored with
+/// [CompressionType.none], which the archive package streams; it would
+/// deflate anything else into memory whole. Links are skipped, not followed:
+/// they can point outside the folder.
+Future<void> _zipFolder(String dir, String zip) async {
+  final entries = Directory(dir).listSync(recursive: true, followLinks: false);
+  final enc = ZipFileEncoder()..create(zip);
+  for (final e in entries) {
+    final name = e.path
+        .substring(dir.length)
+        .replaceFirst(RegExp(r'^[/\\]+'), '');
+    final ArchiveFile f;
+    if (e is File) {
+      f = ArchiveFile.stream(name, InputFileStream(e.path))
+        ..lastModTime = e.lastModifiedSync().millisecondsSinceEpoch ~/ 1000;
+    } else if (e is Directory) {
+      f = ArchiveFile.directory(name);
+    } else {
+      continue; // a link
+    }
+    // Folder entries too: an empty "deflated" entry is invalid to unzip.
+    enc.addArchiveFile(f..compression = CompressionType.none);
+  }
+  await enc.close();
+}
+
 class ItemTooLargeException implements Exception {
   ItemTooLargeException(this.size, this.max);
   final int size;
@@ -124,16 +150,7 @@ class ShelfStore {
     final id = randomId();
     final zip = _itemPath(nodeId, id, '$name.zip');
     await File(zip).parent.create(recursive: true);
-    await Isolate.run(() async {
-      final enc = ZipFileEncoder()..create(zip, level: ZipFileEncoder.store);
-      // Links are skipped, not followed: they can point outside the folder.
-      await enc.addDirectory(
-        Directory(path),
-        includeDirName: false,
-        followLinks: false,
-      );
-      await enc.close();
-    });
+    await Isolate.run(() => _zipFolder(path, zip));
     final size = await File(zip).length();
     if (size > maxItemBytes) {
       _deleteItemDir(nodeId, id);

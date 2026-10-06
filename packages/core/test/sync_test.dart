@@ -346,10 +346,17 @@ void main() {
     File(
       '${src.path}/src/deep/main.dart',
     ).writeAsBytesSync(List.filled(5000, 9));
+    Directory('${src.path}/empty').createSync();
 
     final item = await a.addPath(src.path);
     expect(item.kind, ItemKind.folder);
     expect(item.name, 'My Project');
+    // Really stored: the archive package buffers anything else whole.
+    final input = InputFileStream(item.path!);
+    for (final f in ZipDecoder().decodeStream(input)) {
+      expect(f.compression, CompressionType.none, reason: f.name);
+    }
+    await input.close();
 
     await eventually(() => b.items.any((i) => i.isReady));
     final mirror = b.items.single;
@@ -360,6 +367,7 @@ void main() {
     await extractFolder(mirror.path!, out);
     expect(File('$out/readme.md').readAsStringSync(), 'hi');
     expect(File('$out/src/deep/main.dart').lengthSync(), 5000);
+    expect(Directory('$out/empty').existsSync(), isTrue);
   });
 
   test('zipping a folder skips symlinks rather than following them', () async {
