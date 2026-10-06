@@ -173,6 +173,39 @@ void main() {
     await stopNodes(tester);
   });
 
+  testWidgets('Enter on the focused TTL chip opens its menu, grabs nothing', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    var copies = 0;
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copies++;
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await pumpApp(tester);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    await tester.runAsync(() async {
+      await pressEnter(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<Duration>), findsWidgets);
+    expect(copies, 0, reason: 'the chip took Enter, not the shelf');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<Duration>), findsNothing);
+    await stopNodes(tester);
+  });
+
   testWidgets('a long file name keeps its tail when it truncates', (
     tester,
   ) async {

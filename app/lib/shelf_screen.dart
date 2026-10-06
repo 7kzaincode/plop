@@ -309,8 +309,6 @@ class ShelfScreenState extends State<ShelfScreen> {
       bindings: {
         _cmd(LogicalKeyboardKey.keyV): () => run(paste),
         _cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
-        // A focused row takes these first (see _Row).
-        for (final k in _grabKeys) k: _grabNewest,
         const SingleActivator(LogicalKeyboardKey.escape): _focus.requestFocus,
       },
       child: Focus(
@@ -318,6 +316,17 @@ class ShelfScreenState extends State<ShelfScreen> {
         autofocus: true,
         // Tab goes straight to the controls and rows, never back here.
         skipTraversal: true,
+        // Enter and ⌘C grab the newest item only while the shelf itself has
+        // focus. Not a shortcut above the tree: that would see Enter before
+        // a focused TTL chip or row does and grab instead of activating it.
+        onKeyEvent: (node, e) {
+          if (!node.hasPrimaryFocus ||
+              !_grabKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
+            return KeyEventResult.ignored;
+          }
+          _grabNewest();
+          return KeyEventResult.handled;
+        },
         child: Scaffold(
           body: SafeArea(
             child: wrapDropTarget(
