@@ -150,13 +150,12 @@ String mimeFor(String name) {
       'application/octet-stream';
 }
 
-/// Makes a peer-supplied name safe to use as a single path segment.
+/// Makes a peer-supplied name safe to use as a single path segment. Dotfiles
+/// stay dotfiles (`.env` must not arrive as `env`); with the separators
+/// replaced, only the bare `.` and `..` names need refusing.
 String safeFileName(String name) {
-  final cleaned = name
-      .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
-      .replaceAll(RegExp(r'^\.+'), '')
-      .trim();
-  if (cleaned.isEmpty) return 'file';
+  final cleaned = name.replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_').trim();
+  if (RegExp(r'^\.*$').hasMatch(cleaned)) return 'file';
   return cleaned.length > 120
       ? cleaned.substring(cleaned.length - 120)
       : cleaned;

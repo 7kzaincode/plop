@@ -327,6 +327,18 @@ void main() {
     expect(path.split(Platform.pathSeparator), isNot(contains('..')));
   });
 
+  test('safeFileName keeps dotfiles and refuses only . and ..', () async {
+    c = await Cluster.start(1);
+    expect(safeFileName('.env'), '.env');
+    expect(safeFileName('...hidden'), '...hidden');
+    expect(safeFileName('a:b?.txt'), 'a_b_.txt');
+    for (final name in ['', '.', '..', '...', ' .. ']) {
+      expect(safeFileName(name), 'file', reason: '"$name"');
+    }
+    expect(safeFileName('../x'), '.._x');
+    expect(safeFileName(r'..\x'), '.._x');
+  });
+
   test('odd remote fields are refused or clamped', () async {
     c = await Cluster.start(1);
     final s = c.nodes.single.store;
