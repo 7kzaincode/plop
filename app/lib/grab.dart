@@ -142,7 +142,29 @@ Future<ShelfItem> addImageBytes(
 }) async {
   // pasteboard hands back an uncompressed BMP on Windows (33 MB at 4K).
   if (Platform.isWindows) bytes = await toPng(bytes);
-  return node.addBytes(bytes, '$prefix ${stamp()}.png');
+  return node.addBytes(bytes, '$prefix ${stamp()}.${imageExt(bytes)}');
+}
+
+/// The extension for image bytes, from their magic number. Android's
+/// clipboard hands over whatever the source app wrote (Chrome and Gboard
+/// often JPEG or WebP) where every other platform re-encodes to PNG, and the
+/// name decides the wire mime and whether a Windows receiver tries to copy
+/// it as a picture, which GDI+ can't do for WebP or HEIC.
+String imageExt(Uint8List b) {
+  bool at(int i, List<int> sig) {
+    if (b.length < i + sig.length) return false;
+    for (var k = 0; k < sig.length; k++) {
+      if (b[i + k] != sig[k]) return false;
+    }
+    return true;
+  }
+
+  if (at(0, 'RIFF'.codeUnits) && at(8, 'WEBP'.codeUnits)) return 'webp';
+  if (at(0, const [0xFF, 0xD8, 0xFF])) return 'jpg';
+  if (at(0, 'GIF8'.codeUnits)) return 'gif';
+  if (at(0, 'BM'.codeUnits)) return 'bmp';
+  if (at(4, 'ftyp'.codeUnits)) return 'heic'; // ISO BMFF
+  return 'png';
 }
 
 /// Re-encodes any image Flutter can decode as PNG.
