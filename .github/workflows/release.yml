@@ -17,8 +17,10 @@ on:
 permissions:
   contents: read
 
+# Every dev run rewrites the same "dev" release, so they take turns; tag runs
+# only queue behind a rerun of the same tag.
 concurrency:
-  group: release-${{ github.ref }}
+  group: ${{ github.ref_type == 'tag' && format('release-{0}', github.ref) || 'release-dev' }}
 
 env:
   FLUTTER_VERSION: 3.47.6
