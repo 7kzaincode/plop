@@ -63,9 +63,12 @@ class NodeServer {
   /// A file served in place can be deleted or rewritten after it was
   /// dropped. Listing it then leaves every peer a row it can never fetch,
   /// so instead it leaves the shelf, which nudges them to drop theirs.
-  bool _stillThere(ShelfItem i) {
+  /// Asynchronous because this runs on every poll from every peer, and a
+  /// stat of a file on an unmounted share or a cloud placeholder can hang
+  /// for seconds; a synchronous one would stall the whole isolate with it.
+  Future<bool> _stillThere(ShelfItem i) async {
     if (i.ownsFile || i.path == null) return true;
-    final st = File(i.path!).statSync();
+    final st = await File(i.path!).stat();
     if (st.type != FileSystemEntityType.notFound && st.size == i.size) {
       return true;
     }
@@ -78,17 +81,21 @@ class NodeServer {
     switch ((req.method, req.uri.pathSegments)) {
       case ('GET', ['v1', 'items']):
         _noteCaller(req);
-        final items = [
-          for (final i in store.localItems.toList()) // remove() mutates
-            if (i.isReady && _stillThere(i)) i.toJson(),
-        ];
+        final items = <Map<String, Object>>[];
+        for (final i in store.localItems.toList()) {
+          // The list is a snapshot: remove() mutates, and an item can
+          // expire while another's stat is in flight.
+          if (i.isReady && await _stillThere(i) && store[i.key] == i) {
+            items.add(i.toJson());
+          }
+        }
         res.headers.contentType = ContentType.json;
         res.write(jsonEncode(items));
       case ('GET', ['v1', 'items', final id]):
         final item = store.local(id);
-        final file = item?.path == null || !_stillThere(item!)
-            ? null
-            : File(item.path!);
+        final file = item?.path != null && await _stillThere(item!)
+            ? File(item.path!)
+            : null;
         if (file == null || !await file.exists()) {
           res.statusCode = HttpStatus.notFound;
           break;
