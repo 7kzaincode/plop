@@ -197,7 +197,10 @@ String imageExt(Uint8List b) {
   if (at(0, const [0xFF, 0xD8, 0xFF])) return 'jpg';
   if (at(0, 'GIF8'.codeUnits)) return 'gif';
   if (at(0, 'BM'.codeUnits)) return 'bmp';
-  if (at(4, 'ftyp'.codeUnits)) return 'heic'; // ISO BMFF
+  if (at(4, 'ftyp'.codeUnits)) {
+    // ISO BMFF: the brand at bytes 8-11 tells AVIF from HEIC.
+    return at(8, 'avi'.codeUnits) ? 'avif' : 'heic';
+  }
   return 'png';
 }
 

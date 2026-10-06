@@ -52,6 +52,7 @@ void main() {
     expect(imageExt(header('GIF89a'.codeUnits)), 'gif');
     expect(imageExt(header('BM'.codeUnits)), 'bmp');
     expect(imageExt(header([0, 0, 0, 0x18, ...'ftypheic'.codeUnits])), 'heic');
+    expect(imageExt(header([0, 0, 0, 0x1c, ...'ftypavif'.codeUnits])), 'avif');
     expect(imageExt(Uint8List(0)), 'png');
   });
 }

@@ -76,6 +76,11 @@ abstract final class Hotkeys {
     final key = k.physicalKey;
     final mods = k.modifiers ?? const <HotKeyModifier>[];
     if (isFunctionKey(key)) return null;
+    // A key Flutter has no Windows virtual-key code for cannot be registered.
+    if (Platform.isWindows && key.keyCode == null) {
+      return "${keyName(key)} can't be a system-wide shortcut here · "
+          'try another key';
+    }
     if (!mods.any((m) => m != HotKeyModifier.shift)) {
       final add = Platform.isMacOS ? 'add ⌃ ⌥ or ⌘' : 'add Ctrl, Alt or Win';
       return '$add · ${label(k)} on its own would block typing '
@@ -100,7 +105,7 @@ abstract final class Hotkeys {
   static bool isFree(HotKey k) {
     if (!Platform.isWindows) return true;
     final vk = k.physicalKey.keyCode; // what the plugin registers
-    if (vk == null) return false;
+    if (vk == null) return true; // unregistrable, not taken; reject() says so
     var mods = 0x4000; // MOD_NOREPEAT
     for (final m in k.modifiers ?? const <HotKeyModifier>[]) {
       mods |= switch (m) {
@@ -190,8 +195,22 @@ abstract final class Hotkeys {
 
   static bool _busy = false;
   static int _snipGen = 0;
-  static DateTime _lastSnipPress = DateTime(0);
+  static final _lastPress = <String, DateTime>{};
   static bool _askedForScreen = false;
+
+  /// hotkey_manager registers without MOD_NOREPEAT on Windows, and keybinder
+  /// forwards X11 autorepeat too, so a held chord fires at the keyboard's
+  /// repeat rate. Anything within 1.1 s of the previous event of the same
+  /// binding is the same press: Windows' initial repeat delay goes up to
+  /// 1 s and its slowest rate is 2.5/s. Nobody plops twice within a second.
+  static bool _isRepeat(String which) {
+    if (Platform.isMacOS) return false;
+    final now = DateTime.now();
+    final last = _lastPress[which];
+    _lastPress[which] = now; // reset on every event: a long hold fires once
+    return last != null &&
+        now.difference(last) < const Duration(milliseconds: 1100);
+  }
 
   /// [onPlopped] gets a short message after something lands, or with
   /// `ok: false` when it failed and the user needs to act.
@@ -220,6 +239,7 @@ abstract final class Hotkeys {
       if (!isFree(k)) {
         onPlopped(
           '${label(k)} is taken by another app · change it in settings',
+          ok: false,
         );
       }
     }
@@ -234,18 +254,10 @@ abstract final class Hotkeys {
           }
         }
 
+        if (_isRepeat('snip')) return;
         // The Windows snip waits on the user, so it must not hold the lock
-        // that the other shortcut shares. hotkey_manager registers without
-        // MOD_NOREPEAT there, so a held chord fires at the keyboard repeat
-        // rate; anything within half a second of the previous event is the
-        // same press (the slowest Windows repeat rate is 2.5/s).
+        // that the other shortcut shares.
         if (Platform.isWindows) {
-          final now = DateTime.now();
-          final repeat =
-              now.difference(_lastSnipPress) <
-              const Duration(milliseconds: 500);
-          _lastSnipPress = now; // reset on every event: a long hold fires once
-          if (repeat) return;
           run().catchError((Object e) => _fail(friendlyError(e)));
         } else {
           _once(run);
@@ -254,14 +266,16 @@ abstract final class Hotkeys {
     );
     await hotKeyManager.register(
       clip,
-      keyDownHandler: (_) => _once(() async {
-        if (await pasteInto(node)) {
-          _feedback(true);
-          onPlopped('plopped clipboard');
-        } else {
-          _fail('nothing to paste');
-        }
-      }),
+      keyDownHandler: (_) => _isRepeat('clip')
+          ? null
+          : _once(() async {
+              if (await pasteInto(node)) {
+                _feedback(true);
+                onPlopped('plopped clipboard');
+              } else {
+                _fail('nothing to paste');
+              }
+            }),
     );
   }
 

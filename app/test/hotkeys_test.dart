@@ -55,7 +55,7 @@ void main() {
   test('the defaults are free to register', () {
     expect(Hotkeys.isFree(Hotkeys.defaultSnip), isTrue);
     expect(Hotkeys.isFree(Hotkeys.defaultClip), isTrue);
-  });
+  }, skip: Platform.isWindows ? false : 'only Windows probes RegisterHotKey');
 
   test('bindings compare by key and modifiers, not label', () {
     HotKey k(PhysicalKeyboardKey key, List<HotKeyModifier> m) =>
