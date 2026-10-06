@@ -87,14 +87,15 @@ void main() {
   tearDown(() => c.stop());
 
   test('A adds a file, B mirrors it, both drop it at expiry', () async {
-    c = await Cluster.start(2, ttl: const Duration(seconds: 3));
+    // Often the first test to run: the ttl outlasts the default wait for the
+    // mirror, so a cold JIT cannot expire the item before it is checked.
+    c = await Cluster.start(2, ttl: const Duration(seconds: 6));
     final [a, b] = c.nodes;
     final src = await tempFile(c.root, 'photo.png', 100 * 1024);
     final item = await a.addFile(src.path);
 
     await eventually(
       () => b.items.any((i) => i.id == item.id && i.isReady),
-      timeout: const Duration(seconds: 2),
       reason: 'B did not mirror the item',
     );
     final mirror = b.items.single;
@@ -103,11 +104,11 @@ void main() {
     expect(mirror.originName, 'node0');
     expect(await File(mirror.path!).readAsBytes(), await src.readAsBytes());
     // B's countdown is based on A's remaining time, not reset to a full TTL.
-    expect(mirror.remaining, lessThanOrEqualTo(const Duration(seconds: 3)));
+    expect(mirror.remaining, lessThanOrEqualTo(const Duration(seconds: 6)));
 
     await eventually(
       () => a.items.isEmpty && b.items.isEmpty,
-      timeout: const Duration(seconds: 4),
+      timeout: const Duration(seconds: 8),
       reason: 'item did not expire on both nodes',
     );
     expect(
