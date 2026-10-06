@@ -121,10 +121,11 @@ to renew it.
   picture save or share instead: all of them on Linux, HEIC, WebP and RAW on
   Windows and Android.
 - **Lifetime:** the timer chip in the top bar (30s to 1h), remembered.
-- **Big items:** anything over 25 MB is fetched only when someone grabs it, so
-  keep plop open until then (the row says so). Smaller items copy to every
-  device as soon as they appear. Your own rows say which devices have them.
-  Phones only see the shelf while plop is in the foreground.
+- **Big items:** anything over 25 MB is fetched only when someone grabs it, and
+  only ever from you, so keep plop open until every device nearby has it (the
+  row says so). Smaller items copy to every device as soon as they appear.
+  Your own rows say which devices have them. Phones only see the shelf while
+  plop is in the foreground.
 
 ## From source
 

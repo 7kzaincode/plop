@@ -464,35 +464,101 @@ void main() {
     debugDesktopOverride = true;
     addTearDown(() => debugDesktopOverride = null);
     await startNodes(tester);
-    // Both ways round, so other mirrors what me adds and says so.
-    late ShelfItem mine;
+    // Both ways round, so other mirrors what me adds and says so; then a
+    // third device joins, after the first receipt so the names keep order.
+    late PlopNode third;
+    late ShelfItem mine, big;
     await tester.runAsync(
       () => HttpOverrides.runWithHttpOverrides(() async {
-        dOther.add(
-          Peer(id: me.id, name: 'me', hosts: ['127.0.0.1'], port: me.port),
+        final asMe = Peer(
+          id: me.id,
+          name: 'me',
+          hosts: ['127.0.0.1'],
+          port: me.port,
         );
+        dOther.add(asMe);
         mine = await me.addText('mine');
-        final end = DateTime.now().add(const Duration(seconds: 5));
-        while (!mine.receivedBy.contains(other.id)) {
-          if (DateTime.now().isAfter(end)) throw 'receipt did not arrive';
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
+        await _until(() => mine.receivedBy.contains(other.id), 'receipt');
+
+        final dThird = StaticDiscovery();
+        third = await PlopNode.start(
+          dir: Directory('${root.path}/third'),
+          discovery: dThird,
+          name: 'third',
+        );
+        dThird.add(asMe);
+        dMe.add(
+          Peer(
+            id: third.id,
+            name: 'third',
+            hosts: ['127.0.0.1'],
+            port: third.port,
+          ),
+        );
+        await _until(
+          () => me.peers.length == 2 && mine.receivedBy.contains(third.id),
+          'third device',
+        );
+
+        // Over the eager-copy size, so nobody fetches it until asked to; a
+        // sparse file served in place, so it costs nothing to make.
+        final file = File('${root.path}/big.bin');
+        (await file.open(mode: FileMode.write))
+          ..truncateSync(defaultEagerCopyBytes + 1)
+          ..closeSync();
+        big = await me.addFile(file.path);
+        await _until(
+          () =>
+              [other, third].every((n) => n.items.any((i) => i.key == big.key)),
+          'big item listing',
+        );
       }, _RealHttp()),
     );
     await pumpApp(tester);
-    expect(find.text('you  ·  on other'), findsOneWidget);
+    expect(find.text('you  ·  on other and third'), findsOneWidget);
     expect(find.text('other'), findsOneWidget, reason: "the mirror's row");
+    final size = formatSize(big.size);
+    expect(
+      find.text('$size  ·  you  ·  keep plop open until grabbed'),
+      findsOneWidget,
+    );
 
-    // Once that peer is gone its name is too; the row keeps the count. A
-    // peer leaving is not a shelf change, so the countdown tick redraws it.
+    // One device grabbing a big item does not free the sender: a mirror is
+    // never re-served, so the other device still has to fetch it from here.
+    Future<void> grab(PlopNode who) async {
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          await who.fetch(big.key);
+          await _until(() => big.receivedBy.contains(who.id), 'receipt');
+        }, _RealHttp()),
+      );
+      // The receipt reaches the shelf as a microtask of the test's zone,
+      // which the first pump runs; the second draws the row.
+      await tester.pump();
+      await tester.pump();
+    }
+
+    await grab(other);
+    expect(
+      find.text('$size  ·  you  ·  on other  ·  keep plop open until grabbed'),
+      findsOneWidget,
+    );
+    await grab(third);
+    expect(find.text('$size  ·  you  ·  on other and third'), findsOneWidget);
+    expect(find.textContaining('keep plop open'), findsNothing);
+
+    // Once a peer is gone its name is too; the row keeps the count. A peer
+    // leaving is not a shelf change, so the countdown tick redraws it.
     await tester.runAsync(() async {
       dMe.remove(other.id);
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
     expect(me.peerName(other.id), isNull);
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('you  ·  on 1 device'), findsOneWidget);
+    expect(find.text('you  ·  on 2 devices'), findsOneWidget);
 
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(third.stop);
     await stopNodes(tester);
   });
 
@@ -517,6 +583,15 @@ void main() {
 
     await stopNodes(tester);
   });
+}
+
+/// Waits up to ten seconds for [done], naming [what] did not happen.
+Future<void> _until(bool Function() done, String what) async {
+  final end = DateTime.now().add(const Duration(seconds: 10));
+  while (!done()) {
+    if (DateTime.now().isAfter(end)) throw '$what did not arrive';
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
 }
 
 class _RealHttp extends HttpOverrides {}

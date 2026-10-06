@@ -238,6 +238,13 @@ class ShelfScreenState extends State<ShelfScreen> {
     return ids.length == 1 ? 'on 1 device' : 'on ${ids.length} devices';
   }
 
+  /// Whether every device nearby holds one of your own items, and at least
+  /// one does. Mirrors are never re-served, so until then a big item still
+  /// needs this device around for the rest to fetch it from.
+  bool _allHave(ShelfItem item) =>
+      item.receivedBy.isNotEmpty &&
+      node.peers.every((p) => item.receivedBy.contains(p.id));
+
   @override
   Widget build(BuildContext context) {
     final items = node.items;
@@ -285,6 +292,7 @@ class ShelfScreenState extends State<ShelfScreen> {
                               item: it,
                               mine: it.originId == node.id,
                               receivedBy: _receivedBy(it),
+                              allHave: _allHave(it),
                               saved: _saved.containsKey(it.key),
                               onAction: (ctx, a) => _act(ctx, it, a),
                               onRemove: () => node.remove(it.key),
@@ -626,6 +634,7 @@ class _Row extends StatefulWidget {
     required this.item,
     required this.mine,
     required this.receivedBy,
+    required this.allHave,
     required this.saved,
     required this.onAction,
     required this.onRemove,
@@ -636,6 +645,10 @@ class _Row extends StatefulWidget {
 
   /// Which other devices hold an own item, once any does.
   final String? receivedBy;
+
+  /// Whether every device nearby is among them; until then a big own item
+  /// still needs this device up, as it is the only place to fetch it from.
+  final bool allHave;
   final bool saved;
   final Future<void> Function(BuildContext context, GrabAction action) onAction;
   final VoidCallback onRemove;
@@ -689,11 +702,10 @@ class _RowState extends State<_Row> {
       widget.mine ? 'you' : item.originName,
       if (item.progress != null) '${(item.progress! * 100).round()}%',
       if (widget.saved) 'saved',
-      // A big item is fetched only when grabbed, so until someone has it
-      // the row says the sender must stay; after that, who has it.
-      if (widget.receivedBy case final who?)
-        who
-      else if (widget.mine && item.size > defaultEagerCopyBytes)
+      ?widget.receivedBy,
+      // A big item is fetched only when grabbed, and only ever from here, so
+      // the row says the sender must stay until every device nearby has it.
+      if (widget.mine && item.size > defaultEagerCopyBytes && !widget.allHave)
         'keep plop open until grabbed',
     ].join('  ·  ');
 
