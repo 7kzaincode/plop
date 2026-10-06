@@ -28,7 +28,10 @@ Future<void> main() async {
 Future<void> _start() async {
   // PLOP_INSTANCE lets two copies run side by side on one machine (each needs
   // its own scratch dirs, since they are wiped on launch).
-  final instance = Platform.environment['PLOP_INSTANCE'];
+  // Debug builds (flutter run) default to their own instance, so running
+  // one beside the installed plop never wipes its scratch folders.
+  final instance =
+      Platform.environment['PLOP_INSTANCE'] ?? (kDebugMode ? 'dev' : null);
   final suffix = instance == null ? '' : '-$instance';
   final tmp = (await getTemporaryDirectory()).path;
   final sep = Platform.pathSeparator;

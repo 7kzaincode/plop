@@ -427,6 +427,11 @@ void main() {
     expect(perms('run.sh') & 0x40, 0x40, reason: 'u+x lost');
     expect(perms('run.sh') & 0x1b6, perms('notes.txt'), reason: 'rw differ');
     expect(perms('notes.txt') & 0x49, 0, reason: 'x bit invented');
+    // The archive itself carries only 0755/0644, never the sender's 0700/0600.
+    final zipped = ZipDecoder().decodeStream(InputFileStream(item.path!));
+    final modes = {for (final f in zipped) f.name: f.mode & 0x1ff};
+    expect(modes['run.sh'], 0x1ed);
+    expect(modes['notes.txt'], 0x1a4);
     // Readable by all under the usual umask, so executable by all too.
     if (perms('notes.txt') == 0x1a4) expect(perms('run.sh'), 0x1ed);
   }, skip: Platform.isWindows ? 'no executable bit' : false);

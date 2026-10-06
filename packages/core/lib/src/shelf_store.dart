@@ -85,7 +85,19 @@ final _free = _libc
 /// (a framework's `Versions/Current -> A`; on Windows, a cloud placeholder,
 /// which is listed as a link to itself), one that leads outside is skipped.
 Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
-  final root = Directory(dir).resolveSymbolicLinksSync();
+  // Resolving can fail on some Windows volumes (folder mounts, WebDAV); a
+  // plain folder then stands for itself, while a link that cannot be
+  // resolved is still skipped by the caller.
+  String realOf(FileSystemEntity e) {
+    try {
+      return e.resolveSymbolicLinksSync();
+    } on FileSystemException {
+      if (e is Link) rethrow;
+      return e.path;
+    }
+  }
+
+  final root = realOf(Directory(dir));
   final entries = <(String, FileStat)>[];
   // [above] holds the real paths of the folders being walked, to break loops.
   void walk(String path, Set<String> above) {
@@ -97,7 +109,7 @@ Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
       }
       final String real;
       try {
-        real = e.resolveSymbolicLinksSync();
+        real = realOf(e);
       } on FileSystemException {
         continue; // dangling, or gone since it was listed
       }
@@ -132,9 +144,15 @@ Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
         ? ArchiveFile.directory(name)
         : ArchiveFile.stream(name, InputFileStream(path));
     // Folder entries too: an empty "deflated" entry is invalid to unzip.
+    // Only the executable bit travels: 0755 for folders and anything the
+    // sender can run, 0644 otherwise. Other unzippers apply these bits
+    // verbatim, so a Windows sender's 0666/0777 must not leak through.
+    final isDir = stat.type == FileSystemEntityType.directory;
+    final mode =
+        (stat.mode & 0xf000) | (isDir || stat.mode & 0x49 != 0 ? 0x1ed : 0x1a4);
     enc.addArchiveFile(
       f
-        ..mode = stat.mode
+        ..mode = mode
         ..lastModTime = stat.modified.millisecondsSinceEpoch ~/ 1000
         ..compression = CompressionType.none,
     );

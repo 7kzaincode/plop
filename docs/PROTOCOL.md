@@ -41,8 +41,8 @@ shown as one-way (usually a firewall on this side).
 - `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
   `name` is a short label (the first line). For `folder`, the bytes are a zip
   of the folder's contents (stored, not compressed) and `name` is the folder
-  name. Entries carry the sender's Unix mode; a receiver restores the
-  executable bit and nothing else. A link inside the folder is sent as a
+  name. Entries carry a mode of 0755 (folders, and files executable on the
+  sender) or 0644; a receiver restores the executable bit and nothing else. A link inside the folder is sent as a
   copy of its target if that is also inside the folder, and left out if it
   leads outside. A node that does not know a kind treats it as `file`.
 - `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:

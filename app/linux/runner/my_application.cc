@@ -161,7 +161,9 @@ MyApplication* my_application_new() {
   GApplicationFlags flags = G_APPLICATION_NON_UNIQUE;
 #ifdef NDEBUG
   if (g_getenv("PLOP_INSTANCE") == nullptr) {
-    flags = G_APPLICATION_DEFAULT_FLAGS;
+    // G_APPLICATION_DEFAULT_FLAGS by value: the name needs GLib 2.74, and
+    // its predecessor is deprecated on newer GLib.
+    flags = static_cast<GApplicationFlags>(0);
   }
 #endif
 
