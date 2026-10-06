@@ -406,6 +406,43 @@ void main() {
     await input.close();
   }, skip: Platform.isWindows ? 'creating symlinks needs admin rights' : false);
 
+  test('links that stay inside a folder travel as copies', () async {
+    c = await Cluster.start(1);
+    final [a] = c.nodes;
+    final src = Directory('${c.root.path}/dropped');
+    File('${src.path}/Versions/A/lib')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('lib');
+    Link('${src.path}/Versions/Current').createSync('A');
+    Link('${src.path}/latest').createSync('Versions/A/lib');
+    Link('${src.path}/gone').createSync('missing');
+    Link('${src.path}/up').createSync('..');
+
+    final item = await a.addPath(src.path);
+    final input = InputFileStream(item.path!);
+    final names = ZipDecoder().decodeStream(input).map((f) => f.name);
+    expect(names, {
+      'Versions/',
+      'Versions/A/',
+      'Versions/A/lib',
+      'Versions/Current/',
+      'Versions/Current/lib',
+      'latest',
+    });
+    await input.close();
+
+    final out = '${c.root.path}/out';
+    await extractFolder(item.path!, out);
+    for (final p in ['$out/Versions/Current/lib', '$out/latest']) {
+      expect(
+        FileSystemEntity.typeSync(p, followLinks: false),
+        FileSystemEntityType.file,
+        reason: p,
+      );
+      expect(File(p).readAsStringSync(), 'lib');
+    }
+  }, skip: Platform.isWindows ? 'creating symlinks needs admin rights' : false);
+
   test('saveTo writes outside the store and outlives the item', () async {
     c = await Cluster.start(
       2,
