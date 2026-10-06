@@ -76,7 +76,9 @@ class MainFlutterWindow: NSWindow {
       case "show":
         // Something needs the user's eyes while they are in another app (a
         // snip that failed for want of Screen Recording): bring the window
-        // back, reopening it if it was closed.
+        // back, reopening it if it was closed, out of the Dock if minimized
+        // (makeKeyAndOrderFront alone leaves a miniaturized window there).
+        if window.isMiniaturized { window.deminiaturize(nil) }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         result(nil)
