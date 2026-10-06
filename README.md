@@ -48,13 +48,12 @@ debug key, not a store key: if Android refuses an update, uninstall plop first.
 ### Linux (x64, glibc 2.39+: Ubuntu 24.04, Debian 13 or newer)
 
 ```sh
-sudo apt install avahi-daemon libkeybinder-3.0-0
+sudo apt install avahi-daemon
 tar xzf plop-linux-x64.tar.gz && ./plop/plop
 ```
 
-`avahi-daemon` does discovery, `libkeybinder-3.0` the global shortcuts (GTK 3
-comes with the desktop). Building from source also needs
-`libkeybinder-3.0-dev`.
+`avahi-daemon` does discovery and is already running on most desktops; GTK 3
+comes with the desktop and the shortcut library with the tarball.
 
 ### iPhone and iPad
 

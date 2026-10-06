@@ -1,7 +1,7 @@
 # Installable builds, attached to a GitHub Release:
 #   macOS    plop-macos.dmg, plop-macos.zip (universal, ad-hoc signed)
 #   Windows  plop-windows-setup.exe, plop-windows-x64.zip (VC++ runtime included)
-#   Linux    plop-linux-x64.tar.gz
+#   Linux    plop-linux-x64.tar.gz (libkeybinder and a launcher icon included)
 #   Android  plop-android.apk (debug-signed, for sideloading)
 # Push a tag for a release: git tag v0.2.0 && git push origin v0.2.0.
 # Running it by hand from a branch replaces the "dev" prerelease instead.
@@ -46,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - if: matrix.target == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libkeybinder-3.0-dev
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libkeybinder-3.0-dev patchelf
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -104,8 +104,24 @@ jobs:
           Compress-Archive "$out\*" ..\dist\plop-windows-x64.zip
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" ..\packaging\windows\plop.iss
 
+      # libkeybinder-3.0 is not a default package on desktop distros; ship it
+      # so the tarball starts without an apt install, like the VC++ runtime on
+      # Windows. The plugin .so needs its own $ORIGIN rpath: plop's RUNPATH
+      # does not apply to a plugin's dependencies. The two checks make a
+      # hotkey_manager bump that drops or renames the library fail the build
+      # rather than ship a tarball that dies on launch. plop.png is the
+      # launcher icon the app registers on first run (lib/login_item.dart).
       - if: matrix.target == 'linux'
-        run: tar -czf ../dist/plop-linux-x64.tar.gz -C build/linux/x64/release --transform 's,^bundle,plop,' bundle
+        run: |
+          bundle=build/linux/x64/release/bundle
+          plugin=$bundle/lib/libhotkey_manager_linux_plugin.so
+          keybinder=$(ldd "$plugin" | awk '/libkeybinder-3\.0\.so/ {print $3}')
+          test -f "$keybinder"
+          cp "$keybinder" "$bundle/lib/"
+          patchelf --set-rpath '$ORIGIN' "$plugin"
+          ldd "$plugin" | grep -q "$PWD/$bundle/lib/libkeybinder-3.0.so" || { echo "libkeybinder not resolved from bundle/lib"; exit 1; }
+          cp assets/icon/icon_macos.png "$bundle/plop.png"
+          tar -czf ../dist/plop-linux-x64.tar.gz -C build/linux/x64/release --transform 's,^bundle,plop,' bundle
 
       - if: matrix.target == 'android'
         run: cp build/app/outputs/flutter-apk/app-release.apk ../dist/plop-android.apk
