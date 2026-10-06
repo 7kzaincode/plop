@@ -102,24 +102,50 @@ to renew it.
 
 ## Using it
 
-- **Add:** drop anything on the window, paste with ⌘V / Ctrl+V, or use `+`.
-  On phones: photo, file, paste.
-- **From anywhere (Mac, Windows, Linux):**
+- **Add:** drop anything on the window, paste with ⌘V / Ctrl+V, or add files
+  with `+` or ⌘O / Ctrl+O. On a Mac, files dropped on plop's Dock icon land
+  too. On phones: photo, file, paste; on Android also Share › plop from any
+  app.
+- **From anywhere (Mac, Windows, Linux on X11):**
   - ⌃⌥P / Ctrl+Shift+Alt+P: select a region of the screen; it lands on plop.
   - ⌃⌥V / Ctrl+Shift+Alt+V: plop whatever is on the clipboard.
   - Change either in the settings panel (sliders icon), where you can also
     make plop open at login.
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
-  folders save to Downloads (folders unpacked). Hover for the other option.
-  On phones, files open the share sheet.
+  folders save to Downloads (folders unpacked). Hover for the other option;
+  tap a saved row again to show it in Finder or Explorer (its folder, on
+  Linux). ⌘C / Ctrl+C or Enter grabs the newest item from someone else. On
+  phones, files open the share sheet. Images the clipboard can't take as a
+  picture save or share instead: all of them on Linux, HEIC, WebP and RAW on
+  Windows and Android.
 - **Lifetime:** the timer chip in the top bar (30s to 1h), remembered.
+- **Big items:** anything over 25 MB is fetched only when someone grabs it, so
+  keep plop open until then (the row says so). Smaller items copy to every
+  device as soon as they appear. Phones only see the shelf while plop is in
+  the foreground.
+
+## From source
+
+Flutter 3.47.6, the version `.github/workflows/ci.yml` pins. Linux also needs
+`sudo apt install ninja-build libgtk-3-dev libkeybinder-3.0-dev`. `flutter run`
+builds run as their own instance, named "… (dev)", so they never wipe the
+installed plop's scratch folders; `PLOP_INSTANCE=x` does the same for a
+release build, to run two copies side by side.
+
+- Mac: `app/tool/install_macos.sh` builds a release, signs it with your Apple
+  Development identity if you have one (so the Screen Recording and Local
+  Network permissions survive rebuilds) and installs it to /Applications.
+- Tests: `cd packages/core && dart test`; `cd app && flutter test` (the layout
+  test drops screenshots in `app/build/screens/`);
+  `flutter test integration_test -d macos` runs the end-to-end test over real
+  Bonjour. `flutter analyze` (app) and `dart analyze` (core) are what CI runs
+  too.
 
 ## Layout
 
-- `packages/core`: protocol, shelf store and sync engine in pure Dart (`dart test`).
+- `packages/core`: protocol, shelf store and sync engine in pure Dart.
   `bin/plop.dart` is a headless node for testing: `dart run plop_core:plop --text hi --file a.png`.
 - `app`: the Flutter app (iOS, Android, macOS, Windows, Linux).
-  `flutter test integration_test -d macos` runs an end-to-end test over real Bonjour.
 - `docs/PROTOCOL.md`: wire protocol. `docs/PLAN.md`: milestones and what comes after v1.
 - `packaging/`: the Windows installer script.
 
