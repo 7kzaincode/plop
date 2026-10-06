@@ -410,4 +410,31 @@ void main() {
     expect(File('${out.path}/ok.txt').existsSync(), isTrue);
     expect(File('${c.root.path}/x/escaped.txt').existsSync(), isFalse);
   });
+
+  test('unpacking a folder ignores symlinks that chain outside', () async {
+    c = await Cluster.start(1);
+    // Made with Python's zipfile: a/b/l -> .., a/b/l/m -> ../../escaped,
+    // then a/b/l/m/pwned.txt. Each link looks harmless on its own.
+    final zip = File('${c.root.path}/evil.zip')
+      ..writeAsBytesSync(
+        base64.decode(
+          'UEsDBBQAAAAAAAAAIQAcFgiWAgAAAAIAAAAFAAAAYS9iL2wuLlBLAwQUAAAAAAAAACEA'
+          'vbvtlg0AAAANAAAABwAAAGEvYi9sL20uLi8uLi9lc2NhcGVkUEsDBBQAAAAAAKsGRl1+'
+          'UwTZBQAAAAUAAAARAAAAYS9iL2wvbS9wd25lZC50eHRwd25lZFBLAQIUAxQAAAAAAAAA'
+          'IQAcFgiWAgAAAAIAAAAFAAAAAAAAAAAAAAD/oQAAAABhL2IvbFBLAQIUAxQAAAAAAAAA'
+          'IQC9u+2WDQAAAA0AAAAHAAAAAAAAAAAAAAD/oSUAAABhL2IvbC9tUEsBAhQDFAAAAAAA'
+          'qwZGXX5TBNkFAAAABQAAABEAAAAAAAAAAAAAAIABVwAAAGEvYi9sL20vcHduZWQudHh0'
+          'UEsFBgAAAAADAAMApwAAAIsAAAAAAA==',
+        ),
+      );
+    final escaped = Directory('${c.root.path}/x/escaped')
+      ..createSync(recursive: true);
+    final out = Directory('${c.root.path}/x/out');
+    await extractFolder(zip.path, out.path);
+    expect(File('${escaped.path}/pwned.txt').existsSync(), isFalse);
+    expect(
+      out.listSync(recursive: true, followLinks: false).whereType<Link>(),
+      isEmpty,
+    );
+  });
 }

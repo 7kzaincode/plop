@@ -7,10 +7,36 @@ import 'package:archive/archive_io.dart';
 
 import 'item.dart';
 
-/// Unpacks a folder item's zip into [outDir]. Entries that would land outside
-/// [outDir] are skipped by the archive package.
+/// Unpacks a folder item's zip into [outDir]. Only plain files and folders
+/// are written: symlinks are skipped (plop never sends them, and a chain of
+/// them can steer later entries outside [outDir]), as are names with `..`.
 Future<void> extractFolder(String zipPath, String outDir) =>
-    Isolate.run(() => extractFileToDisk(zipPath, outDir));
+    Isolate.run(() async {
+      await Directory(outDir).create(recursive: true);
+      final input = InputFileStream(zipPath);
+      try {
+        for (final f in ZipDecoder().decodeStream(input)) {
+          final parts = f.name.split(RegExp(r'[/\\]'))
+            ..removeWhere((s) => s.isEmpty || s == '.');
+          if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
+            continue;
+          }
+          final path = [outDir, ...parts].join(Platform.pathSeparator);
+          if (f.isDirectory) {
+            await Directory(path).create(recursive: true);
+            continue;
+          }
+          final out = OutputFileStream(path); // creates parent folders
+          try {
+            f.writeContent(out);
+          } finally {
+            await out.close();
+          }
+        }
+      } finally {
+        await input.close();
+      }
+    });
 
 class ItemTooLargeException implements Exception {
   ItemTooLargeException(this.size, this.max);
