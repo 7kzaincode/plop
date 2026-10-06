@@ -32,7 +32,8 @@ jobs:
         include:
           - { target: macos, os: macos-latest }
           - { target: windows, os: windows-latest }
-          - { target: linux, os: ubuntu-latest }
+          # Pinned: the build host's glibc is the oldest one plop runs on.
+          - { target: linux, os: ubuntu-24.04 }
           - { target: android, os: ubuntu-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
