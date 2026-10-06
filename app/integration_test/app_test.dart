@@ -14,6 +14,7 @@ import 'package:plop/bonsoir_discovery.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/main.dart';
 import 'package:plop/settings.dart';
+import 'package:plop/window.dart';
 import 'package:plop_core/plop_core.dart';
 
 void main() {
@@ -37,6 +38,9 @@ void main() {
   testWidgets('a peer found over Bonjour shows up and can be grabbed', (
     tester,
   ) async {
+    // The Swift side answers on the window channel (macOS only).
+    await MacWindow.init();
+    if (Platform.isMacOS) expect(MacWindow.titlebar, greaterThanOrEqualTo(28));
     final tmp = await getTemporaryDirectory();
     outDir = Directory('${tmp.path}/it-out')..createSync(recursive: true);
     final me = await PlopNode.start(
@@ -135,9 +139,10 @@ void main() {
       await saved.delete(recursive: true);
 
       // Big file: fetched on demand straight into Downloads.
+      // The folder's toast may still be up, so wait for the file itself.
       await tester.tap(find.text(bigName));
-      await waitFor(tester, find.textContaining('saved to Downloads'));
       final file = File('$downloads/$bigName');
+      await waitFor(tester, find.byWidgetPredicate((_) => file.existsSync()));
       expect(await file.length(), defaultEagerCopyBytes + 1024);
       await file.delete();
     }

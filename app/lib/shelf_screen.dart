@@ -10,6 +10,7 @@ import 'hotkeys.dart';
 import 'settings.dart';
 import 'theme.dart';
 import 'type_icons.dart';
+import 'window.dart';
 
 /// How long to wait for a peer before saying none were found.
 const _peerGrace = Duration(seconds: 6);
@@ -360,23 +361,28 @@ class _TopBar extends StatelessWidget {
     final menuShape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(6),
     );
-    return SizedBox(
-      height: 44,
+    // macOS: the bar shares the title bar's row, right of the traffic
+    // lights, and dragging it moves the window.
+    final mac = MacWindow.titlebar > 0;
+    final bar = SizedBox(
+      height: mac ? MacWindow.titlebar : 44,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: EdgeInsets.only(left: mac ? 78 : 12, right: 12),
         child: Row(
           children: [
-            const SizedBox(width: 4),
-            Image.asset('assets/brand/logo.png', height: 16),
-            const SizedBox(width: 8),
-            Text(
-              'plop',
-              style: monoStyle(
-                size: 13,
-                color: Palette.text,
-                weight: FontWeight.w500,
+            if (!mac) ...[
+              const SizedBox(width: 4),
+              Image.asset('assets/brand/logo.png', height: 16),
+              const SizedBox(width: 8),
+              Text(
+                'plop',
+                style: monoStyle(
+                  size: 13,
+                  color: Palette.text,
+                  weight: FontWeight.w500,
+                ),
               ),
-            ),
+            ],
             const Spacer(),
             Tooltip(
               message: ['you · $self', ...peers].join('\n'),
@@ -461,6 +467,20 @@ class _TopBar extends StatelessWidget {
           ],
         ),
       ),
+    );
+    if (!mac) return bar;
+    return Stack(
+      children: [
+        // Behind the controls, so it never competes with them for taps.
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (_) => MacWindow.drag(),
+            onDoubleTap: MacWindow.zoom,
+          ),
+        ),
+        bar,
+      ],
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 /// A near-black, mostly monochrome palette. Overlays are translucent white so
@@ -35,7 +37,11 @@ TextStyle monoStyle({
 ThemeData plopTheme() {
   final base = ThemeData(
     brightness: Brightness.dark,
-    scaffoldBackgroundColor: Palette.bg,
+    // On macOS the window is frosted glass; 78% black keeps text legible
+    // over any wallpaper.
+    scaffoldBackgroundColor: Platform.isMacOS
+        ? const Color(0xC70A0A0A)
+        : Palette.bg,
     canvasColor: Palette.bg,
     fontFamily: sans,
     colorScheme: const ColorScheme.dark(

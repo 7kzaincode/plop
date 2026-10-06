@@ -11,10 +11,20 @@ import 'hotkeys.dart';
 import 'settings.dart';
 import 'shelf_screen.dart';
 import 'theme.dart';
+import 'window.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await MacWindow.init();
+  try {
+    await _start();
+  } catch (e) {
+    // Never leave a blank window: say what went wrong instead.
+    runApp(_StartupError(e));
+  }
+}
 
+Future<void> _start() async {
   // PLOP_INSTANCE lets two copies run side by side on one machine (each needs
   // its own scratch dirs, since they are wiped on launch).
   final instance = Platform.environment['PLOP_INSTANCE'];
@@ -22,7 +32,11 @@ Future<void> main() async {
   final tmp = (await getTemporaryDirectory()).path;
   final sep = Platform.pathSeparator;
   outDir = Directory('$tmp${sep}plop-out$suffix');
-  if (outDir.existsSync()) outDir.deleteSync(recursive: true);
+  try {
+    if (outDir.existsSync()) outDir.deleteSync(recursive: true);
+  } on FileSystemException {
+    // A file still open elsewhere (Windows); leftovers are harmless.
+  }
   outDir.createSync(recursive: true);
 
   var name = await deviceName();
@@ -38,7 +52,11 @@ Future<void> main() async {
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
-  await Hotkeys.register(node, (msg) => screen.currentState?.toast(msg));
+  try {
+    await Hotkeys.register(node, (msg) => screen.currentState?.toast(msg));
+  } catch (_) {
+    // Another app owns the shortcut, or the platform has none.
+  }
 }
 
 /// Debug builds only: put something on the shelf at launch, for testing
@@ -67,5 +85,30 @@ class PlopApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: plopTheme(),
     home: ShelfScreen(key: screenKey, node: node, settings: settings),
+  );
+}
+
+class _StartupError extends StatelessWidget {
+  const _StartupError(this.error);
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'plop',
+    debugShowCheckedModeBanner: false,
+    theme: plopTheme(),
+    home: Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: SelectableText(
+            "plop couldn't start\n\n$error"
+            '${Platform.isLinux ? '\n\nis avahi-daemon running?' : ''}',
+            textAlign: TextAlign.center,
+            style: monoStyle(color: Palette.dim),
+          ),
+        ),
+      ),
+    ),
   );
 }

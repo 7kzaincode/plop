@@ -137,7 +137,11 @@ void main() {
     await tester.pumpWidget(
       RepaintBoundary(
         key: key,
-        child: PlopApp(node: me, settings: settings, screenKey: screenKey),
+        // The macOS canvas is translucent; give screenshots a backdrop.
+        child: ColoredBox(
+          color: const Color(0xFF0A0A0A),
+          child: PlopApp(node: me, settings: settings, screenKey: screenKey),
+        ),
       ),
     );
     // Let thumbnails decode and entry animations finish.
