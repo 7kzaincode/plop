@@ -214,8 +214,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
               ],
               if (LoginItem.supported)
                 _row(
-                  'open plop at login',
+                  _loginLabel,
                   _Toggle(
+                    label: _loginLabel,
                     value: _login ?? false,
                     onChanged: _login == null ? null : _toggleLogin,
                   ),
@@ -278,56 +279,117 @@ class _Key extends StatelessWidget {
   );
 }
 
+const _loginLabel = 'open plop at login';
+
 /// A hand-drawn on/off switch in the panel's hairline language: 34x18, the
 /// track fills with the text colour when on. Material's Switch is 48px tall
-/// with a hover halo the theme cannot turn off.
-class _Toggle extends StatelessWidget {
-  const _Toggle({required this.value, required this.onChanged});
+/// with a hover halo the theme cannot turn off; this keeps its manners
+/// though: Tab reaches it, Space or Enter flips it, a hairline ring shows
+/// focus, and assistive tech hears the row's [label].
+class _Toggle extends StatefulWidget {
+  const _Toggle({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+  final String label;
   final bool value;
   final ValueChanged<bool>? onChanged; // null while loading
 
   @override
+  State<_Toggle> createState() => _ToggleState();
+}
+
+class _ToggleState extends State<_Toggle> {
+  bool _focused = false;
+
+  static final _flipKeys = [
+    const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
+    const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
+  ];
+
+  @override
   Widget build(BuildContext context) {
-    final enabled = onChanged != null;
+    final value = widget.value;
+    final enabled = widget.onChanged != null;
+    void flip() => widget.onChanged?.call(!value);
     const quick = Duration(milliseconds: 150);
     return Semantics(
+      label: widget.label,
       button: true,
       toggled: value,
       enabled: enabled,
-      child: _Hover(
-        enabled: enabled,
-        builder: (_, hover) => GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: enabled ? () => onChanged!(!value) : null,
-          child: Opacity(
-            opacity: enabled ? 1 : 0.5,
-            child: AnimatedContainer(
-              duration: quick,
-              width: 34,
-              height: 18,
-              padding: const EdgeInsets.all(2),
-              decoration: BoxDecoration(
-                color: value ? Palette.text : Colors.transparent,
-                border: Border.all(
-                  color: value
-                      ? Palette.text
-                      : hover
-                      ? Palette.dim
-                      : Palette.border,
-                ),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: AnimatedAlign(
-                duration: quick,
-                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: value ? Palette.bg : Palette.dim,
-                    shape: BoxShape.circle,
+      child: Focus(
+        canRequestFocus: enabled,
+        onFocusChange: (f) => setState(() => _focused = f),
+        onKeyEvent: (_, e) {
+          if (!_flipKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
+            return KeyEventResult.ignored;
+          }
+          flip();
+          return KeyEventResult.handled;
+        },
+        child: _Hover(
+          enabled: enabled,
+          builder: (_, hover) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: enabled ? flip : null,
+            // The padding draws nothing; it makes the target 34x30.
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Opacity(
+                    opacity: enabled ? 1 : 0.5,
+                    child: AnimatedContainer(
+                      duration: quick,
+                      width: 34,
+                      height: 18,
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: value ? Palette.text : Colors.transparent,
+                        border: Border.all(
+                          color: value
+                              ? Palette.text
+                              : hover || _focused
+                              ? Palette.dim
+                              : Palette.border,
+                        ),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: AnimatedAlign(
+                        duration: quick,
+                        alignment: value
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: value ? Palette.bg : Palette.dim,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  // The focus ring stands 3px off the pill, outside its box,
+                  // so the pill keeps its place against the row's edge.
+                  if (_focused)
+                    Positioned.fill(
+                      left: -3,
+                      top: -3,
+                      right: -3,
+                      bottom: -3,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Palette.border),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),

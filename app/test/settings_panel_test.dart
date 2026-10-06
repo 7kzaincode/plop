@@ -70,6 +70,24 @@ void main() {
     expect(toggled(true), findsOneWidget);
     expect(on, isTrue);
     expect(find.textContaining("couldn't change"), findsNothing);
+
+    // Tab reaches it (nothing else in the panel takes focus); Space flips
+    // it back, Enter flips it again.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    final inside = find.descendant(
+      of: toggled(true),
+      matching: find.byType(GestureDetector),
+    );
+    expect(Focus.of(tester.element(inside)).hasPrimaryFocus, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(toggled(false), findsOneWidget);
+    expect(on, isFalse);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(toggled(true), findsOneWidget);
+    expect(on, isTrue);
   }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
 
   testWidgets('a Shift-only combo is refused and recording goes on', (
