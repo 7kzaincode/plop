@@ -103,11 +103,16 @@ class _Places {
 
   String _free(String parent, String name, {required bool isDir}) {
     var path = '$parent${Platform.pathSeparator}$name';
-    for (var n = 1; !_taken.add(path); n++) {
+    for (var n = 1; !_taken.add(_key(path)); n++) {
       path = '$parent${Platform.pathSeparator}${_numbered(name, n, isDir)}';
     }
     return path;
   }
+
+  /// macOS and Windows file systems ignore case, so `A.txt` and `a.txt`
+  /// from a Linux sender would otherwise land on each other.
+  static String _key(String path) =>
+      Platform.isMacOS || Platform.isWindows ? path.toLowerCase() : path;
 
   /// `name (n)`, or `stem (n).ext` for a file with an extension. A dotfile
   /// has none: `.env (1)`.
