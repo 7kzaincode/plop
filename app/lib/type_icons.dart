@@ -115,7 +115,7 @@ class TypeIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final glyph = size * 0.46;
+    final glyph = size * 0.52;
     return SizedBox(
       width: size,
       height: size,

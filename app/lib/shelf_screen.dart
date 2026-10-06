@@ -576,7 +576,7 @@ class _Hairline extends StatelessWidget {
         FractionallySizedBox(
           widthFactor: fraction,
           child: Container(
-            color: bright ? Palette.text : const Color(0xFF3A3A3A),
+            color: bright ? Palette.text : const Color(0xFF2C2C2C),
           ),
         ),
       ],

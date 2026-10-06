@@ -94,6 +94,13 @@ void main() {
     final bigItem = me.items.firstWhere((i) => i.name == bigName);
     expect(bigItem.isReady, isFalse, reason: 'over the eager cap');
 
+    // Let entry animations and the thumbnail decode finish.
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 60)),
+      );
+      await tester.pump(const Duration(milliseconds: 60));
+    }
     await tester.runAsync(() async {
       final boundary =
           shot.currentContext!.findRenderObject()! as RenderRepaintBoundary;
