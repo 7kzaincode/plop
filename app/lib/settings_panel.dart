@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -192,6 +193,16 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                       style: monoStyle(size: 11),
                     ),
                   ),
+                ),
+                const Divider(height: 20, color: Palette.line),
+              ],
+              // The README promises shortcuts on Linux; say why they are
+              // missing rather than leave the panel wordless.
+              if (Platform.isLinux && !Hotkeys.supported) ...[
+                Text(
+                  'shortcuts need an X11 (Xorg) session · '
+                  'not available on Wayland',
+                  style: monoStyle(size: 11),
                 ),
                 const Divider(height: 20, color: Palette.line),
               ],
