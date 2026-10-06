@@ -1,8 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+
+import 'package:archive/archive_io.dart';
 
 import 'item.dart';
+
+/// Unpacks a folder item's zip into [outDir]. Entries that would land outside
+/// [outDir] are skipped by the archive package.
+Future<void> extractFolder(String zipPath, String outDir) =>
+    Isolate.run(() => extractFileToDisk(zipPath, outDir));
 
 class ItemTooLargeException implements Exception {
   ItemTooLargeException(this.size, this.max);
@@ -28,7 +36,9 @@ class ShelfStore {
 
   /// Scratch directory owned by this store. Wiped by [init].
   final Directory dir;
-  final Duration ttl;
+
+  /// Lifetime given to items added from now on.
+  Duration ttl;
   final int maxItemBytes;
 
   final _items = <String, ShelfItem>{};
@@ -61,17 +71,50 @@ class ShelfStore {
     await dir.create(recursive: true);
   }
 
+  /// Puts a file or folder on the shelf.
+  Future<ShelfItem> addPath(String path) async =>
+      await FileSystemEntity.isDirectory(path)
+      ? addFolder(path)
+      : addFile(path);
+
   /// Puts a file on the shelf. The file is served in place, not copied.
   Future<ShelfItem> addFile(String path, {String? name}) async {
     final size = await File(path).length();
     _checkSize(size);
-    name ??= path.split(Platform.pathSeparator).last;
+    name ??= _baseName(path);
     return _addLocal(
       name: name,
       size: size,
       kind: ItemKind.file,
       path: path,
       ownsFile: false,
+    );
+  }
+
+  /// Puts a folder on the shelf as a zip of its contents. Files are stored
+  /// uncompressed: zipping is for bundling, and the LAN is fast.
+  Future<ShelfItem> addFolder(String path) async {
+    final name = _baseName(path);
+    final id = randomId();
+    final zip = _itemPath(nodeId, id, '$name.zip');
+    await File(zip).parent.create(recursive: true);
+    await Isolate.run(() async {
+      final enc = ZipFileEncoder()..create(zip, level: ZipFileEncoder.store);
+      await enc.addDirectory(Directory(path), includeDirName: false);
+      await enc.close();
+    });
+    final size = await File(zip).length();
+    if (size > maxItemBytes) {
+      _deleteItemDir(nodeId, id);
+      throw ItemTooLargeException(size, maxItemBytes);
+    }
+    return _addLocal(
+      id: id,
+      name: name,
+      size: size,
+      kind: ItemKind.folder,
+      path: zip,
+      ownsFile: true,
     );
   }
 
@@ -122,9 +165,14 @@ class ShelfStore {
       originName: nodeName,
       name: name,
       size: size,
-      mime: kind == ItemKind.text ? 'text/plain; charset=utf-8' : mimeFor(name),
+      mime: switch (kind) {
+        ItemKind.text => 'text/plain; charset=utf-8',
+        ItemKind.folder => 'application/zip',
+        ItemKind.file => mimeFor(name),
+      },
       kind: kind,
       expiresAt: DateTime.now().add(ttl),
+      ttl: ttl,
       path: path,
       ownsFile: ownsFile,
     );
@@ -154,17 +202,15 @@ class ShelfStore {
       mime: r.mime,
       kind: r.kind,
       expiresAt: DateTime.now().add(ttl),
+      ttl: ttl,
     );
     _insert(item, ttl);
     return item;
   }
 
   /// Where a mirror's bytes should be downloaded to.
-  String downloadPath(ShelfItem item) => _itemPath(
-    item.originId,
-    item.id,
-    item.kind == ItemKind.text ? 'text.txt' : item.name,
-  );
+  String downloadPath(ShelfItem item) =>
+      _itemPath(item.originId, item.id, transferName(item));
 
   void setProgress(String key, double? progress) {
     final item = _items[key];
@@ -210,6 +256,10 @@ class ShelfStore {
       _itemDir(originId, id),
     ).delete(recursive: true).then((_) {}, onError: (_) {});
   }
+
+  static String _baseName(String path) => path
+      .split(RegExp(r'[/\\]'))
+      .lastWhere((s) => s.isNotEmpty, orElse: () => 'item');
 
   Future<void> dispose() async {
     for (final t in _timers.values) {

@@ -32,10 +32,13 @@ Plain HTTP on the advertised port. Only items this node originated are served.
 ]
 ```
 
-- `kind` is `file` or `text`. For `text`, the bytes are UTF-8 and `name` is a
-  short label (the first line).
+- `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
+  `name` is a short label (the first line). For `folder`, the bytes are a zip
+  of the folder's contents (stored, not compressed) and `name` is the folder
+  name. A node that does not know a kind treats it as `file`.
 - `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:
-  clocks on a LAN disagree.
+  clocks on a LAN disagree. The sender picks the lifetime (2 minutes by
+  default); it can differ per item.
 
 ### `GET /v1/items/{id}`
 
@@ -59,7 +62,10 @@ the header the receiver re-fetches all peers. Responds `204`.
 - Items at or under 25 MB are downloaded as soon as they are seen ("eager
   copy"), so they survive the sender's app being suspended. Larger items are
   fetched on tap.
-- Items over 2 GB are refused, both locally and from peers.
+- Items over 100 GB are refused, both locally and from peers.
+- A download that has started is allowed to finish after the item expires
+  (the origin keeps streaming an open file), so large transfers are not cut
+  off. A new `GET` after expiry still gets `404`.
 - Mirrored copies are never re-served. Only the origin serves an item.
 - Peer gone (mDNS lost event, or 3 failed polls in a row): keep fully copied
   items until their timers end; drop items that were never copied.

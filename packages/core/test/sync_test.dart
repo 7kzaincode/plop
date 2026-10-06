@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive_io.dart';
 import 'package:plop_core/plop_core.dart';
 import 'package:test/test.dart';
 
@@ -300,5 +301,80 @@ void main() {
     );
     c = Cluster._([n], [d], root);
     expect(stale.existsSync(), isFalse);
+  });
+
+  test('folders travel as a zip and unpack to the same tree', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    final src = Directory('${c.root.path}/My Project');
+    File('${src.path}/readme.md').createSync(recursive: true);
+    File('${src.path}/readme.md').writeAsStringSync('hi');
+    File('${src.path}/src/deep/main.dart').createSync(recursive: true);
+    File(
+      '${src.path}/src/deep/main.dart',
+    ).writeAsBytesSync(List.filled(5000, 9));
+
+    final item = await a.addPath(src.path);
+    expect(item.kind, ItemKind.folder);
+    expect(item.name, 'My Project');
+
+    await eventually(() => b.items.any((i) => i.isReady));
+    final mirror = b.items.single;
+    expect(mirror.kind, ItemKind.folder);
+    expect(mirror.path, endsWith('My Project.zip'));
+
+    final out = '${c.root.path}/out';
+    await extractFolder(mirror.path!, out);
+    expect(File('$out/readme.md').readAsStringSync(), 'hi');
+    expect(File('$out/src/deep/main.dart').lengthSync(), 5000);
+  });
+
+  test('saveTo writes outside the store and outlives the item', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 2),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    final big = await a.addBytes(List.filled(3 * 1024 * 1024, 5), 'big.bin');
+    await eventually(() => b.items.isNotEmpty);
+
+    final dest = '${c.root.path}/saved.bin';
+    await b.saveTo(itemKey(a.id, big.id), dest);
+    expect(File(dest).lengthSync(), 3 * 1024 * 1024);
+    expect(b.items.single.isReady, isFalse, reason: 'saveTo is not a mirror');
+
+    await eventually(
+      () => b.items.isEmpty,
+      timeout: const Duration(seconds: 4),
+    );
+    expect(File(dest).existsSync(), isTrue);
+  });
+
+  test('lifetime can change; each item keeps its own', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    final first = await a.addText('first');
+    a.ttl = const Duration(minutes: 10);
+    final second = await a.addText('second');
+    expect(first.ttl, const Duration(seconds: 30));
+    expect(second.ttl, const Duration(minutes: 10));
+
+    await eventually(() => b.items.length == 2);
+    final m = b.store[itemKey(a.id, second.id)]!;
+    expect(m.ttl.inSeconds, inInclusiveRange(595, 600));
+  });
+
+  test('unpacking a folder never writes outside the target', () async {
+    c = await Cluster.start(1);
+    final evil = Archive()
+      ..add(ArchiveFile.bytes('../escaped.txt', [1, 2, 3]))
+      ..add(ArchiveFile.bytes('ok.txt', [4]));
+    final zip = File('${c.root.path}/evil.zip')
+      ..writeAsBytesSync(ZipEncoder().encode(evil));
+    final out = Directory('${c.root.path}/x/out');
+    await extractFolder(zip.path, out.path);
+    expect(File('${out.path}/ok.txt').existsSync(), isTrue);
+    expect(File('${c.root.path}/x/escaped.txt').existsSync(), isFalse);
   });
 }

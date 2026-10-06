@@ -1,6 +1,7 @@
 import 'dart:math';
 
-enum ItemKind { file, text }
+/// `folder` items travel as a zip of the folder's contents.
+enum ItemKind { file, text, folder }
 
 /// Default time an item stays on the shelf.
 const defaultTtl = Duration(seconds: 120);
@@ -8,8 +9,9 @@ const defaultTtl = Duration(seconds: 120);
 /// Items at or under this size are copied as soon as they appear on a peer.
 const defaultEagerCopyBytes = 25 * 1024 * 1024;
 
-/// Hard per-item cap, so a stray drop cannot fill a disk.
-const defaultMaxItemBytes = 2 * 1024 * 1024 * 1024;
+/// Hard per-item cap. Large items are only ever downloaded on request, so
+/// this just guards against absurd sizes.
+const defaultMaxItemBytes = 100 * 1024 * 1024 * 1024;
 
 /// An item on this node's shelf: either one it originated or a mirror of a
 /// peer's item.
@@ -23,6 +25,7 @@ class ShelfItem {
     required this.mime,
     required this.kind,
     required this.expiresAt,
+    required this.ttl,
     this.path,
     this.ownsFile = true,
   });
@@ -35,6 +38,9 @@ class ShelfItem {
   final String mime;
   final ItemKind kind;
   final DateTime expiresAt;
+
+  /// Total lifetime as this node first saw it, for drawing a countdown.
+  final Duration ttl;
 
   /// Where the bytes live on this device. Null until a mirror is downloaded.
   String? path;
@@ -66,6 +72,13 @@ class ShelfItem {
 
 String itemKey(String originId, String id) => '$originId/$id';
 
+/// File name for an item's bytes on disk.
+String transferName(ShelfItem item) => switch (item.kind) {
+  ItemKind.text => 'text.txt',
+  ItemKind.folder => '${item.name}.zip',
+  ItemKind.file => item.name,
+};
+
 /// An entry from a peer's `GET /v1/items` list.
 class RemoteItem {
   RemoteItem({
@@ -82,7 +95,8 @@ class RemoteItem {
     name: j['name'] as String,
     size: (j['size'] as num).toInt(),
     mime: j['mime'] as String? ?? 'application/octet-stream',
-    kind: j['kind'] == 'text' ? ItemKind.text : ItemKind.file,
+    // Unknown kinds from newer peers degrade to plain files.
+    kind: ItemKind.values.asNameMap()[j['kind']] ?? ItemKind.file,
     ttlMs: (j['ttlMs'] as num).toInt(),
   );
 

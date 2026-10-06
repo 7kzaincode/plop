@@ -79,6 +79,12 @@ class PlopNode {
     return c.stream;
   }
 
+  /// Lifetime for items added from now on.
+  Duration get ttl => store.ttl;
+  set ttl(Duration d) => store.ttl = d;
+
+  /// Adds a file or a folder.
+  Future<ShelfItem> addPath(String path) => store.addPath(path);
   Future<ShelfItem> addFile(String path, {String? name}) =>
       store.addFile(path, name: name);
   Future<ShelfItem> addBytes(List<int> bytes, String name) =>
@@ -88,6 +94,10 @@ class PlopNode {
 
   /// Local path of an item's bytes, downloading first if needed.
   Future<String> fetch(String key) => engine.fetch(key);
+
+  /// Copies an item to [destPath]; see [SyncEngine.saveTo].
+  Future<void> saveTo(String key, String destPath) =>
+      engine.saveTo(key, destPath);
 
   Future<void> stop() async {
     await discovery.stop();

@@ -154,21 +154,57 @@ class SyncEngine {
   }
 
   /// Returns the local path of an item, downloading it first if needed.
+  /// The file is deleted when the item expires; use [saveTo] to keep it.
   Future<String> fetch(String key) {
     final item = store[key];
     if (item == null) return Future.error(StateError('item expired'));
     if (item.isReady) return Future.value(item.path!);
     // The callback must not return the removed future: whenComplete would
     // wait on it, and it is the future being completed.
-    return _downloads[key] ??= _download(item).whenComplete(() {
+    return _downloads[key] ??= _mirror(item).whenComplete(() {
       _downloads.remove(key);
     });
   }
 
-  Future<String> _download(ShelfItem item) async {
+  /// Puts a copy of an item at [destPath], downloading straight there when
+  /// this node does not have it yet. A transfer that has started finishes even
+  /// if the item expires meanwhile, so large items are not cut off.
+  Future<void> saveTo(String key, String destPath) async {
+    final item = store[key];
+    if (item == null) throw StateError('item expired');
+    if (item.isReady) {
+      await File(item.path!).copy(destPath);
+      return;
+    }
+    if (item.size <= eagerCopyBytes) {
+      // Small: share the mirror download rather than fetching twice.
+      await File(await fetch(key)).copy(destPath);
+      return;
+    }
+    await _transfer(item, destPath);
+    store.setProgress(key, null);
+  }
+
+  Future<String> _mirror(ShelfItem item) async {
+    final dest = store.downloadPath(item);
+    try {
+      await _transfer(item, dest);
+    } catch (_) {
+      store.setProgress(item.key, null);
+      rethrow;
+    }
+    if (store[item.key] == null) {
+      // Expired while downloading; its directory is already gone.
+      await File(dest).delete().catchError((_) => File(dest));
+      throw StateError('item expired');
+    }
+    store.markReady(item.key, dest);
+    return dest;
+  }
+
+  Future<void> _transfer(ShelfItem item, String dest) async {
     final s = _peers[item.originId];
     if (s == null) throw StateError('sender is gone');
-    final dest = store.downloadPath(item);
     store.setProgress(item.key, 0);
     var lastStep = 0;
     Object? lastError;
@@ -187,19 +223,11 @@ class SyncEngine {
             }
           },
         );
-        if (store[item.key] == null) {
-          // Expired while downloading.
-          await File(dest).delete().catchError((_) => File(dest));
-          throw StateError('item expired');
-        }
-        store.markReady(item.key, dest);
-        return dest;
+        return;
       } catch (e) {
         lastError = e;
-        if (e is StateError) rethrow;
       }
     }
-    store.setProgress(item.key, null);
     throw lastError ?? StateError('no address for sender');
   }
 
