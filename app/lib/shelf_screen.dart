@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,7 +22,27 @@ const _second = Duration(seconds: 1);
 /// Items fade out over this final stretch of their time.
 const _fadeOut = Duration(seconds: 5);
 
+/// Padding around a desktop icon button. The countdown that swaps places
+/// with the icons uses the same inset, so the row's right edge holds still.
+const _iconInset = 6.0;
+
 final _mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
+
+/// ⌘ on macOS, Ctrl elsewhere. No repeats: a held ⌘V would plop the
+/// clipboard once per repeat.
+SingleActivator _cmd(LogicalKeyboardKey k) => SingleActivator(
+  k,
+  meta: Platform.isMacOS,
+  control: !Platform.isMacOS,
+  includeRepeats: false,
+);
+
+/// The two ways to grab: the shelf applies them to the newest item, a
+/// focused row to itself.
+final _grabKeys = [
+  const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
+  _cmd(LogicalKeyboardKey.keyC),
+];
 
 class ShelfScreen extends StatefulWidget {
   const ShelfScreen({super.key, required this.node, required this.settings});
@@ -43,6 +64,7 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   String? _toast; // null when hidden
   String _toastText = ''; // kept so the pill fades out with its text
+  String? _toastAction; // the tappable word after the message
   VoidCallback? _toastTap;
   Timer? _toastTimer;
 
@@ -53,6 +75,10 @@ class ShelfScreenState extends State<ShelfScreen> {
   /// Items with a grab in flight. Enter and ⌘C skip the row's own guard, and
   /// two saves of a big item would race on the same .part file.
   final _inFlight = <String>{};
+
+  /// Where keyboard focus rests: the shelf itself, so Enter and ⌘C grab the
+  /// newest item. Tab and the arrows move it onto a row; Esc brings it back.
+  final _focus = FocusNode();
 
   PlopNode get node => widget.node;
 
@@ -90,21 +116,34 @@ class ShelfScreenState extends State<ShelfScreen> {
     _changes.cancel();
     _tick.cancel();
     _toastTimer?.cancel();
+    _focus.dispose();
     super.dispose();
   }
 
   /// Shows a short message. [onTap] makes it clickable and keeps it up
-  /// longer; [sticky] keeps it until the next message.
-  void toast(String? msg, {VoidCallback? onTap, bool sticky = false}) {
+  /// longer, with [action] naming what the tap does; [sticky] keeps it until
+  /// the next message.
+  void toast(
+    String? msg, {
+    String? action,
+    VoidCallback? onTap,
+    bool sticky = false,
+  }) {
     _toastTimer?.cancel();
     setState(() {
       _toast = msg;
-      if (msg != null) _toastText = msg;
+      if (msg != null) {
+        _toastText = msg;
+        _toastAction = action;
+      }
       _toastTap = msg == null ? null : onTap;
     });
     if (msg == null || sticky) return;
+    // Reading time: 1.8 s plus 40 ms per character past the first 20, so
+    // "plopped clipboard" is brief and the Screen Recording steps get ~5 s.
+    final ms = min(6000, 1800 + 40 * (msg.length - 20));
     _toastTimer = Timer(
-      Duration(milliseconds: onTap == null ? 1800 : 4000),
+      Duration(milliseconds: max(onTap == null ? 1800 : 4000, ms)),
       () {
         if (mounted) setState(() => _toast = _toastTap = null);
       },
@@ -142,7 +181,7 @@ class ShelfScreenState extends State<ShelfScreen> {
     final path = await saveItem(node, item);
     _saved[item.key] = path;
     final where = path.split(Platform.pathSeparator).reversed.skip(1).first;
-    toast('saved to $where  ·  show', onTap: () => reveal(path));
+    toast('saved to $where', action: 'show', onTap: () => reveal(path));
     return null;
   }
 
@@ -174,7 +213,8 @@ class ShelfScreenState extends State<ShelfScreen> {
   Future<String?> paste() async =>
       await pasteInto(node) ? null : 'nothing to paste';
 
-  /// ⌘C / Enter: grab the newest thing someone else put on the shelf.
+  /// ⌘C / Enter with no row focused: grab the newest thing someone else put
+  /// on the shelf.
   void _grabNewest() {
     final it = node.items.where((i) => i.originId != node.id).firstOrNull;
     if (it != null) _act(context, it, actionsFor(it).first);
@@ -253,7 +293,11 @@ class ShelfScreenState extends State<ShelfScreen> {
               child: AnimatedOpacity(
                 opacity: _toast == null ? 0 : 1,
                 duration: const Duration(milliseconds: 150),
-                child: _Toast(_toastText, onTap: _toastTap),
+                child: _Toast(
+                  _toastText,
+                  action: _toastAction,
+                  onTap: _toastTap,
+                ),
               ),
             ),
           ),
@@ -261,23 +305,28 @@ class ShelfScreenState extends State<ShelfScreen> {
       ],
     );
 
-    // No repeats: a held ⌘V would plop the clipboard once per repeat.
-    SingleActivator cmd(LogicalKeyboardKey k) => SingleActivator(
-      k,
-      meta: Platform.isMacOS,
-      control: !Platform.isMacOS,
-      includeRepeats: false,
-    );
     return CallbackShortcuts(
       bindings: {
-        cmd(LogicalKeyboardKey.keyV): () => run(paste),
-        cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
-        cmd(LogicalKeyboardKey.keyC): _grabNewest,
-        const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false):
-            _grabNewest,
+        _cmd(LogicalKeyboardKey.keyV): () => run(paste),
+        _cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
+        const SingleActivator(LogicalKeyboardKey.escape): _focus.requestFocus,
       },
       child: Focus(
+        focusNode: _focus,
         autofocus: true,
+        // Tab goes straight to the controls and rows, never back here.
+        skipTraversal: true,
+        // Enter and ⌘C grab the newest item only while the shelf itself has
+        // focus. Not a shortcut above the tree: that would see Enter before
+        // a focused TTL chip or row does and grab instead of activating it.
+        onKeyEvent: (node, e) {
+          if (!node.hasPrimaryFocus ||
+              !_grabKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
+            return KeyEventResult.ignored;
+          }
+          _grabNewest();
+          return KeyEventResult.handled;
+        },
         child: Scaffold(
           body: SafeArea(
             child: wrapDropTarget(
@@ -374,10 +423,15 @@ class ShelfScreenState extends State<ShelfScreen> {
 }
 
 /// What to check when peers can see this device but cannot connect to it.
+/// Phones have no firewall of their own, and the other device's firewall
+/// only guards what comes in to it; what keeps it from reaching us is a
+/// Mac without Local Network permission for plop.
 String _inboundHint() => Platform.isWindows
     ? 'Windows Security › Firewall › Allow an app › plop (Private and Public)'
     : Platform.isMacOS
     ? 'System Settings › Network › Firewall › allow plop'
+    : Platform.isIOS || Platform.isAndroid
+    ? 'check the other device · a Mac needs Local Network permission for plop'
     : 'a firewall here is blocking incoming connections';
 
 /// What to check when no other device shows up.
@@ -421,9 +475,6 @@ class _TopBar extends StatelessWidget {
         : searching
         ? (Palette.faint, 'looking…')
         : (Palette.faint, 'just you');
-    final menuShape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(6),
-    );
     // macOS: the bar shares the title bar's row, right of the traffic
     // lights, and dragging it moves the window.
     final mac = MacWindow.titlebar > 0;
@@ -433,7 +484,9 @@ class _TopBar extends StatelessWidget {
         padding: EdgeInsets.only(left: mac ? 78 : 12, right: 12),
         child: Row(
           children: [
-            if (!mac) ...[
+            // Desktop windows already carry the name in their title bar;
+            // only phones need the wordmark here.
+            if (!isDesktop) ...[
               const SizedBox(width: 4),
               Image.asset('assets/brand/logo.png', height: 16),
               const SizedBox(width: 8),
@@ -490,13 +543,13 @@ class _TopBar extends StatelessWidget {
                     ),
                   ),
               ],
-              child: _Chip(icon: Icons.timer_outlined, label: formatTtl(ttl)),
+              child: _Chip(icon: Icons.timer_rounded, label: formatTtl(ttl)),
             ),
             if (isDesktop) ...[
               const SizedBox(width: 4),
               if (Platform.isMacOS)
                 _IconAction(
-                  icon: Icons.add,
+                  icon: Icons.add_rounded,
                   tip: 'add files or folders (⌘O)',
                   onTap: onAddFiles,
                 )
@@ -505,7 +558,6 @@ class _TopBar extends StatelessWidget {
                   tooltip: 'add (Ctrl+O)',
                   position: PopupMenuPosition.under,
                   borderRadius: BorderRadius.circular(6),
-                  shape: menuShape,
                   onSelected: (folder) => folder ? onAddFolder() : onAddFiles(),
                   itemBuilder: (_) => [
                     PopupMenuItem(
@@ -525,10 +577,7 @@ class _TopBar extends StatelessWidget {
                       ),
                     ),
                   ],
-                  child: const Padding(
-                    padding: EdgeInsets.all(6),
-                    child: Icon(Icons.add, size: 16, color: Palette.dim),
-                  ),
+                  child: const _HoverIcon(Icons.add_rounded),
                 ),
               _IconAction(
                 icon: Icons.tune_rounded,
@@ -579,6 +628,7 @@ class _Row extends StatefulWidget {
 
 class _RowState extends State<_Row> {
   bool _hover = false;
+  bool _focused = false; // keyboard focus, via Tab or the arrows
   bool _flash = false;
   bool _busy = false;
 
@@ -649,79 +699,95 @@ class _RowState extends State<_Row> {
       style: monoStyle(color: ending ? Palette.warn : Palette.dim),
     );
 
-    final row = MouseRegion(
-      cursor: actions.isEmpty ? MouseCursor.defer : SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: actions.isEmpty ? null : () => _act(actions.first),
-        child: Container(
-          color: _flash
-              ? Palette.pressed
-              : _hover
-              ? Palette.hover
-              : Colors.transparent,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                child: Row(
-                  children: [
-                    _Leading(item),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13.5,
-                              color: Palette.text,
-                              height: 1.25,
+    // A focused row looks hovered, plus a hairline ring, and Enter or ⌘C
+    // does what a click would. Rows with nothing to do are skipped.
+    final lit = _hover || _focused;
+    final row = Focus(
+      canRequestFocus: actions.isNotEmpty,
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, e) {
+        // Keys also bubble up from a focused child icon, e.g. the × on an
+        // own folder row, which has no actions of its own.
+        if (actions.isEmpty ||
+            !_grabKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
+          return KeyEventResult.ignored;
+        }
+        _act(actions.first);
+        return KeyEventResult.handled;
+      },
+      child: MouseRegion(
+        cursor: actions.isEmpty ? MouseCursor.defer : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: actions.isEmpty ? null : () => _act(actions.first),
+          child: Container(
+            color: _flash
+                ? Palette.pressed
+                : lit
+                ? Palette.hover
+                : Colors.transparent,
+            foregroundDecoration: _focused
+                ? BoxDecoration(border: Border.all(color: Palette.border))
+                : null,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                  child: Row(
+                    children: [
+                      _Leading(item),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _Name(item),
+                            const SizedBox(height: 3),
+                            Text(
+                              meta,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: monoStyle(size: 11),
                             ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            meta,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: monoStyle(size: 11),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    // Desktop: one fixed slot that swaps the countdown for the
-                    // actions on hover, so the name never reflows.
-                    if (isDesktop)
-                      SizedBox(
-                        width: 60,
-                        child: _hover && icons.isNotEmpty
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: icons,
-                              )
-                            : Align(
-                                alignment: Alignment.centerRight,
-                                child: countdown,
-                              ),
-                      )
-                    else ...[
-                      ...icons,
-                      const SizedBox(width: 6),
-                      SizedBox(width: 44, child: countdown),
+                      // Desktop: one fixed slot that swaps the countdown for the
+                      // actions on hover, so the name never reflows.
+                      if (isDesktop)
+                        SizedBox(
+                          width: 60,
+                          child: lit && icons.isNotEmpty
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: icons,
+                                )
+                              : Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(
+                                      right: _iconInset,
+                                    ),
+                                    child: countdown,
+                                  ),
+                                ),
+                        )
+                      else ...[
+                        ...icons,
+                        const SizedBox(width: 6),
+                        SizedBox(width: 44, child: countdown),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              _Hairline(
-                fraction: item.progress ?? fraction,
-                bright: item.progress != null,
-              ),
-            ],
+                _Hairline(
+                  fraction: item.progress ?? fraction,
+                  bright: item.progress != null,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -759,6 +825,89 @@ class _RowState extends State<_Row> {
   }
 }
 
+/// The item's name on one line. A long file name truncates in the middle,
+/// never at the end: the tail is what tells "…at 14.23.11.png" from "…at
+/// 14.23.14.png" or "v3" from "v3 (copy)". Text items have no such tail and
+/// keep the end ellipsis; so do names in a right-to-left script, where a
+/// head and a tail laid out left to right would swap places.
+class _Name extends StatelessWidget {
+  const _Name(this.item);
+  final ShelfItem item;
+
+  static const _style = TextStyle(
+    fontSize: 13.5,
+    color: Palette.text,
+    height: 1.25,
+  );
+
+  /// Hebrew through Arabic Extended-A.
+  static final _rtl = RegExp(r'[\u0590-\u08FF]');
+
+  @override
+  Widget build(BuildContext context) {
+    final name = item.name;
+    if (item.kind == ItemKind.text || _rtl.hasMatch(name)) return _end(name);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        // Measure in the style Text will draw with, so the tail's measured
+        // width is the width it takes in the row.
+        var style = DefaultTextStyle.of(context).style.merge(_style);
+        if (MediaQuery.boldTextOf(context)) {
+          style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
+        }
+        final painter = TextPainter(
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          locale: Localizations.maybeLocaleOf(context),
+          maxLines: 1,
+        );
+        double widthOf(String s) {
+          painter
+            ..text = TextSpan(text: s, style: style)
+            ..layout();
+          return painter.width;
+        }
+
+        try {
+          if (!width.isFinite || widthOf(name) <= width) {
+            return Text(name, maxLines: 1, softWrap: false, style: _style);
+          }
+          // Counted in grapheme clusters, not UTF-16 units: a cut inside an
+          // emoji or a combining mark would leave half a character on each
+          // side. The tail cannot shrink, so it gives up characters until it
+          // takes at most half the width; otherwise a wide script (CJK runs
+          // a full em per character) pushes the row past its edge.
+          final chars = name.characters;
+          var keep = min(12, chars.length ~/ 2);
+          while (keep > 0 &&
+              widthOf(chars.takeLast(keep).toString()) > width / 2) {
+            keep--;
+          }
+          if (keep == 0) return _end(name);
+          return Row(
+            children: [
+              Flexible(child: _end(chars.skipLast(keep).toString())),
+              Text(chars.takeLast(keep).toString(), style: _style),
+            ],
+          );
+        } finally {
+          painter.dispose();
+        }
+      },
+    );
+  }
+
+  /// One line, giving way at the end.
+  static Widget _end(String s) => Text(
+    s,
+    maxLines: 1,
+    softWrap: false,
+    overflow: TextOverflow.ellipsis,
+    style: _style,
+  );
+}
+
 /// Type icon, or a bucket-shaped thumbnail once an image is on this device.
 class _Leading extends StatelessWidget {
   const _Leading(this.item);
@@ -783,7 +932,9 @@ class _Leading extends StatelessWidget {
   }
 }
 
-/// The row divider, doubling as a countdown (or download progress) bar.
+/// The row divider, doubling as a countdown (or download progress) bar. The
+/// fill is opaque: translucent white on [Palette.line] came out a shade
+/// nobody could tell from the line itself.
 class _Hairline extends StatelessWidget {
   const _Hairline({required this.fraction, required this.bright});
   final double fraction;
@@ -797,9 +948,7 @@ class _Hairline extends StatelessWidget {
         Container(color: Palette.line),
         FractionallySizedBox(
           widthFactor: fraction,
-          child: Container(
-            color: bright ? Palette.text : const Color(0x12FFFFFF),
-          ),
+          child: Container(color: bright ? Palette.text : Palette.faint),
         ),
       ],
     ),
@@ -821,40 +970,92 @@ class _IconAction extends StatefulWidget {
 }
 
 class _IconActionState extends State<_IconAction> {
-  bool _hover = false;
   bool _flash = false;
+  bool _focused = false;
+
+  static final _activateKeys = [
+    const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
+    const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
+  ];
+
+  void _tap() {
+    setState(() => _flash = true);
+    Timer(const Duration(milliseconds: 160), () {
+      if (mounted) setState(() => _flash = false);
+    });
+    widget.onTap();
+  }
 
   @override
   Widget build(BuildContext context) => Tooltip(
     message: widget.tip,
-    child: MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
+    // Tab reaches it; Enter or Space is a tap, with the hairline ring while
+    // focused. The keys are handled here rather than left to ActivateIntent
+    // because a row's own Focus sits above and would take Enter first.
+    child: Focus(
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, e) {
+        if (!_activateKeys.any(
+          (k) => k.accepts(e, HardwareKeyboard.instance),
+        )) {
+          return KeyEventResult.ignored;
+        }
+        _tap();
+        return KeyEventResult.handled;
+      },
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          setState(() => _flash = true);
-          Timer(const Duration(milliseconds: 160), () {
-            if (mounted) setState(() => _flash = false);
-          });
-          widget.onTap();
-        },
-        child: Container(
-          // Phones get a 36x40 target that still fits the row height.
-          padding: isDesktop
-              ? const EdgeInsets.all(6)
-              : const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        onTap: _tap,
+        child: DecoratedBox(
           decoration: BoxDecoration(
             color: _flash ? Palette.pressed : null,
+            border: _focused ? Border.all(color: Palette.border) : null,
             borderRadius: BorderRadius.circular(6),
           ),
-          child: Icon(
+          child: _HoverIcon(
             widget.icon,
-            size: 16,
-            color: _hover ? Palette.text : Palette.dim,
+            lit: _focused,
+            // Phones get a 36x40 target that still fits the row height.
+            padding: isDesktop
+                ? const EdgeInsets.all(_iconInset)
+                : const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           ),
         ),
+      ),
+    ),
+  );
+}
+
+/// A 16px glyph that brightens under the pointer, or while [lit]; the
+/// padding is part of the hover target.
+class _HoverIcon extends StatefulWidget {
+  const _HoverIcon(
+    this.icon, {
+    this.lit = false,
+    this.padding = const EdgeInsets.all(_iconInset),
+  });
+  final IconData icon;
+  final bool lit;
+  final EdgeInsets padding;
+
+  @override
+  State<_HoverIcon> createState() => _HoverIconState();
+}
+
+class _HoverIconState extends State<_HoverIcon> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: SystemMouseCursors.click,
+    onEnter: (_) => setState(() => _hover = true),
+    onExit: (_) => setState(() => _hover = false),
+    child: Padding(
+      padding: widget.padding,
+      child: Icon(
+        widget.icon,
+        size: 16,
+        color: _hover || widget.lit ? Palette.text : Palette.dim,
       ),
     ),
   );
@@ -944,9 +1145,13 @@ class _DropOverlay extends StatelessWidget {
   );
 }
 
+/// The message pill. With an [action] the message goes dim and the action
+/// word takes the text colour, the app's usual passive/active split, so it
+/// reads as something to click rather than the end of a sentence.
 class _Toast extends StatelessWidget {
-  const _Toast(this.text, {this.onTap});
+  const _Toast(this.text, {this.action, this.onTap});
   final String text;
+  final String? action;
   final VoidCallback? onTap;
 
   @override
@@ -961,13 +1166,61 @@ class _Toast extends StatelessWidget {
           border: Border.all(color: const Color(0xFF2A2A2A)),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text(
-          text,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: monoStyle(color: Palette.text),
-        ),
+        child: action == null
+            ? Text(
+                text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: monoStyle(color: Palette.text),
+              )
+            // Inline while it fits in two lines; otherwise the action gets
+            // its own line, so the ellipsis can only ever eat the message,
+            // never the one word that says what a tap does.
+            : LayoutBuilder(
+                builder: (context, c) {
+                  final span = TextSpan(
+                    text: text,
+                    style: monoStyle(color: Palette.dim),
+                    children: [
+                      TextSpan(
+                        text: '  ·  $action',
+                        style: monoStyle(color: Palette.text),
+                      ),
+                    ],
+                  );
+                  final p = TextPainter(
+                    text: span,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    textDirection: TextDirection.ltr,
+                    textScaler: MediaQuery.textScalerOf(context),
+                  )..layout(maxWidth: c.maxWidth);
+                  final over = p.didExceedMaxLines;
+                  p.dispose();
+                  if (!over) {
+                    return Text.rich(
+                      span,
+                      maxLines: 2,
+                      textAlign: TextAlign.center,
+                    );
+                  }
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        text,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: monoStyle(color: Palette.dim),
+                      ),
+                      Text('·  $action', style: monoStyle(color: Palette.text)),
+                    ],
+                  );
+                },
+              ),
       ),
     ),
   );

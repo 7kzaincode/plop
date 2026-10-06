@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -107,11 +108,14 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     // can never strand the panel on "…" with the shortcuts paused.
     _stopRecording(apply: true);
     setState(() => _note = null);
-    try {
-      widget.settings.setHotkey(which, k);
-    } catch (_) {
-      setState(() => _note = "couldn't save that; it works until plop quits");
-    }
+    // Future.sync also catches a synchronous throw while encoding the key.
+    Future.sync(() => widget.settings.setHotkey(which, k)).catchError((_) {
+      if (mounted) {
+        setState(() {
+          _note = "couldn't save that · it works until plop quits";
+        });
+      }
+    });
     return true;
   }
 
@@ -119,9 +123,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _stopRecording(apply: false);
     Hotkeys.snip = Hotkeys.defaultSnip;
     Hotkeys.clip = Hotkeys.defaultClip;
-    widget.settings
-      ..setHotkey('snip', null)
-      ..setHotkey('clip', null);
+    widget.settings.setHotkey('snip', null).ignore();
+    widget.settings.setHotkey('clip', null).ignore();
     Hotkeys.apply();
     setState(() => _note = null);
   }
@@ -180,34 +183,42 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 ),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    onPressed: _reset,
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(0, 28),
-                      foregroundColor: Palette.dim,
-                    ),
-                    child: Text(
-                      'reset to defaults',
-                      style: monoStyle(size: 11),
+                  child: _Hover(
+                    builder: (_, hover) => GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _reset,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Text(
+                          'reset to defaults',
+                          style: monoStyle(
+                            size: 11,
+                            color: hover ? Palette.text : Palette.dim,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
                 const Divider(height: 20, color: Palette.line),
               ],
+              // The README promises shortcuts on Linux; say why they are
+              // missing rather than leave the panel wordless.
+              if (Platform.isLinux && !Hotkeys.supported) ...[
+                Text(
+                  'shortcuts need an X11 (Xorg) session · '
+                  'not available on Wayland',
+                  style: monoStyle(size: 11),
+                ),
+                const Divider(height: 20, color: Palette.line),
+              ],
               if (LoginItem.supported)
                 _row(
-                  'open plop at login',
-                  Switch(
+                  _loginLabel,
+                  _Toggle(
+                    label: _loginLabel,
                     value: _login ?? false,
                     onChanged: _login == null ? null : _toggleLogin,
-                    activeTrackColor: Palette.text,
-                    activeThumbColor: Palette.bg,
-                    inactiveTrackColor: const Color(0xFF2A2A2A),
-                    inactiveThumbColor: Palette.dim,
-                    trackOutlineColor: const WidgetStatePropertyAll(
-                      Colors.transparent,
-                    ),
                   ),
                   label,
                 ),
@@ -241,16 +252,21 @@ class _Key extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: SystemMouseCursors.click,
-    child: GestureDetector(
+  Widget build(BuildContext context) => _Hover(
+    builder: (_, hover) => GestureDetector(
       onTap: onTap,
       child: Container(
         constraints: const BoxConstraints(minWidth: 64),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: active ? const Color(0x1FFFFFFF) : null,
-          border: Border.all(color: active ? Palette.text : Palette.border),
+          border: Border.all(
+            color: active
+                ? Palette.text
+                : hover
+                ? Palette.dim
+                : Palette.border,
+          ),
           borderRadius: BorderRadius.circular(6),
         ),
         child: Text(
@@ -260,5 +276,147 @@ class _Key extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+const _loginLabel = 'open plop at login';
+
+/// A hand-drawn on/off switch in the panel's hairline language: 34x18, the
+/// track fills with the text colour when on. Material's Switch is 48px tall
+/// with a hover halo the theme cannot turn off; this keeps its manners
+/// though: Tab reaches it, Space or Enter flips it, a hairline ring shows
+/// focus, and assistive tech hears the row's [label].
+class _Toggle extends StatefulWidget {
+  const _Toggle({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+  final String label;
+  final bool value;
+  final ValueChanged<bool>? onChanged; // null while loading
+
+  @override
+  State<_Toggle> createState() => _ToggleState();
+}
+
+class _ToggleState extends State<_Toggle> {
+  bool _focused = false;
+
+  static final _flipKeys = [
+    const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
+    const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final value = widget.value;
+    final enabled = widget.onChanged != null;
+    void flip() => widget.onChanged?.call(!value);
+    const quick = Duration(milliseconds: 150);
+    return Semantics(
+      label: widget.label,
+      button: true,
+      toggled: value,
+      enabled: enabled,
+      child: Focus(
+        canRequestFocus: enabled,
+        onFocusChange: (f) => setState(() => _focused = f),
+        onKeyEvent: (_, e) {
+          if (!_flipKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
+            return KeyEventResult.ignored;
+          }
+          flip();
+          return KeyEventResult.handled;
+        },
+        child: _Hover(
+          enabled: enabled,
+          builder: (_, hover) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: enabled ? flip : null,
+            // The padding draws nothing; it makes the target 34x30.
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Opacity(
+                    opacity: enabled ? 1 : 0.5,
+                    child: AnimatedContainer(
+                      duration: quick,
+                      width: 34,
+                      height: 18,
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: value ? Palette.text : Colors.transparent,
+                        border: Border.all(
+                          color: value
+                              ? Palette.text
+                              : hover || _focused
+                              ? Palette.dim
+                              : Palette.border,
+                        ),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: AnimatedAlign(
+                        duration: quick,
+                        alignment: value
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: value ? Palette.bg : Palette.dim,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // The focus ring stands 3px off the pill, outside its box,
+                  // so the pill keeps its place against the row's edge.
+                  if (_focused)
+                    Positioned.fill(
+                      left: -3,
+                      top: -3,
+                      right: -3,
+                      bottom: -3,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Palette.border),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Click cursor plus a hover flag for the panel's hand-drawn controls.
+class _Hover extends StatefulWidget {
+  const _Hover({required this.builder, this.enabled = true});
+  final Widget Function(BuildContext context, bool hover) builder;
+  final bool enabled;
+
+  @override
+  State<_Hover> createState() => _HoverState();
+}
+
+class _HoverState extends State<_Hover> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+    cursor: widget.enabled ? SystemMouseCursors.click : MouseCursor.defer,
+    onEnter: (_) => setState(() => _hover = true),
+    onExit: (_) => setState(() => _hover = false),
+    child: widget.builder(context, _hover && widget.enabled),
   );
 }

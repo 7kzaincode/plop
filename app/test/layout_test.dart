@@ -199,6 +199,8 @@ void main() {
 
         screen.currentState!.toast(
           'saved to Downloads/Quarterly report FINAL final v3.pdf',
+          action: 'show',
+          onTap: () {},
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 200));
