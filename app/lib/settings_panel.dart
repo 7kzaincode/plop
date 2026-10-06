@@ -145,6 +145,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   @override
   Widget build(BuildContext context) {
     final label = monoStyle(color: Palette.text);
+    final mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
     return Dialog(
       backgroundColor: const Color(0xFF111111),
       elevation: 0,
@@ -191,18 +192,24 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   alignment: Alignment.centerLeft,
                   child: _Link('reset to defaults', onTap: _reset),
                 ),
-                const Divider(height: 20, color: Palette.line),
               ],
               // The README promises shortcuts on Linux; say why they are
               // missing rather than leave the panel wordless.
-              if (Platform.isLinux && !Hotkeys.supported) ...[
+              if (Platform.isLinux && !Hotkeys.supported)
                 Text(
                   'shortcuts need an X11 (Xorg) session · '
                   'not available on Wayland',
                   style: monoStyle(size: 11),
                 ),
-                const Divider(height: 20, color: Palette.line),
-              ],
+              // The window's own keys, which nothing else in the app spells
+              // out; they work on Wayland too.
+              const SizedBox(height: 6),
+              Text(
+                'in the window: ${mod}V paste · ${mod}O add · '
+                '${mod}C or ↩ grab the newest',
+                style: monoStyle(size: 11, color: Palette.faint),
+              ),
+              const Divider(height: 20, color: Palette.line),
               if (LoginItem.supported)
                 _row(
                   _loginLabel,
