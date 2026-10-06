@@ -72,10 +72,15 @@ class ShelfScreenState extends State<ShelfScreen> {
         setState(() {});
       }
     });
-    // Coming back from the background: phones lose their socket and Bonjour
-    // registration while suspended, so bring networking back and re-poll.
+    // Coming back from the background: phones may lose their socket while
+    // suspended, so probe it, restart if needed and re-poll. Only iOS also
+    // drops its Bonjour registration; Android's NsdManager keeps it for the
+    // life of the process, and a forced re-advertise there is a goodbye that
+    // makes peers drop our rows and re-add them a moment later. (revive
+    // re-advertises on its own when the socket did die.)
     _lifecycle = AppLifecycleListener(
-      onRestart: () => node.revive(rebroadcast: !isDesktop).catchError((_) {}),
+      onRestart: () =>
+          node.revive(rebroadcast: Platform.isIOS).catchError((_) {}),
     );
   }
 
