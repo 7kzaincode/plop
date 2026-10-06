@@ -87,14 +87,15 @@ void main() {
   tearDown(() => c.stop());
 
   test('A adds a file, B mirrors it, both drop it at expiry', () async {
-    c = await Cluster.start(2, ttl: const Duration(seconds: 3));
+    // Often the first test to run: the ttl outlasts the default wait for the
+    // mirror, so a cold JIT cannot expire the item before it is checked.
+    c = await Cluster.start(2, ttl: const Duration(seconds: 6));
     final [a, b] = c.nodes;
     final src = await tempFile(c.root, 'photo.png', 100 * 1024);
     final item = await a.addFile(src.path);
 
     await eventually(
       () => b.items.any((i) => i.id == item.id && i.isReady),
-      timeout: const Duration(seconds: 2),
       reason: 'B did not mirror the item',
     );
     final mirror = b.items.single;
@@ -103,11 +104,11 @@ void main() {
     expect(mirror.originName, 'node0');
     expect(await File(mirror.path!).readAsBytes(), await src.readAsBytes());
     // B's countdown is based on A's remaining time, not reset to a full TTL.
-    expect(mirror.remaining, lessThanOrEqualTo(const Duration(seconds: 3)));
+    expect(mirror.remaining, lessThanOrEqualTo(const Duration(seconds: 6)));
 
     await eventually(
       () => a.items.isEmpty && b.items.isEmpty,
-      timeout: const Duration(seconds: 4),
+      timeout: const Duration(seconds: 8),
       reason: 'item did not expire on both nodes',
     );
     expect(
@@ -406,6 +407,67 @@ void main() {
     await input.close();
   }, skip: Platform.isWindows ? 'creating symlinks needs admin rights' : false);
 
+  test('folders keep the executable bit, and only that', () async {
+    c = await Cluster.start(1);
+    final [a] = c.nodes;
+    final src = Directory('${c.root.path}/tool');
+    File('${src.path}/run.sh')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('#!/bin/sh\n');
+    File('${src.path}/notes.txt').writeAsStringSync('hi');
+    // Dart has no chmod. 0700 and 0600: only the x bit should come through,
+    // the rw bits of both should be the receiver's own.
+    await Process.run('chmod', ['700', '${src.path}/run.sh']);
+    await Process.run('chmod', ['600', '${src.path}/notes.txt']);
+
+    final item = await a.addPath(src.path);
+    final out = '${c.root.path}/out';
+    await extractFolder(item.path!, out);
+    int perms(String name) => File('$out/$name').statSync().mode & 0x1ff;
+    expect(perms('run.sh') & 0x40, 0x40, reason: 'u+x lost');
+    expect(perms('run.sh') & 0x1b6, perms('notes.txt'), reason: 'rw differ');
+    expect(perms('notes.txt') & 0x49, 0, reason: 'x bit invented');
+    // Readable by all under the usual umask, so executable by all too.
+    if (perms('notes.txt') == 0x1a4) expect(perms('run.sh'), 0x1ed);
+  }, skip: Platform.isWindows ? 'no executable bit' : false);
+
+  test('links that stay inside a folder travel as copies', () async {
+    c = await Cluster.start(1);
+    final [a] = c.nodes;
+    final src = Directory('${c.root.path}/dropped');
+    File('${src.path}/Versions/A/lib')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('lib');
+    Link('${src.path}/Versions/Current').createSync('A');
+    Link('${src.path}/latest').createSync('Versions/A/lib');
+    Link('${src.path}/gone').createSync('missing');
+    Link('${src.path}/up').createSync('..');
+
+    final item = await a.addPath(src.path);
+    final input = InputFileStream(item.path!);
+    final names = ZipDecoder().decodeStream(input).map((f) => f.name);
+    expect(names, {
+      'Versions/',
+      'Versions/A/',
+      'Versions/A/lib',
+      'Versions/Current/',
+      'Versions/Current/lib',
+      'latest',
+    });
+    await input.close();
+
+    final out = '${c.root.path}/out';
+    await extractFolder(item.path!, out);
+    for (final p in ['$out/Versions/Current/lib', '$out/latest']) {
+      expect(
+        FileSystemEntity.typeSync(p, followLinks: false),
+        FileSystemEntityType.file,
+        reason: p,
+      );
+      expect(File(p).readAsStringSync(), 'lib');
+    }
+  }, skip: Platform.isWindows ? 'creating symlinks needs admin rights' : false);
+
   test('saveTo writes outside the store and outlives the item', () async {
     c = await Cluster.start(
       2,
@@ -456,26 +518,31 @@ void main() {
       if (req.uri.path.endsWith('/gone')) {
         res.statusCode = HttpStatus.notFound;
       } else {
-        res.add(List.filled(64 * 1024, 1)); // more than advertised
+        // 'ok' sends what was advertised; anything else sends more.
+        final n = req.uri.path.endsWith('/ok') ? 1000 : 64 * 1024;
+        res.add(List.filled(n, 1));
       }
       res.close().ignore(); // the client may hang up first
     });
+    final base = Uri.parse('http://127.0.0.1:${liar.port}');
     final client = NodeClient();
     addTearDown(client.close);
     final dest = '${c.root.path}/got.bin';
     for (final id in ['x', 'gone']) {
       await expectLater(
-        client.download(
-          Uri.parse('http://127.0.0.1:${liar.port}'),
-          id,
-          dest,
-          expectedSize: 1000,
-        ),
+        client.download(base, id, dest, expectedSize: 1000),
         throwsA(isA<HttpException>()),
       );
       expect(File('$dest.part').existsSync(), isFalse, reason: id);
       expect(File(dest).existsSync(), isFalse, reason: id);
     }
+    // The bytes all arrived but the rename failed, here onto a folder.
+    final blocked = Directory('${c.root.path}/blocked.bin')..createSync();
+    await expectLater(
+      client.download(base, 'ok', blocked.path, expectedSize: 1000),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(File('${blocked.path}.part').existsSync(), isFalse);
   });
 
   test('lifetime can change; each item keeps its own', () async {

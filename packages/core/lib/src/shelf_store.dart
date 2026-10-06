@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -10,6 +11,8 @@ import 'item.dart';
 /// Unpacks a folder item's zip into [outDir]. Only plain files and folders
 /// are written: symlinks are skipped (plop never sends them, and a chain of
 /// them can steer later entries outside [outDir]), as are names with `..`.
+/// Of the sender's permissions only the executable bit is kept, so a script
+/// or binary still runs; the rest is the receiver's business.
 Future<void> extractFolder(String zipPath, String outDir) =>
     Isolate.run(() async {
       await Directory(outDir).create(recursive: true);
@@ -32,37 +35,109 @@ Future<void> extractFolder(String zipPath, String outDir) =>
           } finally {
             await out.close();
           }
+          if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
+            _setExecutable(path);
+          }
         }
       } finally {
         await input.close();
       }
     });
 
+/// Makes [path] executable for whoever can already read it, as `chmod +x`
+/// would under the receiver's umask. dart:io cannot change permissions, so
+/// this calls libc; not for Windows, which has no executable bit.
+void _setExecutable(String path) {
+  final mode = File(path).statSync().mode;
+  final bytes = utf8.encode(path);
+  final cPath = _malloc(bytes.length + 1);
+  cPath.asTypedList(bytes.length + 1)
+    ..setAll(0, bytes)
+    ..[bytes.length] = 0;
+  try {
+    _chmod(cPath, (mode | (mode & 0x124) >> 2) & 0xfff);
+  } finally {
+    _free(cPath);
+  }
+}
+
+final _libc = DynamicLibrary.process();
+final _chmod = _libc
+    .lookupFunction<
+      Int32 Function(Pointer<Uint8>, Uint32),
+      int Function(Pointer<Uint8>, int)
+    >('chmod');
+final _malloc = _libc
+    .lookupFunction<
+      Pointer<Uint8> Function(Size),
+      Pointer<Uint8> Function(int)
+    >('malloc');
+final _free = _libc
+    .lookupFunction<
+      Void Function(Pointer<Uint8>),
+      void Function(Pointer<Uint8>)
+    >('free');
+
 /// Writes the contents of [dir] to [zip]. Entries are stored with
 /// [CompressionType.none], which the archive package streams; it would
-/// deflate anything else into memory whole. Links are skipped, not followed:
-/// they can point outside the folder.
+/// deflate anything else into memory whole. Links are never followed out of
+/// the folder: one whose target is inside it goes in as a copy of the target
+/// (a framework's `Versions/Current -> A`; on Windows, a cloud placeholder,
+/// which is listed as a link to itself), one that leads outside is skipped.
 Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
-  final entries = Directory(dir).listSync(recursive: true, followLinks: false);
+  final root = Directory(dir).resolveSymbolicLinksSync();
+  final entries = <(String, FileStat)>[];
+  // [above] holds the real paths of the folders being walked, to break loops.
+  void walk(String path, Set<String> above) {
+    for (final e in Directory(path).listSync(followLinks: false)) {
+      final stat = e.statSync(); // a link's target
+      if (e is! Link && stat.type == FileSystemEntityType.file) {
+        entries.add((e.path, stat));
+        continue;
+      }
+      final String real;
+      try {
+        real = e.resolveSymbolicLinksSync();
+      } on FileSystemException {
+        continue; // dangling, or gone since it was listed
+      }
+      if (e is Link &&
+          real != root &&
+          !real.startsWith('$root${Platform.pathSeparator}')) {
+        continue; // leads outside the folder
+      }
+      if (stat.type == FileSystemEntityType.file) {
+        entries.add((e.path, stat));
+      } else if (stat.type == FileSystemEntityType.directory) {
+        if (!above.add(real)) continue; // a loop
+        entries.add((e.path, stat));
+        walk(e.path, above);
+        above.remove(real);
+      }
+    }
+  }
+
+  walk(dir, {root});
   // Refuse before writing anything rather than after copying it all.
-  final total = entries.whereType<File>().fold(0, (n, f) => n + f.lengthSync());
+  final total = entries
+      .where((e) => e.$2.type == FileSystemEntityType.file)
+      .fold(0, (n, e) => n + e.$2.size);
   if (total > maxBytes) throw ItemTooLargeException(total, maxBytes);
   final enc = ZipFileEncoder()..create(zip);
-  for (final e in entries) {
-    final name = e.path
+  for (final (path, stat) in entries) {
+    final name = path
         .substring(dir.length)
         .replaceFirst(RegExp(r'^[/\\]+'), '');
-    final ArchiveFile f;
-    if (e is File) {
-      f = ArchiveFile.stream(name, InputFileStream(e.path))
-        ..lastModTime = e.lastModifiedSync().millisecondsSinceEpoch ~/ 1000;
-    } else if (e is Directory) {
-      f = ArchiveFile.directory(name);
-    } else {
-      continue; // a link
-    }
+    final f = stat.type == FileSystemEntityType.directory
+        ? ArchiveFile.directory(name)
+        : ArchiveFile.stream(name, InputFileStream(path));
     // Folder entries too: an empty "deflated" entry is invalid to unzip.
-    enc.addArchiveFile(f..compression = CompressionType.none);
+    enc.addArchiveFile(
+      f
+        ..mode = stat.mode
+        ..lastModTime = stat.modified.millisecondsSinceEpoch ~/ 1000
+        ..compression = CompressionType.none,
+    );
   }
   await enc.close();
 }

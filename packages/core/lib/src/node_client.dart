@@ -32,7 +32,8 @@ class NodeClient {
 
   /// Streams an item into [destPath]. Writes to a `.part` file and renames on
   /// success, so a half-written file is never mistaken for a complete one.
-  /// On any failure, including a full disk, the `.part` file is deleted.
+  /// On any failure, a full disk or a failed rename included, the `.part`
+  /// file is deleted.
   Future<void> download(
     Uri base,
     String id,
@@ -45,7 +46,7 @@ class NodeClient {
     await part.parent.create(recursive: true);
     final out = await part.open(mode: FileMode.write);
     var received = 0;
-    var ok = false;
+    var closed = false, ok = false;
     try {
       final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
       final res = await req.close().timeout(const Duration(seconds: 10));
@@ -71,12 +72,19 @@ class NodeClient {
           uri: base,
         );
       }
+      await out.close();
+      closed = true;
+      await part.rename(destPath);
       ok = true;
     } finally {
-      await out.close();
+      if (!closed) {
+        // Failing anyway; the error already in flight is the one to report.
+        try {
+          await out.close();
+        } catch (_) {}
+      }
       if (!ok) await part.delete().catchError((_) => part);
     }
-    await part.rename(destPath);
   }
 
   /// Tells a peer our list changed. Best effort: failures are ignored because
