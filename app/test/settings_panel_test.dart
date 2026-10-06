@@ -7,7 +7,8 @@ import 'package:plop/settings.dart';
 import 'package:plop/settings_panel.dart';
 
 void main() {
-  testWidgets('recording a shortcut shows it right away', (tester) async {
+  /// Opens the panel and starts recording the snip shortcut.
+  Future<Settings> startRecording(WidgetTester tester) async {
     debugDesktopOverride = true;
     addTearDown(() => debugDesktopOverride = null);
     final settings = Settings.inMemory();
@@ -27,6 +28,34 @@ void main() {
     await tester.tap(find.text(Hotkeys.snipLabel));
     await tester.pump();
     expect(find.text('…'), findsOneWidget);
+    return settings;
+  }
+
+  testWidgets('a Shift-only combo is refused and recording goes on', (
+    tester,
+  ) async {
+    final settings = await startRecording(tester);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.keyS);
+    await tester.pump();
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pump();
+
+    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+    expect(find.textContaining('everywhere'), findsOneWidget);
+    expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
+    expect(settings.hotkey('snip'), isNull);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.text('…'), findsNothing);
+    expect(find.text(Hotkeys.snipLabel), findsOneWidget);
+  });
+
+  testWidgets('recording a shortcut shows it right away', (tester) async {
+    final settings = await startRecording(tester);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);

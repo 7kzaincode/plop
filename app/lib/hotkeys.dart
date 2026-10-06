@@ -67,19 +67,47 @@ abstract final class Hotkeys {
       {...?a.modifiers}.containsAll({...?b.modifiers}) &&
       {...?b.modifiers}.containsAll({...?a.modifiers});
 
+  /// Why [k] must not become a system-wide shortcut, or null if it may. The
+  /// usual recorder rule: at least one of ⌃ ⌥ ⌘ (Shift alone would swallow a
+  /// typed character everywhere), function keys exempt, and ⌘/Ctrl plus a
+  /// letter is some app's everyday shortcut (⌘C, ⌘V, Ctrl+Z…).
+  static String? reject(HotKey k) {
+    final key = k.physicalKey;
+    final mods = k.modifiers ?? const <HotKeyModifier>[];
+    if (isFunctionKey(key)) return null;
+    if (!mods.any((m) => m != HotKeyModifier.shift)) {
+      final add = Platform.isMacOS ? 'add ⌃ ⌥ or ⌘' : 'add Ctrl, Alt or Win';
+      return '$add · ${label(k)} on its own would block typing '
+          '${keyName(key)} everywhere';
+    }
+    final primary = Platform.isMacOS
+        ? HotKeyModifier.meta
+        : HotKeyModifier.control;
+    if (mods.length == 1 && mods.single == primary && _isLetter(key)) {
+      return '${label(k)} is an everyday shortcut in other apps · '
+          'add another modifier';
+    }
+    return null;
+  }
+
+  /// F1–F12, which may stand alone or with any modifier.
+  static bool isFunctionKey(PhysicalKeyboardKey k) =>
+      k.usbHidUsage >= 0x0007003a && k.usbHidUsage <= 0x00070045;
+
+  static bool _isLetter(PhysicalKeyboardKey k) =>
+      k.usbHidUsage >= 0x00070004 && k.usbHidUsage <= 0x0007001d;
+
   /// A key's printed name from its USB HID usage code. PhysicalKeyboardKey's
   /// debugName is null in release builds, so it can't be used for this.
   static String keyName(PhysicalKeyboardKey key) {
     final u = key.usbHidUsage;
-    if (u >= 0x00070004 && u <= 0x0007001d) {
+    if (_isLetter(key)) {
       return String.fromCharCode(0x41 + u - 0x00070004); // A-Z
     }
     if (u >= 0x0007001e && u <= 0x00070026) {
       return '${u - 0x0007001e + 1}'; // 1-9
     }
-    if (u >= 0x0007003a && u <= 0x00070045) {
-      return 'F${u - 0x0007003a + 1}'; // F1-F12
-    }
+    if (isFunctionKey(key)) return 'F${u - 0x0007003a + 1}';
     return _keyNames[u] ?? '#${(u & 0xffff).toRadixString(16)}';
   }
 
