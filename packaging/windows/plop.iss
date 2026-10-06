@@ -33,6 +33,14 @@ Source: "..\..\app\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags:
 [Icons]
 Name: "{autoprograms}\plop"; Filename: "{app}\plop.exe"
 
+[Registry]
+; plop's "open at login" toggle writes this value (app/lib/login_item.dart).
+; ValueType none writes nothing at install, so upgrading keeps the user's
+; choice; uninsdeletevalue removes it at uninstall, or Windows would try to
+; start the deleted exe at every login. Like the firewall rule cleanup, this
+; assumes the account elevating is the one that installed.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "plop"; ValueType: none; Flags: uninsdeletevalue
+
 [Run]
 ; Let the other devices reach plop's server (a random port) on any network
 ; profile, since Windows marks newly joined Wi-Fi as Public, but only from the
