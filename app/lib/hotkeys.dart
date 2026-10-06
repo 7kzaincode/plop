@@ -253,13 +253,18 @@ abstract final class Hotkeys {
     if (!_askedForScreen) {
       _askedForScreen = true;
       if (call('CGRequestScreenCaptureAccess')) return;
-    } else {
-      Process.run('/usr/bin/open', [
-        'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
-      ]);
+      throw const PlopMessage(
+        'allow plop for Screen Recording, then quit plop (⌘Q) and reopen it',
+      );
     }
-    throw const PlopMessage(
-      'allow plop under Screen Recording in System Settings, then reopen plop',
+    Process.run('/usr/bin/open', [
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    ]);
+    // A switch that is already on usually belongs to an older build of plop,
+    // which macOS treats as a different app.
+    throw PlopMessage(
+      "plop isn't allowed yet · if it's already switched on, remove it with −, "
+      'press $snipLabel again, allow it, then reopen plop',
     );
   }
 

@@ -76,7 +76,9 @@ class Settings {
     } else {
       _data['hotkey.$name'] = {
         'key': k.physicalKey.usbHidUsage,
-        'mods': [for (final m in k.modifiers ?? const []) m.name],
+        'mods': [
+          for (final m in k.modifiers ?? const <HotKeyModifier>[]) m.name,
+        ],
       };
     }
     _save();

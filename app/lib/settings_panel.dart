@@ -98,9 +98,15 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     } else {
       Hotkeys.clip = k;
     }
-    widget.settings.setHotkey(which, k);
+    // Leave recording mode and re-register first, so a failure while saving
+    // can never strand the panel on "…" with the shortcuts paused.
     _stopRecording(apply: true);
     setState(() => _note = null);
+    try {
+      widget.settings.setHotkey(which, k);
+    } catch (_) {
+      setState(() => _note = "couldn't save that; it works until plop quits");
+    }
     return true;
   }
 
