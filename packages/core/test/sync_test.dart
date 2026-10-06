@@ -327,6 +327,26 @@ void main() {
     expect(path.split(Platform.pathSeparator), isNot(contains('..')));
   });
 
+  test('odd remote fields are refused or clamped', () async {
+    c = await Cluster.start(1);
+    final s = c.nodes.single.store;
+    Map<String, dynamic> json({
+      Object size = 1,
+      Object ttlMs = 1000,
+      String name = 'x',
+    }) => {'id': randomId(), 'name': name, 'size': size, 'ttlMs': ttlMs};
+    ShelfItem? add(Map<String, dynamic> j) =>
+        s.addRemote('p', 'p', RemoteItem.fromJson(j));
+    expect(add(json(size: -5)), isNull);
+    expect(add(json(size: 0)), isNotNull, reason: 'an empty file is legal');
+    // toInt() saturates to 2^63-1, which Duration would wrap to -1 ms.
+    final forever = add(json(ttlMs: 1e300))!;
+    expect(forever.ttl, ShelfStore.maxRemoteTtl);
+    expect(forever.expiresAt.isAfter(DateTime.now()), isTrue);
+    final long = add(json(name: 'n' * 10000))!;
+    expect(long.name.length, ShelfStore.maxNameLength);
+  });
+
   test('a node ignores its own advertisement', () async {
     c = await Cluster.start(1, ttl: const Duration(seconds: 30));
     final [a] = c.nodes;

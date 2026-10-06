@@ -38,6 +38,8 @@ shown as one-way (usually a firewall on this side).
 
 - `id` is 1–64 characters from `A-Z a-z 0-9 _ -` (plop sends 16 hex
   digits). Items with any other id are ignored.
+- `size` is 0 to the receiver's cap (100 GB); items outside that are
+  ignored. A `name` longer than 255 characters is cut to that.
 - `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
   `name` is a short label (the first line). For `folder`, the bytes are a zip
   of the folder's contents (stored, not compressed) and `name` is the folder
@@ -47,7 +49,7 @@ shown as one-way (usually a firewall on this side).
   leads outside. A node that does not know a kind treats it as `file`.
 - `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:
   clocks on a LAN disagree. The sender picks the lifetime (2 minutes by
-  default); it can differ per item.
+  default); it can differ per item. A receiver clamps it to 24 hours.
 
 ### `GET /v1/items/{id}`
 

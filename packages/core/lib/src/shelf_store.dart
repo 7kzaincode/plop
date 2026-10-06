@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
 import 'package:archive/archive_io.dart';
 
@@ -335,22 +336,37 @@ class ShelfStore {
     if (size > maxItemBytes) throw ItemTooLargeException(size, maxItemBytes);
   }
 
+  /// Longest lifetime accepted from a peer; the app itself offers 30 s–1 h.
+  static const maxRemoteTtl = Duration(hours: 24);
+
+  /// Longer peer-supplied names are cut; on disk they are already.
+  static const maxNameLength = 255;
+
   /// Records a peer's item. Returns the new mirror, or null if it was already
-  /// known, is over the size cap, or has an id that is not a plain token.
+  /// known, has a size outside 0..cap, or an id that is not a plain token.
+  /// An odd but honest peer still gets its item shown: a huge `ttlMs` is
+  /// clamped and a long name cut rather than refused.
   ShelfItem? addRemote(String peerId, String peerName, RemoteItem r) {
     final key = itemKey(peerId, r.id);
     if (!_validId.hasMatch(r.id) ||
         _items.containsKey(key) ||
+        r.size < 0 ||
         r.size > maxItemBytes ||
         r.ttlMs <= 0) {
       return null;
     }
-    final ttl = Duration(milliseconds: r.ttlMs);
+    // After toInt(): 1e300 saturates to 2^63-1, which Duration wraps negative.
+    final ttl = Duration(
+      milliseconds: min(r.ttlMs, maxRemoteTtl.inMilliseconds),
+    );
+    final name = r.name.length > maxNameLength
+        ? r.name.substring(0, maxNameLength)
+        : r.name;
     final item = ShelfItem(
       id: r.id,
       originId: peerId,
       originName: peerName,
-      name: r.name,
+      name: name,
       size: r.size,
       mime: r.mime,
       kind: r.kind,
