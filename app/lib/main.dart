@@ -7,6 +7,7 @@ import 'package:plop_core/plop_core.dart';
 
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
+import 'hotkeys.dart';
 import 'settings.dart';
 import 'shelf_screen.dart';
 import 'theme.dart';
@@ -35,7 +36,9 @@ Future<void> main() async {
     ttl: settings.ttl,
   );
   if (kDebugMode) await _seed(node);
-  runApp(PlopApp(node: node, settings: settings));
+  final screen = GlobalKey<ShelfScreenState>();
+  runApp(PlopApp(node: node, settings: settings, screenKey: screen));
+  await Hotkeys.register(node, (msg) => screen.currentState?.toast(msg));
 }
 
 /// Debug builds only: put something on the shelf at launch, for testing
@@ -47,16 +50,22 @@ Future<void> _seed(PlopNode node) async {
 }
 
 class PlopApp extends StatelessWidget {
-  const PlopApp({super.key, required this.node, required this.settings});
+  const PlopApp({
+    super.key,
+    required this.node,
+    required this.settings,
+    this.screenKey,
+  });
 
   final PlopNode node;
   final Settings settings;
+  final GlobalKey<ShelfScreenState>? screenKey;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'plop',
     debugShowCheckedModeBanner: false,
     theme: plopTheme(),
-    home: ShelfScreen(node: node, settings: settings),
+    home: ShelfScreen(key: screenKey, node: node, settings: settings),
   );
 }

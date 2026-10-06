@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
+  hotkey_manager_linux
   pasteboard
   url_launcher_linux
 )

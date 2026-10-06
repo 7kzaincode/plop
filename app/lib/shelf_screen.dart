@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:plop_core/plop_core.dart';
 
 import 'grab.dart';
+import 'hotkeys.dart';
 import 'settings.dart';
 import 'theme.dart';
 import 'type_icons.dart';
@@ -228,7 +229,8 @@ class ShelfScreenState extends State<ShelfScreen> {
         ),
         const Spacer(),
         Text(
-          'drop files or folders',
+          '${Hotkeys.snipLabel} snip    ${Hotkeys.clipLabel} clipboard'
+          '  →  plop from anywhere',
           style: monoStyle(size: 11, color: Palette.faint),
         ),
       ],
