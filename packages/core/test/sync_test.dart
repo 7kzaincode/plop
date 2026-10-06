@@ -517,26 +517,31 @@ void main() {
       if (req.uri.path.endsWith('/gone')) {
         res.statusCode = HttpStatus.notFound;
       } else {
-        res.add(List.filled(64 * 1024, 1)); // more than advertised
+        // 'ok' sends what was advertised; anything else sends more.
+        final n = req.uri.path.endsWith('/ok') ? 1000 : 64 * 1024;
+        res.add(List.filled(n, 1));
       }
       res.close().ignore(); // the client may hang up first
     });
+    final base = Uri.parse('http://127.0.0.1:${liar.port}');
     final client = NodeClient();
     addTearDown(client.close);
     final dest = '${c.root.path}/got.bin';
     for (final id in ['x', 'gone']) {
       await expectLater(
-        client.download(
-          Uri.parse('http://127.0.0.1:${liar.port}'),
-          id,
-          dest,
-          expectedSize: 1000,
-        ),
+        client.download(base, id, dest, expectedSize: 1000),
         throwsA(isA<HttpException>()),
       );
       expect(File('$dest.part').existsSync(), isFalse, reason: id);
       expect(File(dest).existsSync(), isFalse, reason: id);
     }
+    // The bytes all arrived but the rename failed, here onto a folder.
+    final blocked = Directory('${c.root.path}/blocked.bin')..createSync();
+    await expectLater(
+      client.download(base, 'ok', blocked.path, expectedSize: 1000),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(File('${blocked.path}.part').existsSync(), isFalse);
   });
 
   test('lifetime can change; each item keeps its own', () async {
