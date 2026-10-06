@@ -26,9 +26,11 @@ class ShelfItem {
     required this.kind,
     required this.expiresAt,
     required this.ttl,
+    DateTime? addedAt,
     this.path,
     this.ownsFile = true,
-  });
+    this.sourceModified,
+  }) : addedAt = addedAt ?? expiresAt.subtract(ttl);
 
   final String id;
   final String originId;
@@ -49,11 +51,26 @@ class ShelfItem {
   /// picked, which is served in place rather than copied.
   final bool ownsFile;
 
+  /// Modification time of a file served in place, as it was when added.
+  /// With the size, this is how a rewrite of that file is noticed; null
+  /// for anything the store owns.
+  final DateTime? sourceModified;
+
   /// 0..1 while downloading, otherwise null.
   double? progress;
 
+  /// Ids of the peers that have said they hold a complete copy of this item,
+  /// so the sender can see it arrived. Only ever filled for own items.
+  final receivedBy = <String>{};
+
   String get key => itemKey(originId, id);
   bool get isReady => path != null;
+
+  /// When this node first saw the item: the add for its own, first sight of
+  /// a mirror. Shelf order, which [expiresAt] is not once lifetimes differ.
+  /// The start of [ttl] unless given: a mirror that left the shelf early
+  /// and came back is handed its first date, so it keeps its place.
+  final DateTime addedAt;
 
   Duration get remaining {
     final r = expiresAt.difference(DateTime.now());
@@ -71,6 +88,14 @@ class ShelfItem {
 }
 
 String itemKey(String originId, String id) => '$originId/$id';
+
+/// Whether a peer-supplied id, of a node or of an item, is a plain token:
+/// 1–64 characters from `A-Z a-z 0-9 _ -`. Ids become directory names,
+/// parts of URL paths and keys in per-peer maps, so anything else is
+/// refused. Ours come from [randomId].
+bool isValidId(String id) => _validId.hasMatch(id);
+
+final _validId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
 
 /// File name for an item's bytes on disk.
 String transferName(ShelfItem item) => switch (item.kind) {
@@ -146,14 +171,24 @@ String mimeFor(String name) {
       'application/octet-stream';
 }
 
-/// Makes a peer-supplied name safe to use as a single path segment.
+/// Makes a peer-supplied name safe to use as a single path segment on every
+/// platform plop runs on. Dotfiles stay dotfiles (`.env` must not arrive as
+/// `env`); with the separators replaced, only the bare `.` and `..` names
+/// need refusing. Windows also drops trailing dots and spaces, so `notes.`
+/// would land on `notes`, and reserves its device names (`CON`, `NUL.txt`,
+/// `com1.log`…), which get a `_` after the stem.
 String safeFileName(String name) {
-  final cleaned = name
+  var cleaned = name
       .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
-      .replaceAll(RegExp(r'^\.+'), '')
-      .trim();
+      .trim()
+      .replaceAll(RegExp(r'[. ]+$'), '');
   if (cleaned.isEmpty) return 'file';
-  return cleaned.length > 120
-      ? cleaned.substring(cleaned.length - 120)
-      : cleaned;
+  if (cleaned.length > 120) cleaned = cleaned.substring(cleaned.length - 120);
+  return cleaned.replaceFirstMapped(_reserved, (m) => '${m[1]}_${m[2]}');
 }
+
+/// Windows device names, with any extension, in any case.
+final _reserved = RegExp(
+  r'^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)',
+  caseSensitive: false,
+);

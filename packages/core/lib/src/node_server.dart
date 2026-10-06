@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'item.dart';
 import 'shelf_store.dart';
 
 /// Header a node sets on its requests so the receiver knows which peer is
@@ -29,7 +30,15 @@ class NodeServer {
   int get port => _port;
 
   Future<void> start({int port = 0}) async {
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    try {
+      // Dual-stack (v6Only is off by default): IPv4 peers still connect, and
+      // the routable IPv6 addresses the app offers as fallbacks become
+      // usable instead of each costing a connection timeout.
+      _server = await HttpServer.bind(InternetAddress.anyIPv6, port);
+    } on SocketException {
+      // IPv6 is off on this host.
+      _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+    }
     _port = _server!.port;
     _server!.listen((req) => _handle(req).catchError((_) {}), onError: (_) {});
   }
@@ -46,9 +55,38 @@ class NodeServer {
     }
   }
 
-  void _noteCaller(HttpRequest req) {
+  /// The caller's node id, if it sent one that passes [isValidId]. Anything
+  /// else is treated as no id: [seenBy] and an item's `receivedBy` grow by
+  /// one entry per distinct value, so a hostile peer must not be able to
+  /// supply an endless run of them.
+  String? _callerId(HttpRequest req) {
     final from = req.headers.value(nodeIdHeader);
+    return from != null && isValidId(from) ? from : null;
+  }
+
+  void _noteCaller(HttpRequest req) {
+    final from = _callerId(req);
     if (from != null) seenBy[from] = DateTime.now();
+  }
+
+  /// A file served in place can be deleted or rewritten after it was
+  /// dropped. Listing it then leaves every peer a row it can never fetch,
+  /// so instead it leaves the shelf, which nudges them to drop theirs.
+  /// Asynchronous because this runs on every poll from every peer, and a
+  /// stat of a file on an unmounted share or a cloud placeholder can hang
+  /// for seconds; a synchronous one would stall the whole isolate with it.
+  Future<bool> _stillThere(ShelfItem i) async {
+    if (i.ownsFile || i.path == null) return true;
+    final st = await File(i.path!).stat();
+    // Size alone misses a rewrite that keeps it, so the modification time
+    // counts too; a store that never recorded one only has the size.
+    if (st.type != FileSystemEntityType.notFound &&
+        st.size == i.size &&
+        (i.sourceModified == null || st.modified == i.sourceModified)) {
+      return true;
+    }
+    store.remove(i.key);
+    return false;
   }
 
   Future<void> _handle(HttpRequest req) async {
@@ -56,15 +94,21 @@ class NodeServer {
     switch ((req.method, req.uri.pathSegments)) {
       case ('GET', ['v1', 'items']):
         _noteCaller(req);
-        final items = [
-          for (final i in store.localItems)
-            if (i.isReady) i.toJson(),
-        ];
+        final items = <Map<String, Object>>[];
+        for (final i in store.localItems.toList()) {
+          // The list is a snapshot: remove() mutates, and an item can
+          // expire while another's stat is in flight.
+          if (i.isReady && await _stillThere(i) && store[i.key] == i) {
+            items.add(i.toJson());
+          }
+        }
         res.headers.contentType = ContentType.json;
         res.write(jsonEncode(items));
       case ('GET', ['v1', 'items', final id]):
         final item = store.local(id);
-        final file = item?.path == null ? null : File(item!.path!);
+        final file = item?.path != null && await _stillThere(item!)
+            ? File(item.path!)
+            : null;
         if (file == null || !await file.exists()) {
           res.statusCode = HttpStatus.notFound;
           break;
@@ -73,11 +117,18 @@ class NodeServer {
         res.contentLength = await file.length();
         await file.openRead().pipe(res);
         return; // pipe closes the response
+      case ('POST', ['v1', 'items', final id, 'received']):
+        await req.drain<void>();
+        _noteCaller(req);
+        res.statusCode = HttpStatus.noContent;
+        final from = _callerId(req);
+        final item = store.local(id);
+        if (from != null && item != null) store.markReceived(item.key, from);
       case ('POST', ['v1', 'changed']):
         await req.drain<void>();
         _noteCaller(req);
         res.statusCode = HttpStatus.noContent;
-        onNudge?.call(req.headers.value(nodeIdHeader));
+        onNudge?.call(_callerId(req));
       default:
         res.statusCode = HttpStatus.notFound;
     }

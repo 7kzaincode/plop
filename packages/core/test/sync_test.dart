@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:plop_core/plop_core.dart';
@@ -80,6 +81,60 @@ Future<File> tempFile(Directory root, String name, int size) async {
   final f = File('${root.path}/$name');
   await f.writeAsBytes(List.generate(size, (i) => i % 251));
   return f;
+}
+
+/// A zip entry stored the way plop sends them; ZipEncoder deflates otherwise.
+ArchiveFile stored(String name, List<int> bytes) =>
+    ArchiveFile.bytes(name, bytes)..compression = CompressionType.none;
+
+/// A stored zip of [entries] files whose data regions overlap: each claims
+/// every byte from its own header to the end of the data block, so the zip
+/// unpacks to about [entries] times its size. Nothing in the format forbids
+/// it, and the archive package does not check.
+List<int> overlappingZip(int entries) {
+  const header = 32, data = 4096; // 30-byte local header + a 2-char name
+  final end = entries * header + data;
+  final out = BytesBuilder();
+  void u16(int v) => out.add([v & 0xff, v >> 8 & 0xff]);
+  void u32(int v) => out.add([for (var i = 0; i < 32; i += 8) v >> i & 0xff]);
+  for (var i = 0; i < entries; i++) {
+    u32(0x04034b50); // local file header
+    for (final v in [20, 0, 0, 0, 0]) {
+      u16(v); // version, flags, method (stored), time, date
+    }
+    u32(0); // crc, not verified
+    u32(end - header * (i + 1)); // compressed size
+    u32(end - header * (i + 1)); // uncompressed size
+    u16(2); // name length
+    u16(0); // extra length
+    out.add(ascii.encode('x$i'));
+  }
+  out.add(List.filled(data, 7));
+  final cdStart = out.length;
+  for (var i = 0; i < entries; i++) {
+    u32(0x02014b50); // central directory entry
+    for (final v in [20, 20, 0, 0, 0, 0]) {
+      u16(v); // made by, needed, flags, method, time, date
+    }
+    u32(0);
+    u32(end - header * (i + 1));
+    u32(end - header * (i + 1));
+    for (final v in [2, 0, 0, 0, 0]) {
+      u16(v); // name, extra and comment lengths, disk, internal attributes
+    }
+    u32(0); // external attributes
+    u32(header * i); // local header offset
+    out.add(ascii.encode('x$i'));
+  }
+  final cdSize = out.length - cdStart;
+  u32(0x06054b50); // end of central directory
+  for (final v in [0, 0, entries, entries]) {
+    u16(v); // disk, directory disk, entries on disk, entries total
+  }
+  u32(cdSize);
+  u32(cdStart);
+  u16(0); // comment length
+  return out.takeBytes();
 }
 
 void main() {
@@ -174,6 +229,52 @@ void main() {
         .then((r) => r.close());
     expect(miss.statusCode, 404);
   });
+
+  test('a shared file deleted or rewritten later leaves every shelf', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    final gone = await tempFile(c.root, 'gone.txt', 100);
+    final grown = await tempFile(c.root, 'grown.txt', 100);
+    final same = await tempFile(c.root, 'same.txt', 100);
+    final kept = await tempFile(c.root, 'kept.txt', 100);
+    for (final f in [gone, grown, same, kept]) {
+      await a.addFile(f.path);
+    }
+    await eventually(
+      () => b.items.length == 4 && b.items.every((i) => i.isReady),
+    );
+
+    gone.deleteSync();
+    grown.writeAsBytesSync([1, 2, 3], mode: FileMode.append);
+    // Rewritten to the same size: only the modification time gives it
+    // away. Set explicitly, since a file system's clock can be coarse.
+    same.writeAsBytesSync(List.filled(100, 0));
+    same.setLastModifiedSync(
+      same.lastModifiedSync().add(const Duration(seconds: 2)),
+    );
+    await eventually(
+      () => a.items.length == 1 && b.items.length == 1,
+      reason: 'stale items still listed',
+    );
+    expect(a.items.single.name, 'kept.txt');
+    expect(b.items.single.name, 'kept.txt');
+  });
+
+  test(
+    'fetching a shared file that is gone drops it from the origin',
+    () async {
+      c = await Cluster.start(1, ttl: const Duration(seconds: 30));
+      final [a] = c.nodes; // no peers, so no poll gets there first
+      final src = await tempFile(c.root, 'gone.txt', 100);
+      final item = await a.addFile(src.path);
+      src.deleteSync();
+      final res = await HttpClient()
+          .getUrl(Uri.parse('http://127.0.0.1:${a.port}/v1/items/${item.id}'))
+          .then((r) => r.close());
+      expect(res.statusCode, 404);
+      expect(a.items, isEmpty);
+    },
+  );
 
   test(
     'when a peer goes away, copied items stay and uncopied ones go',
@@ -325,6 +426,59 @@ void main() {
     final path = s.downloadPath(odd);
     expect(path, startsWith('${s.dir.path}${Platform.pathSeparator}'));
     expect(path.split(Platform.pathSeparator), isNot(contains('..')));
+  });
+
+  test('safeFileName keeps dotfiles and refuses only . and ..', () async {
+    c = await Cluster.start(1);
+    expect(safeFileName('.env'), '.env');
+    expect(safeFileName('...hidden'), '...hidden');
+    expect(safeFileName('a:b?.txt'), 'a_b_.txt');
+    for (final name in ['', '.', '..', '...', ' .. ']) {
+      expect(safeFileName(name), 'file', reason: '"$name"');
+    }
+    expect(safeFileName('../x'), '.._x');
+    expect(safeFileName(r'..\x'), '.._x');
+  });
+
+  test('safeFileName fixes what Windows cannot store', () async {
+    c = await Cluster.start(1);
+    // Device names, with any extension, in any case: the stem gets a `_`.
+    expect(safeFileName('CON'), 'CON_');
+    expect(safeFileName('con.txt'), 'con_.txt');
+    expect(safeFileName('Nul.tar.gz'), 'Nul_.tar.gz');
+    expect(safeFileName('COM1'), 'COM1_');
+    expect(safeFileName('lpt9.log'), 'lpt9_.log');
+    expect(safeFileName('aux.'), 'aux_', reason: 'bare once the dot goes');
+    // Near misses are left alone.
+    for (final fine in ['console.txt', 'com10', 'config', 'nul-1', 'CONTENT']) {
+      expect(safeFileName(fine), fine);
+    }
+    // Trailing dots and spaces are dropped there, so drop them everywhere,
+    // or the name a Windows receiver shows differs from everyone else's.
+    expect(safeFileName('notes.'), 'notes');
+    expect(safeFileName('notes . . '), 'notes');
+    expect(safeFileName('report.pdf. '), 'report.pdf');
+    expect(safeFileName('.env'), '.env', reason: 'leading dots are fine');
+  });
+
+  test('odd remote fields are refused or clamped', () async {
+    c = await Cluster.start(1);
+    final s = c.nodes.single.store;
+    Map<String, dynamic> json({
+      Object size = 1,
+      Object ttlMs = 1000,
+      String name = 'x',
+    }) => {'id': randomId(), 'name': name, 'size': size, 'ttlMs': ttlMs};
+    ShelfItem? add(Map<String, dynamic> j) =>
+        s.addRemote('p', 'p', RemoteItem.fromJson(j));
+    expect(add(json(size: -5)), isNull);
+    expect(add(json(size: 0)), isNotNull, reason: 'an empty file is legal');
+    // toInt() saturates to 2^63-1, which Duration would wrap to -1 ms.
+    final forever = add(json(ttlMs: 1e300))!;
+    expect(forever.ttl, ShelfStore.maxRemoteTtl);
+    expect(forever.expiresAt.isAfter(DateTime.now()), isTrue);
+    final long = add(json(name: 'n' * 10000))!;
+    expect(long.name.length, ShelfStore.maxNameLength);
   });
 
   test('a node ignores its own advertisement', () async {
@@ -495,6 +649,42 @@ void main() {
     expect(File(dest).existsSync(), isTrue);
   });
 
+  test('the sender learns which peers have received an item', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    final small = await a.addBytes(List.filled(100, 1), 'small.bin');
+    final big = await a.addBytes(List.filled(5000, 2), 'big.bin');
+    // The eager copy counts as received; the big one not until grabbed.
+    await eventually(() => small.receivedBy.contains(b.id));
+    await eventually(() => b.store[big.key] != null);
+    expect(big.receivedBy, isEmpty);
+    expect(a.peerName(b.id), 'node1');
+
+    // A transfer that fails is not reported; one that lands is.
+    final blocker = File('${c.root.path}/blocker')..createSync();
+    await expectLater(
+      b.saveTo(big.key, '${blocker.path}/big.bin'),
+      throwsA(isA<FileSystemException>()),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(big.receivedBy, isEmpty);
+    await b.saveTo(big.key, '${c.root.path}/big.bin');
+    await eventually(() => big.receivedBy.contains(b.id));
+
+    // Changes fire only for news.
+    var fired = 0;
+    final sub = a.changes.listen((_) => fired++);
+    addTearDown(sub.cancel);
+    a.store.markReceived(small.key, 'x');
+    a.store.markReceived(small.key, 'x');
+    await Future<void>.delayed(Duration.zero);
+    expect(fired, 1);
+  });
+
   test('a failed saveTo does not leave progress showing', () async {
     c = await Cluster.start(
       2,
@@ -550,6 +740,82 @@ void main() {
     expect(File('${blocked.path}.part').existsSync(), isFalse);
   });
 
+  test('an endless item list is cut off, not buffered', () async {
+    c = await Cluster.start(1);
+    final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => liar.close(force: true));
+    var sent = 0;
+    liar.listen((req) async {
+      final res = req.response..headers.contentType = ContentType.json;
+      // A JSON list that never ends, paced by the socket. The bound only
+      // guarantees the test ends if the client fails to hang up.
+      res.write('[');
+      final pad = List.filled(64 * 1024, 0x20);
+      try {
+        while (sent < 64 * 1024 * 1024) {
+          res.add(pad);
+          sent += pad.length;
+          await res.flush();
+        }
+      } catch (_) {
+        // The client hung up.
+      }
+      res.close().ignore();
+    });
+    final client = NodeClient();
+    addTearDown(client.close);
+    final clock = Stopwatch()..start();
+    await expectLater(
+      client.fetchList(Uri.parse('http://127.0.0.1:${liar.port}'), 'me'),
+      throwsA(isA<HttpException>()),
+    );
+    expect(
+      clock.elapsed,
+      lessThan(const Duration(seconds: 3)),
+      reason: 'should give up on the size cap, not the timeout',
+    );
+  });
+
+  test('a refusal with an endless body is hung up on, not read', () async {
+    c = await Cluster.start(1);
+    final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => liar.close(force: true));
+    liar.listen((req) async {
+      final res = req.response..statusCode = HttpStatus.serviceUnavailable;
+      final pad = List.filled(64 * 1024, 0x20);
+      final until = DateTime.now().add(const Duration(seconds: 5));
+      // Paced by a timer, not by the socket: dart:io hides a hang-up from
+      // the server, so once the client is gone every flush completes at
+      // once, and a loop on them alone would starve the isolate, client
+      // included. The bound only ends the test if the client fails to
+      // hang up; a drain would read until then, or time out.
+      while (DateTime.now().isBefore(until)) {
+        res.add(pad);
+        await res.flush();
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      res.close().ignore();
+    });
+    final base = Uri.parse('http://127.0.0.1:${liar.port}');
+    final client = NodeClient();
+    addTearDown(client.close);
+    final clock = Stopwatch()..start();
+    await expectLater(
+      client.fetchList(base, 'me'),
+      throwsA(isA<HttpException>()),
+    );
+    await expectLater(
+      client.download(base, 'x', '${c.root.path}/x.bin', expectedSize: 1),
+      throwsA(isA<HttpException>()),
+    );
+    expect(
+      clock.elapsed,
+      lessThan(const Duration(seconds: 2)),
+      reason: 'should hang up on the body, not wait for it',
+    );
+    expect(File('${c.root.path}/x.bin.part').existsSync(), isFalse);
+  });
+
   test('lifetime can change; each item keeps its own', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;
@@ -564,17 +830,155 @@ void main() {
     expect(m.ttl.inSeconds, inInclusiveRange(595, 600));
   });
 
+  test('the shelf is ordered by arrival, not by expiry', () async {
+    c = await Cluster.start(2, ttl: const Duration(hours: 1));
+    final [a, b] = c.nodes;
+    final own = await b.addText('b first');
+    await eventually(() => a.items.isNotEmpty);
+    final long = await a.addText('an hour');
+    a.ttl = const Duration(seconds: 30);
+    final short = await a.addText('half a minute');
+    // The 30 s item expires long before the others but is the newest.
+    expect(a.items.map((i) => i.id), [short.id, long.id, own.id]);
+    expect(
+      DateTime.now().difference(short.addedAt),
+      lessThan(const Duration(seconds: 5)),
+    );
+
+    // Mirrors arrive in A's order, so B's newest is A's newest too.
+    await eventually(() => b.items.length == 3);
+    expect(b.items.map((i) => i.id), [short.id, long.id, own.id]);
+  });
+
+  test('a mirror that drops out and comes back keeps its place', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    // Too big for an eager copy, so losing the peer drops it.
+    final big = await a.addBytes(List.filled(5000, 1), 'big.bin');
+    await eventually(() => b.store[big.key] != null);
+    final firstSeen = b.store[big.key]!.addedAt;
+    final mine = await b.addText('mine, later');
+    expect(b.items.map((i) => i.id), [mine.id, big.id]);
+
+    // A's mDNS record flickers: gone, then back a moment later.
+    c.discoveries[1].remove(a.id);
+    await eventually(() => b.store[big.key] == null);
+    c.connect(1, 0);
+    await eventually(() => b.store[big.key] != null);
+    expect(b.items.map((i) => i.id), [
+      mine.id,
+      big.id,
+    ], reason: 'came back as the newest');
+    expect(b.store[big.key]!.addedAt, firstSeen);
+  });
+
   test('unpacking a folder never writes outside the target', () async {
     c = await Cluster.start(1);
     final evil = Archive()
-      ..add(ArchiveFile.bytes('../escaped.txt', [1, 2, 3]))
-      ..add(ArchiveFile.bytes('ok.txt', [4]));
+      ..add(stored('../escaped.txt', [1, 2, 3]))
+      ..add(stored('ok.txt', [4]));
     final zip = File('${c.root.path}/evil.zip')
       ..writeAsBytesSync(ZipEncoder().encode(evil));
     final out = Directory('${c.root.path}/x/out');
     await extractFolder(zip.path, out.path);
     expect(File('${out.path}/ok.txt').existsSync(), isTrue);
     expect(File('${c.root.path}/x/escaped.txt').existsSync(), isFalse);
+  });
+
+  test('unpacking a folder sanitises each name like a single file', () async {
+    c = await Cluster.start(1);
+    final odd = Archive()
+      ..add(stored('dir?/a:b?.txt', [1]))
+      ..add(stored('dir?/.gitignore', [2]));
+    final zip = File('${c.root.path}/odd.zip')
+      ..writeAsBytesSync(ZipEncoder().encode(odd));
+    final out = '${c.root.path}/out';
+    await extractFolder(zip.path, out);
+    expect(File('$out/dir_/a_b_.txt').existsSync(), isTrue);
+    expect(File('$out/dir_/.gitignore').existsSync(), isTrue);
+  });
+
+  test(
+    'names that sanitise alike inside a folder are numbered apart',
+    () async {
+      c = await Cluster.start(1);
+      final alike = Archive()
+        ..add(stored('a:b.txt', [1]))
+        ..add(stored('a?b.txt', [2]))
+        ..add(stored('notes:', [3]))
+        ..add(
+          ArchiveFile.directory('notes_')..compression = CompressionType.none,
+        )
+        ..add(stored('notes_/x.txt', [4]))
+        // One entry named twice, which a zip allows. The Archive class
+        // merges identical names, so the second is spelt with a `.`
+        // segment, which the unpacker drops.
+        ..add(stored('notes_/.env', [5]))
+        ..add(stored('notes_/./.env', [6]));
+      final zip = File('${c.root.path}/alike.zip')
+        ..writeAsBytesSync(ZipEncoder().encode(alike));
+      final out = '${c.root.path}/out';
+      await extractFolder(zip.path, out);
+      expect(File('$out/a_b.txt').readAsBytesSync(), [1]);
+      expect(File('$out/a_b (1).txt').readAsBytesSync(), [2]);
+      // A file and a folder cannot share a name either, and the folder's
+      // contents follow it wherever it lands.
+      expect(File('$out/notes_').readAsBytesSync(), [3]);
+      expect(File('$out/notes_ (1)/x.txt').readAsBytesSync(), [4]);
+      // The second of the twice-named entries does not overwrite the first.
+      expect(File('$out/notes_ (1)/.env').readAsBytesSync(), [5]);
+      expect(File('$out/notes_ (1)/.env (1)').readAsBytesSync(), [6]);
+    },
+  );
+
+  test('a folder zip that inflates is refused and leaves nothing', () async {
+    c = await Cluster.start(1);
+    // Deflated (the encoder's default): 4 MB of zeros in a few KB.
+    final bomb = Archive()
+      ..add(stored('readme.txt', [1]))
+      ..add(ArchiveFile.bytes('zeros.bin', List.filled(4 << 20, 0)));
+    final zip = File('${c.root.path}/bomb.zip')
+      ..writeAsBytesSync(ZipEncoder().encode(bomb));
+    expect(zip.lengthSync(), lessThan(64 * 1024), reason: 'not a bomb');
+    // By message: a malformed zip is a FormatException too (ArchiveException).
+    Matcher refused(String why) => throwsA(
+      isA<FormatException>().having((e) => e.message, 'message', contains(why)),
+    );
+    final out = Directory('${c.root.path}/x/out');
+    await expectLater(extractFolder(zip.path, out.path), refused('compressed'));
+    expect(out.existsSync(), isFalse, reason: 'half a folder left behind');
+
+    // Stored entries can still overlap, so one block unpacks many times.
+    final overlap = File('${c.root.path}/overlap.zip')
+      ..writeAsBytesSync(overlappingZip(8));
+    await expectLater(
+      extractFolder(overlap.path, out.path),
+      refused('more than its size'),
+    );
+    expect(out.existsSync(), isFalse);
+
+    // A folder the receiver already had is not swept away with the failure.
+    final mine = Directory('${c.root.path}/mine')..createSync();
+    File('${mine.path}/keep.txt').writeAsStringSync('keep');
+    await expectLater(
+      extractFolder(zip.path, mine.path),
+      refused('compressed'),
+    );
+    expect(File('${mine.path}/keep.txt').existsSync(), isTrue);
+    // Nor is a file that happens to be at the target path: creating the
+    // folder fails, and "no folder there" must never be read as "nothing
+    // there", since the cleanup deletes whatever is at the path.
+    final taken = File('${c.root.path}/taken')..writeAsStringSync('keep');
+    await expectLater(
+      extractFolder(zip.path, taken.path),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(taken.existsSync(), isTrue, reason: 'file at the target deleted');
+    expect(taken.readAsStringSync(), 'keep');
   });
 
   test('unpacking a folder ignores symlinks that chain outside', () async {
@@ -604,6 +1008,39 @@ void main() {
     );
   });
 
+  test('a caller id that is not a plain token is ignored', () async {
+    c = await Cluster.start(1, ttl: const Duration(seconds: 30));
+    final [a] = c.nodes;
+    final item = await a.addText('x');
+    final http = HttpClient();
+    addTearDown(() => http.close(force: true));
+    Future<void> call(String method, String path, String from) async {
+      final req = await http.openUrl(
+        method,
+        Uri.parse('http://127.0.0.1:${a.port}$path'),
+      );
+      req.headers.set(nodeIdHeader, from);
+      await (await req.close()).drain<void>();
+    }
+
+    // Each distinct value would otherwise be one more entry for good.
+    for (final bad in ['../../x', 'a b', 'x' * 65, '<script>']) {
+      await call('GET', '/v1/items', bad);
+      await call('POST', '/v1/items/${item.id}/received', bad);
+      await call('POST', '/v1/changed', bad);
+    }
+    expect(a.server.seenBy, isEmpty);
+    expect(item.receivedBy, isEmpty);
+    expect(isValidId('../../x'), isFalse);
+
+    const odd = 'odd-but_OK';
+    expect(isValidId(odd), isTrue);
+    await call('GET', '/v1/items', odd);
+    await call('POST', '/v1/items/${item.id}/received', odd);
+    expect(a.server.seenBy.keys, [odd]);
+    expect(item.receivedBy, {odd});
+  });
+
   test('a peer we reach that never reaches us is flagged one-way', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;
@@ -625,9 +1062,50 @@ void main() {
     );
     expect(a.oneWay.map((p) => p.id), [b.id]);
 
+    // B reached A long ago, slept, and has just become reachable again: the
+    // grace period starts over rather than flagging it on the spot.
+    a.server.seenBy[b.id] = DateTime.now().subtract(
+      const Duration(minutes: 10),
+    );
+    a.engine.debugSetOkSince(b.id, DateTime.now());
+    expect(a.oneWay, isEmpty, reason: 'stale seenBy must not win');
+    a.engine.debugSetOkSince(
+      b.id,
+      DateTime.now().subtract(const Duration(seconds: 20)),
+    );
+    expect(a.oneWay.map((p) => p.id), [b.id], reason: 'both stale: flagged');
+
     // Once B polls A, the flag clears.
     c.connect(1, 0);
     await eventually(() => a.oneWay.isEmpty && b.peers.isNotEmpty);
+  });
+
+  test('the server answers over IPv6 too where the host has it', () async {
+    c = await Cluster.start(1, ttl: const Duration(seconds: 30));
+    final [a] = c.nodes;
+    Future<int> status(InternetAddress host) async {
+      final res = await HttpClient()
+          .getUrl(
+            Uri(
+              scheme: 'http',
+              host: host.address,
+              port: a.port,
+              path: '/v1/items',
+            ),
+          )
+          .then((r) => r.close());
+      await res.drain<void>();
+      return res.statusCode;
+    }
+
+    expect(await status(InternetAddress.loopbackIPv4), 200);
+    // Only where ::1 can be bound at all, so a v4-only runner still passes.
+    try {
+      await (await ServerSocket.bind(InternetAddress.loopbackIPv6, 0)).close();
+    } on SocketException {
+      return;
+    }
+    expect(await status(InternetAddress.loopbackIPv6), 200);
   });
 
   test('revive re-binds a closed server and re-polls peers', () async {

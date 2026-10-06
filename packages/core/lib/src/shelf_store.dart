@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math';
 
 import 'package:archive/archive_io.dart';
 
@@ -11,38 +12,139 @@ import 'item.dart';
 /// Unpacks a folder item's zip into [outDir]. Only plain files and folders
 /// are written: symlinks are skipped (plop never sends them, and a chain of
 /// them can steer later entries outside [outDir]), as are names with `..`.
+/// Each name segment goes through [safeFileName], as a single file's name
+/// does: a Mac's `Meeting 10:3.txt` is not a valid name on Windows, where
+/// the colon would address an NTFS stream rather than fail.
 /// Of the sender's permissions only the executable bit is kept, so a script
 /// or binary still runs; the rest is the receiver's business.
-Future<void> extractFolder(String zipPath, String outDir) =>
-    Isolate.run(() async {
-      await Directory(outDir).create(recursive: true);
-      final input = InputFileStream(zipPath);
-      try {
-        for (final f in ZipDecoder().decodeStream(input)) {
-          final parts = f.name.split(RegExp(r'[/\\]'))
-            ..removeWhere((s) => s.isEmpty || s == '.');
-          if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
-            continue;
-          }
-          final path = [outDir, ...parts].join(Platform.pathSeparator);
-          if (f.isDirectory) {
-            await Directory(path).create(recursive: true);
-            continue;
-          }
-          final out = OutputFileStream(path); // creates parent folders
-          try {
-            f.writeContent(out);
-          } finally {
-            await out.close();
-          }
-          if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
-            _setExecutable(path);
-          }
+///
+/// plop only ever stores entries, so a compressed one comes from a hostile
+/// or foreign peer and is refused with a [FormatException]: the archive
+/// package inflates into memory whole, and a 1 MB deflate can unpack to
+/// gigabytes. Stored entries can only add up to more than the zip itself
+/// when their headers overlap, another bomb, so the output is bounded by
+/// the zip's own size. A failure removes [outDir] if this call created it.
+Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
+  () async {
+    final target = Directory(outDir);
+    // Not `target.existsSync()`, which is false for a file at [outDir] too:
+    // the cleanup below deletes whatever is at the path, so `fresh` must
+    // mean nothing was there.
+    final fresh =
+        FileSystemEntity.typeSync(outDir) == FileSystemEntityType.notFound;
+    await target.create(recursive: true);
+    final budget = File(zipPath).lengthSync();
+    var written = 0;
+    final places = _Places(outDir);
+    final input = InputFileStream(zipPath);
+    try {
+      for (final f in ZipDecoder().decodeStream(input)) {
+        final parts = f.name.split(RegExp(r'[/\\]'))
+          ..removeWhere((s) => s.isEmpty || s == '.');
+        if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
+          continue;
         }
-      } finally {
-        await input.close();
+        if (f.isCompressed) {
+          throw const FormatException('folder zip is compressed');
+        }
+        final path = places.of(parts, isDir: f.isDirectory);
+        if (f.isDirectory) {
+          await Directory(path).create(recursive: true);
+          continue;
+        }
+        final out = _BoundedOutput(path, budget - written);
+        try {
+          f.writeContent(out);
+        } finally {
+          written += out.length;
+          await out.close();
+        }
+        if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
+          _setExecutable(path);
+        }
       }
-    });
+    } catch (_) {
+      if (fresh) await target.delete(recursive: true).catchError((_) => target);
+      rethrow;
+    } finally {
+      await input.close();
+    }
+  },
+);
+
+/// Where each entry of a zip lands under its target folder. Sanitising can
+/// make two names one: `a:b.txt` and `a?b.txt` both become `a_b.txt`, and
+/// a file `notes:` lands where a folder `notes_` goes, which fails the
+/// whole unpack. The second to claim a path gets ` (1)`, ` (2)`… before
+/// its extension, while entries under one source folder keep landing in
+/// the same place, numbered or not.
+class _Places {
+  _Places(this.root);
+
+  final String root;
+  final _bySource = <String, String>{}; // source path -> where it landed
+  final _taken = <String>{};
+
+  String of(List<String> parts, {required bool isDir}) {
+    var source = '';
+    var path = root;
+    for (final (i, part) in parts.indexed) {
+      source = i == 0 ? part : '$source/$part';
+      final name = safeFileName(part);
+      // Only a folder is looked up by source, so its contents follow it.
+      // A file is nothing's parent, and a zip may well name one twice: the
+      // second is then a second file, not the first one again.
+      path = isDir || i < parts.length - 1
+          ? _bySource[source] ??= _free(path, name, isDir: true)
+          : _free(path, name, isDir: false);
+    }
+    return path;
+  }
+
+  String _free(String parent, String name, {required bool isDir}) {
+    var path = '$parent${Platform.pathSeparator}$name';
+    for (var n = 1; !_taken.add(path); n++) {
+      path = '$parent${Platform.pathSeparator}${_numbered(name, n, isDir)}';
+    }
+    return path;
+  }
+
+  /// `name (n)`, or `stem (n).ext` for a file with an extension. A dotfile
+  /// has none: `.env (1)`.
+  static String _numbered(String name, int n, bool isDir) {
+    final dot = isDir ? -1 : name.lastIndexOf('.');
+    return dot <= 0
+        ? '$name ($n)'
+        : '${name.substring(0, dot)} ($n)${name.substring(dot)}';
+  }
+}
+
+/// An [OutputFileStream] that throws rather than grow past [limit] bytes.
+/// Creates parent folders, as [OutputFileStream] itself does.
+class _BoundedOutput extends OutputFileStream {
+  _BoundedOutput(String path, this.limit)
+    : super.withFileHandle(FileHandle(path, mode: FileAccess.write));
+
+  final int limit;
+
+  @override
+  void writeByte(int value) {
+    _fit(1);
+    super.writeByte(value);
+  }
+
+  @override
+  void writeBytes(List<int> bytes, {int? length}) {
+    _fit(length ?? bytes.length);
+    super.writeBytes(bytes, length: length);
+  }
+
+  void _fit(int n) {
+    if (length + n > limit) {
+      throw const FormatException('folder zip unpacks to more than its size');
+    }
+  }
+}
 
 /// Makes [path] executable for whoever can already read it, as `chmod +x`
 /// would under the receiver's umask. dart:io cannot change permissions, so
@@ -191,6 +293,13 @@ class ShelfStore {
 
   final _items = <String, ShelfItem>{};
   final _timers = <String, Timer>{};
+
+  /// First sight of mirrors that left the shelf before their time, by key,
+  /// with the time they had. A peer that misses three polls, or whose mDNS
+  /// record flickers while a phone sleeps, takes its uncopied items with it
+  /// and brings them back a moment later; without this they would come back
+  /// as the newest. Pruned of expired entries whenever one is added.
+  final _firstSeen = <String, ({DateTime addedAt, DateTime expiresAt})>{};
   final _changes = StreamController<void>.broadcast();
   final _localChanges = StreamController<void>.broadcast();
 
@@ -200,10 +309,17 @@ class ShelfStore {
   /// Fires when this node's own items are added or removed.
   Stream<void> get localChanges => _localChanges.stream;
 
-  /// Newest first.
-  List<ShelfItem> get items =>
-      _items.values.toList()
-        ..sort((a, b) => b.expiresAt.compareTo(a.expiresAt));
+  /// Newest first, by [ShelfItem.addedAt]. Files dropped in one gesture can
+  /// tie to the microsecond and `sort` is not stable, so insertion order,
+  /// which `_items` keeps, breaks ties.
+  List<ShelfItem> get items {
+    final indexed = _items.values.indexed.toList()
+      ..sort((a, b) {
+        final byTime = b.$2.addedAt.compareTo(a.$2.addedAt);
+        return byTime != 0 ? byTime : b.$1.compareTo(a.$1);
+      });
+    return [for (final (_, item) in indexed) item];
+  }
 
   Iterable<ShelfItem> get localItems =>
       _items.values.where((i) => i.originId == nodeId);
@@ -227,7 +343,8 @@ class ShelfStore {
 
   /// Puts a file on the shelf. The file is served in place, not copied.
   Future<ShelfItem> addFile(String path, {String? name}) async {
-    final size = await File(path).length();
+    final file = File(path);
+    final size = await file.length();
     _checkSize(size);
     name ??= _baseName(path);
     return _addLocal(
@@ -236,6 +353,9 @@ class ShelfStore {
       kind: ItemKind.file,
       path: path,
       ownsFile: false,
+      // From stat(), as the check against it is, so the two agree to the
+      // same precision.
+      sourceModified: (await file.stat()).modified,
     );
   }
 
@@ -308,6 +428,7 @@ class ShelfStore {
     required ItemKind kind,
     required String path,
     required bool ownsFile,
+    DateTime? sourceModified,
   }) {
     final item = ShelfItem(
       id: id ?? randomId(),
@@ -325,6 +446,7 @@ class ShelfStore {
       ttl: ttl,
       path: path,
       ownsFile: ownsFile,
+      sourceModified: sourceModified,
     );
     _insert(item, ttl);
     _localChanges.add(null);
@@ -335,27 +457,47 @@ class ShelfStore {
     if (size > maxItemBytes) throw ItemTooLargeException(size, maxItemBytes);
   }
 
+  /// Longest lifetime accepted from a peer; the app itself offers 30 s–1 h.
+  static const maxRemoteTtl = Duration(hours: 24);
+
+  /// Longer peer-supplied names are cut; on disk they are already.
+  static const maxNameLength = 255;
+
   /// Records a peer's item. Returns the new mirror, or null if it was already
-  /// known, is over the size cap, or has an id that is not a plain token.
+  /// known, has a size outside 0..cap, or an id that is not a plain token.
+  /// An odd but honest peer still gets its item shown: a huge `ttlMs` is
+  /// clamped and a long name cut rather than refused.
   ShelfItem? addRemote(String peerId, String peerName, RemoteItem r) {
     final key = itemKey(peerId, r.id);
-    if (!_validId.hasMatch(r.id) ||
+    if (!isValidId(r.id) ||
         _items.containsKey(key) ||
+        r.size < 0 ||
         r.size > maxItemBytes ||
         r.ttlMs <= 0) {
       return null;
     }
-    final ttl = Duration(milliseconds: r.ttlMs);
+    // After toInt(): 1e300 saturates to 2^63-1, which Duration wraps negative.
+    final ttl = Duration(
+      milliseconds: min(r.ttlMs, maxRemoteTtl.inMilliseconds),
+    );
+    final name = r.name.length > maxNameLength
+        ? r.name.substring(0, maxNameLength)
+        : r.name;
+    final now = DateTime.now();
+    final seen = _firstSeen.remove(key);
     final item = ShelfItem(
       id: r.id,
       originId: peerId,
       originName: peerName,
-      name: r.name,
+      name: name,
       size: r.size,
       mime: r.mime,
       kind: r.kind,
-      expiresAt: DateTime.now().add(ttl),
+      expiresAt: now.add(ttl),
       ttl: ttl,
+      addedAt: seen != null && seen.expiresAt.isAfter(now)
+          ? seen.addedAt
+          : null,
     );
     _insert(item, ttl);
     return item;
@@ -381,13 +523,31 @@ class ShelfStore {
     _changes.add(null);
   }
 
+  /// Records that [peerId] holds a complete copy of an own item. Fires a
+  /// change only when that is news.
+  void markReceived(String key, String peerId) {
+    if (_items[key]?.receivedBy.add(peerId) ?? false) _changes.add(null);
+  }
+
   void remove(String key) {
     _timers.remove(key)?.cancel();
     final item = _items.remove(key);
     if (item == null) return;
     if (item.ownsFile) _deleteItemDir(item.originId, item.id);
+    if (item.originId != nodeId) _rememberFirstSeen(item);
     _changes.add(null);
     if (item.originId == nodeId) _localChanges.add(null);
+  }
+
+  void _rememberFirstSeen(ShelfItem mirror) {
+    final now = DateTime.now();
+    _firstSeen.removeWhere((_, v) => !v.expiresAt.isAfter(now));
+    if (mirror.expiresAt.isAfter(now)) {
+      _firstSeen[mirror.key] = (
+        addedAt: mirror.addedAt,
+        expiresAt: mirror.expiresAt,
+      );
+    }
   }
 
   void _insert(ShelfItem item, Duration ttl) {
@@ -405,10 +565,6 @@ class ShelfStore {
       remove(key);
     }
   }
-
-  /// Ids become a directory name and part of a URL path, so a peer's ids
-  /// must be plain tokens. Ours come from [randomId].
-  static final _validId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
 
   String _itemDir(String originId, String id) => [
     dir.path,
@@ -437,6 +593,7 @@ class ShelfStore {
     }
     _timers.clear();
     _items.clear();
+    _firstSeen.clear();
     await _changes.close();
     await _localChanges.close();
   }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'item.dart';
 import 'node_server.dart';
@@ -13,6 +14,11 @@ class NodeClient {
 
   static const _listTimeout = Duration(seconds: 5);
 
+  /// A list entry is ~150 bytes, so this is thousands of items. Every node
+  /// polls every peer, so one that streams an endless list must not be
+  /// allowed to fill the memory of every device around it.
+  static const _maxListBytes = 1 << 20;
+
   /// [selfId] tells the peer who is asking, so it can tell that this node
   /// can reach it.
   Future<List<RemoteItem>> fetchList(Uri base, String selfId) async {
@@ -20,15 +26,31 @@ class NodeClient {
     req.headers.set(nodeIdHeader, selfId);
     final res = await req.close().timeout(_listTimeout);
     if (res.statusCode != HttpStatus.ok) {
-      await res.drain<void>();
+      await _hangUp(res);
       throw HttpException('list failed: ${res.statusCode}', uri: base);
     }
-    final body = await utf8.decodeStream(res).timeout(_listTimeout);
+    // Throwing out of `await for` cancels the subscription and drops the
+    // socket; Future.timeout on a decodeStream would leave it buffering.
+    final buf = BytesBuilder(copy: false);
+    await for (final chunk in res.timeout(_listTimeout)) {
+      buf.add(chunk);
+      if (buf.length > _maxListBytes) {
+        throw HttpException('list too large', uri: base);
+      }
+    }
     return [
-      for (final j in jsonDecode(body) as List)
+      for (final j in jsonDecode(utf8.decode(buf.takeBytes())) as List)
         RemoteItem.fromJson(j as Map<String, dynamic>),
     ];
   }
+
+  /// Drops a response whose body is not wanted. Not `drain()`: that reads
+  /// the body to its end, and a timeout on it gives up waiting without
+  /// stopping the read, so a peer answering with an endless body would hold
+  /// the socket for good. Cancelling the subscription destroys the
+  /// connection instead; the pool loses one, which is nothing.
+  static Future<void> _hangUp(HttpClientResponse res) =>
+      res.listen(null).cancel();
 
   /// Streams an item into [destPath]. Writes to a `.part` file and renames on
   /// success, so a half-written file is never mistaken for a complete one.
@@ -51,7 +73,7 @@ class NodeClient {
       final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
       final res = await req.close().timeout(const Duration(seconds: 10));
       if (res.statusCode != HttpStatus.ok) {
-        await res.drain<void>();
+        await _hangUp(res);
         throw HttpException('download failed: ${res.statusCode}', uri: base);
       }
       // A stalled sender (e.g. an iOS app that got suspended) should fail the
@@ -89,9 +111,19 @@ class NodeClient {
 
   /// Tells a peer our list changed. Best effort: failures are ignored because
   /// the peer also polls.
-  Future<void> nudge(Uri base, String selfId) async {
+  Future<void> nudge(Uri base, String selfId) =>
+      _post(base, '/v1/changed', selfId);
+
+  /// Tells an item's origin that this node holds a complete copy of it, so
+  /// the sender can see it arrived. Best effort too. The origin cannot tell
+  /// this itself: dart:io hides a peer hanging up mid-response from the
+  /// server, so only the receiver knows the transfer finished.
+  Future<void> confirmReceived(Uri base, String id, String selfId) =>
+      _post(base, '/v1/items/$id/received', selfId);
+
+  Future<void> _post(Uri base, String path, String selfId) async {
     try {
-      final req = await _http.postUrl(base.replace(path: '/v1/changed'));
+      final req = await _http.postUrl(base.replace(path: path));
       req.headers.set(nodeIdHeader, selfId);
       final res = await req.close().timeout(const Duration(seconds: 3));
       await res.drain<void>();

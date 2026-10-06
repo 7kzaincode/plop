@@ -62,6 +62,9 @@ class SyncEngine {
   /// Since when [id] has been continuously reachable; null if it is not.
   DateTime? okSince(String id) => _peers[id]?.okSince;
 
+  /// Name of a peer this node knows, reachable or not; null once it is gone.
+  String? peerName(String id) => _peers[id]?.peer.name;
+
   /// Tests only: backdate a peer's reachability.
   void debugSetOkSince(String id, DateTime t) => _peers[id]?.okSince = t;
 
@@ -240,6 +243,7 @@ class SyncEngine {
             }
           },
         );
+        client.confirmReceived(base, item.id, store.nodeId);
         return;
       } on FileSystemException {
         rethrow; // e.g. a full disk: another address will not help
