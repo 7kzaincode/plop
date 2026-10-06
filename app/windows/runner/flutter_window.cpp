@@ -1,5 +1,8 @@
 #include "flutter_window.h"
 
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
+
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
@@ -26,6 +29,26 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+
+  // lib/window.dart asks for a taskbar flash when something from another
+  // device lands while plop is in the background. FLASHW_TIMERNOFG flashes
+  // until the window comes to the foreground, so nothing has to clear it.
+  // The messenger keeps the handler; the channel object itself can go.
+  flutter::MethodChannel<> channel(
+      flutter_controller_->engine()->messenger(), "plop/window",
+      &flutter::StandardMethodCodec::GetInstance());
+  channel.SetMethodCallHandler(
+      [this](const flutter::MethodCall<>& call,
+             std::unique_ptr<flutter::MethodResult<>> result) {
+        if (call.method_name() == "flash") {
+          FLASHWINFO info = {sizeof(info), GetHandle(),
+                             FLASHW_TRAY | FLASHW_TIMERNOFG, 0, 0};
+          ::FlashWindowEx(&info);
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      });
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();

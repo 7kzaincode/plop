@@ -9,6 +9,7 @@ import 'package:plop_core/plop_core.dart';
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
+import 'login_item.dart';
 import 'settings.dart';
 import 'share_in.dart';
 import 'shelf_screen.dart';
@@ -64,6 +65,8 @@ Future<void> _start() async {
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
+  LoginItem.installLauncher();
+  Arrivals.watch(node);
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
   // the Screen Recording steps, waits until they look instead of fading out.

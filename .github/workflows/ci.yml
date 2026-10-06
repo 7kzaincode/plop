@@ -1,6 +1,8 @@
 # macOS, iOS and Android are built and tested on the dev Mac. CI covers the
-# core tests and the desktop targets that machine cannot build. Installable
-# builds come from release.yml.
+# core tests, the app's widget tests and the desktop targets that machine
+# cannot build. The Windows build (billed at 2x) waits for the cheap core
+# tests and the Linux analyze/test/build, so a red commit never pays for it.
+# Installable builds come from release.yml.
 name: CI
 
 # Skip pushes that only touch files no job here builds or tests (minutes are
@@ -65,9 +67,20 @@ jobs:
         run: |
           flutter pub get
           flutter analyze
+          flutter test
           flutter build linux --release
+      # The layout test's screenshots, so an overflow on a red run can be
+      # looked at from the PR.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: plop-layout-screens
+          path: app/build/screens/
+          if-no-files-found: ignore
+          retention-days: 3
 
   windows:
+    needs: [core, linux]
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
