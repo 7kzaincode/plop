@@ -251,6 +251,20 @@ void main() {
       () => a.addBytes(List.filled(1001, 0), 'x.bin'),
       throwsA(isA<ItemTooLargeException>()),
     );
+    // A folder is refused before it is zipped, and leaves nothing behind.
+    final folder = Directory('${c.root.path}/big');
+    File('${folder.path}/a.bin')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(List.filled(600, 0));
+    File('${folder.path}/b.bin').writeAsBytesSync(List.filled(600, 0));
+    await expectLater(
+      a.addPath(folder.path),
+      throwsA(isA<ItemTooLargeException>().having((e) => e.size, 'size', 1200)),
+    );
+    await eventually(
+      () => Directory('${c.root.path}/n0/${a.id}').listSync().isEmpty,
+      reason: 'item dir left behind',
+    );
 
     // A peer that ignores the cap still cannot make B mirror an oversized item.
     b.store.addRemote(
@@ -277,6 +291,39 @@ void main() {
     expect(path, startsWith('${c.root.path}/n1/'));
     expect(path, endsWith('escape.txt'));
     expect(path.split('/'), isNot(contains('..')));
+  });
+
+  test('peer item ids with path tricks are refused', () async {
+    c = await Cluster.start(1);
+    final s = c.nodes.single.store;
+    RemoteItem remote(String id) => RemoteItem(
+      id: id,
+      name: 'x.txt',
+      size: 1,
+      mime: 'text/plain',
+      kind: ItemKind.file,
+      ttlMs: 1000,
+    );
+    for (final id in ['../../escape', 'a/b', r'..\x', '', 'x' * 65]) {
+      expect(s.addRemote('p', 'p', remote(id)), isNull, reason: id);
+    }
+    expect(s.addRemote('p', 'p', remote(randomId())), isNotNull);
+
+    // Even an id that slipped through stays a single path segment.
+    final odd = ShelfItem(
+      id: '../../escape',
+      originId: 'p',
+      originName: 'p',
+      name: 'x.txt',
+      size: 1,
+      mime: 'text/plain',
+      kind: ItemKind.file,
+      expiresAt: DateTime.now(),
+      ttl: Duration.zero,
+    );
+    final path = s.downloadPath(odd);
+    expect(path, startsWith('${s.dir.path}${Platform.pathSeparator}'));
+    expect(path.split(Platform.pathSeparator), isNot(contains('..')));
   });
 
   test('a node ignores its own advertisement', () async {
@@ -313,10 +360,17 @@ void main() {
     File(
       '${src.path}/src/deep/main.dart',
     ).writeAsBytesSync(List.filled(5000, 9));
+    Directory('${src.path}/empty').createSync();
 
     final item = await a.addPath(src.path);
     expect(item.kind, ItemKind.folder);
     expect(item.name, 'My Project');
+    // Really stored: the archive package buffers anything else whole.
+    final input = InputFileStream(item.path!);
+    for (final f in ZipDecoder().decodeStream(input)) {
+      expect(f.compression, CompressionType.none, reason: f.name);
+    }
+    await input.close();
 
     await eventually(() => b.items.any((i) => i.isReady));
     final mirror = b.items.single;
@@ -327,7 +381,30 @@ void main() {
     await extractFolder(mirror.path!, out);
     expect(File('$out/readme.md').readAsStringSync(), 'hi');
     expect(File('$out/src/deep/main.dart').lengthSync(), 5000);
+    expect(Directory('$out/empty').existsSync(), isTrue);
   });
+
+  test('zipping a folder skips symlinks rather than following them', () async {
+    c = await Cluster.start(1);
+    final [a] = c.nodes;
+    final outside = '${c.root.path}/outside';
+    File('$outside/secret.txt')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('secret');
+    final src = Directory('${c.root.path}/dropped');
+    File('${src.path}/a.txt')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('a');
+    Link('${src.path}/ext').createSync(outside);
+    Link('${src.path}/secret.txt').createSync('$outside/secret.txt');
+    Link('${src.path}/loop').createSync(src.path);
+
+    final item = await a.addPath(src.path);
+    final input = InputFileStream(item.path!);
+    final names = ZipDecoder().decodeStream(input).map((f) => f.name);
+    expect(names, ['a.txt']);
+    await input.close();
+  }, skip: Platform.isWindows ? 'creating symlinks needs admin rights' : false);
 
   test('saveTo writes outside the store and outlives the item', () async {
     c = await Cluster.start(
@@ -349,6 +426,56 @@ void main() {
       timeout: const Duration(seconds: 4),
     );
     expect(File(dest).existsSync(), isTrue);
+  });
+
+  test('a failed saveTo does not leave progress showing', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    final big = await a.addBytes(List.filled(5000, 5), 'big.bin');
+    await eventually(() => b.items.isNotEmpty);
+    final key = itemKey(a.id, big.id);
+    // A file where a folder should be makes the download fail.
+    final blocker = File('${c.root.path}/blocker')..createSync();
+    await expectLater(
+      b.saveTo(key, '${blocker.path}/big.bin'),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(b.store[key]!.progress, isNull);
+  });
+
+  test('a failed download leaves no .part behind', () async {
+    c = await Cluster.start(1);
+    final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => liar.close(force: true));
+    liar.listen((req) {
+      final res = req.response;
+      if (req.uri.path.endsWith('/gone')) {
+        res.statusCode = HttpStatus.notFound;
+      } else {
+        res.add(List.filled(64 * 1024, 1)); // more than advertised
+      }
+      res.close().ignore(); // the client may hang up first
+    });
+    final client = NodeClient();
+    addTearDown(client.close);
+    final dest = '${c.root.path}/got.bin';
+    for (final id in ['x', 'gone']) {
+      await expectLater(
+        client.download(
+          Uri.parse('http://127.0.0.1:${liar.port}'),
+          id,
+          dest,
+          expectedSize: 1000,
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(File('$dest.part').existsSync(), isFalse, reason: id);
+      expect(File(dest).existsSync(), isFalse, reason: id);
+    }
   });
 
   test('lifetime can change; each item keeps its own', () async {
@@ -376,5 +503,32 @@ void main() {
     await extractFolder(zip.path, out.path);
     expect(File('${out.path}/ok.txt').existsSync(), isTrue);
     expect(File('${c.root.path}/x/escaped.txt').existsSync(), isFalse);
+  });
+
+  test('unpacking a folder ignores symlinks that chain outside', () async {
+    c = await Cluster.start(1);
+    // Made with Python's zipfile: a/b/l -> .., a/b/l/m -> ../../escaped,
+    // then a/b/l/m/pwned.txt. Each link looks harmless on its own.
+    final zip = File('${c.root.path}/evil.zip')
+      ..writeAsBytesSync(
+        base64.decode(
+          'UEsDBBQAAAAAAAAAIQAcFgiWAgAAAAIAAAAFAAAAYS9iL2wuLlBLAwQUAAAAAAAAACEA'
+          'vbvtlg0AAAANAAAABwAAAGEvYi9sL20uLi8uLi9lc2NhcGVkUEsDBBQAAAAAAKsGRl1+'
+          'UwTZBQAAAAUAAAARAAAAYS9iL2wvbS9wd25lZC50eHRwd25lZFBLAQIUAxQAAAAAAAAA'
+          'IQAcFgiWAgAAAAIAAAAFAAAAAAAAAAAAAAD/oQAAAABhL2IvbFBLAQIUAxQAAAAAAAAA'
+          'IQC9u+2WDQAAAA0AAAAHAAAAAAAAAAAAAAD/oSUAAABhL2IvbC9tUEsBAhQDFAAAAAAA'
+          'qwZGXX5TBNkFAAAABQAAABEAAAAAAAAAAAAAAIABVwAAAGEvYi9sL20vcHduZWQudHh0'
+          'UEsFBgAAAAADAAMApwAAAIsAAAAAAA==',
+        ),
+      );
+    final escaped = Directory('${c.root.path}/x/escaped')
+      ..createSync(recursive: true);
+    final out = Directory('${c.root.path}/x/out');
+    await extractFolder(zip.path, out.path);
+    expect(File('${escaped.path}/pwned.txt').existsSync(), isFalse);
+    expect(
+      out.listSync(recursive: true, followLinks: false).whereType<Link>(),
+      isEmpty,
+    );
   });
 }

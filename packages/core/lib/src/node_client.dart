@@ -29,6 +29,7 @@ class NodeClient {
 
   /// Streams an item into [destPath]. Writes to a `.part` file and renames on
   /// success, so a half-written file is never mistaken for a complete one.
+  /// On any failure, including a full disk, the `.part` file is deleted.
   Future<void> download(
     Uri base,
     String id,
@@ -36,17 +37,19 @@ class NodeClient {
     required int expectedSize,
     void Function(int received)? onProgress,
   }) async {
-    final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
-    final res = await req.close().timeout(const Duration(seconds: 10));
-    if (res.statusCode != HttpStatus.ok) {
-      await res.drain<void>();
-      throw HttpException('download failed: ${res.statusCode}', uri: base);
-    }
+    // Opened before asking, so a local error never strands a response.
     final part = File('$destPath.part');
     await part.parent.create(recursive: true);
-    final sink = part.openWrite();
+    final out = await part.open(mode: FileMode.write);
     var received = 0;
+    var ok = false;
     try {
+      final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
+      final res = await req.close().timeout(const Duration(seconds: 10));
+      if (res.statusCode != HttpStatus.ok) {
+        await res.drain<void>();
+        throw HttpException('download failed: ${res.statusCode}', uri: base);
+      }
       // A stalled sender (e.g. an iOS app that got suspended) should fail the
       // download rather than hang it forever.
       await for (final chunk in res.timeout(const Duration(seconds: 15))) {
@@ -54,15 +57,21 @@ class NodeClient {
         if (received > expectedSize) {
           throw HttpException('more bytes than advertised', uri: base);
         }
-        sink.add(chunk);
+        // Awaited, unlike an IOSink: a full disk fails here and stops the
+        // transfer, and a slow disk slows the sender.
+        await out.writeFrom(chunk);
         onProgress?.call(received);
       }
+      if (received != expectedSize) {
+        throw HttpException(
+          'short download: $received/$expectedSize',
+          uri: base,
+        );
+      }
+      ok = true;
     } finally {
-      await sink.close();
-    }
-    if (received != expectedSize) {
-      await part.delete().catchError((_) => part);
-      throw HttpException('short download: $received/$expectedSize', uri: base);
+      await out.close();
+      if (!ok) await part.delete().catchError((_) => part);
     }
     await part.rename(destPath);
   }

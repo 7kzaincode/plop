@@ -42,8 +42,15 @@ Future<void> main(List<String> args) async {
   if (Platform.isMacOS) {
     final ips = await localIPv4s();
     dnsSd = await Process.start('dns-sd', [
-      '-R', name, '_plop._tcp', 'local', '${node.port}',
-      'id=${node.id}', 'v=1', 'name=$name', 'ips=${ips.join(',')}',
+      '-R',
+      name,
+      '_plop._tcp',
+      'local',
+      '${node.port}',
+      'id=${node.id}',
+      'v=1',
+      'name=$name',
+      'ips=${ips.join(',')}',
     ]);
   }
 

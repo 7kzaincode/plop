@@ -181,8 +181,11 @@ class SyncEngine {
       await File(await fetch(key)).copy(destPath);
       return;
     }
-    await _transfer(item, destPath);
-    store.setProgress(key, null);
+    try {
+      await _transfer(item, destPath);
+    } finally {
+      store.setProgress(key, null);
+    }
   }
 
   Future<String> _mirror(ShelfItem item) async {
@@ -224,6 +227,8 @@ class SyncEngine {
           },
         );
         return;
+      } on FileSystemException {
+        rethrow; // e.g. a full disk: another address will not help
       } catch (e) {
         lastError = e;
       }

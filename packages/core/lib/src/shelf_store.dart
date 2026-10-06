@@ -7,10 +7,65 @@ import 'package:archive/archive_io.dart';
 
 import 'item.dart';
 
-/// Unpacks a folder item's zip into [outDir]. Entries that would land outside
-/// [outDir] are skipped by the archive package.
+/// Unpacks a folder item's zip into [outDir]. Only plain files and folders
+/// are written: symlinks are skipped (plop never sends them, and a chain of
+/// them can steer later entries outside [outDir]), as are names with `..`.
 Future<void> extractFolder(String zipPath, String outDir) =>
-    Isolate.run(() => extractFileToDisk(zipPath, outDir));
+    Isolate.run(() async {
+      await Directory(outDir).create(recursive: true);
+      final input = InputFileStream(zipPath);
+      try {
+        for (final f in ZipDecoder().decodeStream(input)) {
+          final parts = f.name.split(RegExp(r'[/\\]'))
+            ..removeWhere((s) => s.isEmpty || s == '.');
+          if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
+            continue;
+          }
+          final path = [outDir, ...parts].join(Platform.pathSeparator);
+          if (f.isDirectory) {
+            await Directory(path).create(recursive: true);
+            continue;
+          }
+          final out = OutputFileStream(path); // creates parent folders
+          try {
+            f.writeContent(out);
+          } finally {
+            await out.close();
+          }
+        }
+      } finally {
+        await input.close();
+      }
+    });
+
+/// Writes the contents of [dir] to [zip]. Entries are stored with
+/// [CompressionType.none], which the archive package streams; it would
+/// deflate anything else into memory whole. Links are skipped, not followed:
+/// they can point outside the folder.
+Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
+  final entries = Directory(dir).listSync(recursive: true, followLinks: false);
+  // Refuse before writing anything rather than after copying it all.
+  final total = entries.whereType<File>().fold(0, (n, f) => n + f.lengthSync());
+  if (total > maxBytes) throw ItemTooLargeException(total, maxBytes);
+  final enc = ZipFileEncoder()..create(zip);
+  for (final e in entries) {
+    final name = e.path
+        .substring(dir.length)
+        .replaceFirst(RegExp(r'^[/\\]+'), '');
+    final ArchiveFile f;
+    if (e is File) {
+      f = ArchiveFile.stream(name, InputFileStream(e.path))
+        ..lastModTime = e.lastModifiedSync().millisecondsSinceEpoch ~/ 1000;
+    } else if (e is Directory) {
+      f = ArchiveFile.directory(name);
+    } else {
+      continue; // a link
+    }
+    // Folder entries too: an empty "deflated" entry is invalid to unzip.
+    enc.addArchiveFile(f..compression = CompressionType.none);
+  }
+  await enc.close();
+}
 
 class ItemTooLargeException implements Exception {
   ItemTooLargeException(this.size, this.max);
@@ -98,11 +153,13 @@ class ShelfStore {
     final id = randomId();
     final zip = _itemPath(nodeId, id, '$name.zip');
     await File(zip).parent.create(recursive: true);
-    await Isolate.run(() async {
-      final enc = ZipFileEncoder()..create(zip, level: ZipFileEncoder.store);
-      await enc.addDirectory(Directory(path), includeDirName: false);
-      await enc.close();
-    });
+    final max = maxItemBytes; // so the closure does not capture `this`
+    try {
+      await Isolate.run(() => _zipFolder(path, zip, max));
+    } catch (_) {
+      _deleteItemDir(nodeId, id);
+      rethrow;
+    }
     final size = await File(zip).length();
     if (size > maxItemBytes) {
       _deleteItemDir(nodeId, id);
@@ -186,10 +243,13 @@ class ShelfStore {
   }
 
   /// Records a peer's item. Returns the new mirror, or null if it was already
-  /// known or is over the size cap.
+  /// known, is over the size cap, or has an id that is not a plain token.
   ShelfItem? addRemote(String peerId, String peerName, RemoteItem r) {
     final key = itemKey(peerId, r.id);
-    if (_items.containsKey(key) || r.size > maxItemBytes || r.ttlMs <= 0) {
+    if (!_validId.hasMatch(r.id) ||
+        _items.containsKey(key) ||
+        r.size > maxItemBytes ||
+        r.ttlMs <= 0) {
       return null;
     }
     final ttl = Duration(milliseconds: r.ttlMs);
@@ -243,8 +303,15 @@ class ShelfStore {
     _changes.add(null);
   }
 
-  String _itemDir(String originId, String id) =>
-      [dir.path, safeFileName(originId), id].join(Platform.pathSeparator);
+  /// Ids become a directory name and part of a URL path, so a peer's ids
+  /// must be plain tokens. Ours come from [randomId].
+  static final _validId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
+
+  String _itemDir(String originId, String id) => [
+    dir.path,
+    safeFileName(originId),
+    safeFileName(id),
+  ].join(Platform.pathSeparator);
 
   String _itemPath(String originId, String id, String fileName) =>
       '${_itemDir(originId, id)}${Platform.pathSeparator}${safeFileName(fileName)}';
