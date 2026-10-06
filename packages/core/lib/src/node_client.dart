@@ -26,7 +26,7 @@ class NodeClient {
     req.headers.set(nodeIdHeader, selfId);
     final res = await req.close().timeout(_listTimeout);
     if (res.statusCode != HttpStatus.ok) {
-      await res.drain<void>().timeout(_listTimeout);
+      await _hangUp(res);
       throw HttpException('list failed: ${res.statusCode}', uri: base);
     }
     // Throwing out of `await for` cancels the subscription and drops the
@@ -43,6 +43,14 @@ class NodeClient {
         RemoteItem.fromJson(j as Map<String, dynamic>),
     ];
   }
+
+  /// Drops a response whose body is not wanted. Not `drain()`: that reads
+  /// the body to its end, and a timeout on it gives up waiting without
+  /// stopping the read, so a peer answering with an endless body would hold
+  /// the socket for good. Cancelling the subscription destroys the
+  /// connection instead; the pool loses one, which is nothing.
+  static Future<void> _hangUp(HttpClientResponse res) =>
+      res.listen(null).cancel();
 
   /// Streams an item into [destPath]. Writes to a `.part` file and renames on
   /// success, so a half-written file is never mistaken for a complete one.
@@ -65,7 +73,7 @@ class NodeClient {
       final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
       final res = await req.close().timeout(const Duration(seconds: 10));
       if (res.statusCode != HttpStatus.ok) {
-        await res.drain<void>();
+        await _hangUp(res);
         throw HttpException('download failed: ${res.statusCode}', uri: base);
       }
       // A stalled sender (e.g. an iOS app that got suspended) should fail the

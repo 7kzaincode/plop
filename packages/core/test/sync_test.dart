@@ -776,6 +776,46 @@ void main() {
     );
   });
 
+  test('a refusal with an endless body is hung up on, not read', () async {
+    c = await Cluster.start(1);
+    final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => liar.close(force: true));
+    liar.listen((req) async {
+      final res = req.response..statusCode = HttpStatus.serviceUnavailable;
+      final pad = List.filled(64 * 1024, 0x20);
+      final until = DateTime.now().add(const Duration(seconds: 5));
+      // Paced by a timer, not by the socket: dart:io hides a hang-up from
+      // the server, so once the client is gone every flush completes at
+      // once, and a loop on them alone would starve the isolate, client
+      // included. The bound only ends the test if the client fails to
+      // hang up; a drain would read until then, or time out.
+      while (DateTime.now().isBefore(until)) {
+        res.add(pad);
+        await res.flush();
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      res.close().ignore();
+    });
+    final base = Uri.parse('http://127.0.0.1:${liar.port}');
+    final client = NodeClient();
+    addTearDown(client.close);
+    final clock = Stopwatch()..start();
+    await expectLater(
+      client.fetchList(base, 'me'),
+      throwsA(isA<HttpException>()),
+    );
+    await expectLater(
+      client.download(base, 'x', '${c.root.path}/x.bin', expectedSize: 1),
+      throwsA(isA<HttpException>()),
+    );
+    expect(
+      clock.elapsed,
+      lessThan(const Duration(seconds: 2)),
+      reason: 'should hang up on the body, not wait for it',
+    );
+    expect(File('${c.root.path}/x.bin.part').existsSync(), isFalse);
+  });
+
   test('lifetime can change; each item keeps its own', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;
