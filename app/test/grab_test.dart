@@ -37,6 +37,27 @@ void main() {
     }
   });
 
+  // The messages are the whole UI for a failed grab; the core's exceptions
+  // must each land on their own line, not the catch-all.
+  test('errors are told apart by type and message', () {
+    expect(friendlyError(const PlopMessage('as is')), 'as is');
+    expect(
+      friendlyError(const FormatException('folder zip is compressed')),
+      "that folder isn't something plop made",
+    );
+    expect(friendlyError(StateError('item expired')), 'that one expired');
+    expect(
+      friendlyError(StateError('sender is gone')),
+      'the sender is no longer reachable',
+    );
+    expect(friendlyError(const SocketException('refused')), contains('sender'));
+    expect(
+      friendlyError(const FileSystemException('x', '/tmp/a/report.pdf.part')),
+      "can't access report.pdf",
+    );
+    expect(friendlyError(Object()), "that didn't work");
+  });
+
   // Android's clipboard hands over whatever the source app wrote; a wrong
   // extension sends a Windows receiver into a GDI+ copy that fails and
   // leaves a ".png" that is really WebP.

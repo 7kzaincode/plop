@@ -361,6 +361,9 @@ String friendlyError(Object e) => switch (e) {
     'too big · the limit is ${max ~/ (1024 * 1024 * 1024)} GB',
   StateError(message: 'item expired') => 'that one expired',
   StateError(message: 'sender is gone') => 'the sender is no longer reachable',
+  // extractFolder refuses a zip plop would never have made (compressed, or
+  // one that unpacks to more than it says): a zip bomb or a foreign peer.
+  FormatException() => "that folder isn't something plop made",
   SocketException() ||
   HttpException() ||
   TimeoutException() ||
