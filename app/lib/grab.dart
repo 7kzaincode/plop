@@ -15,8 +15,11 @@ final isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 /// desktop_drop has no iOS support; on Android it is only a preview.
 final canDrop = isDesktop;
 
-Future<List<String>> pickFiles() async {
-  final files = await FilePicker.pickFiles();
+/// [media] opens the photo library on mobile, where screenshots live.
+Future<List<String>> pickFiles({bool media = false}) async {
+  final files = await FilePicker.pickFiles(
+    type: media ? FileType.media : FileType.any,
+  );
   return [for (final f in files) ?f.path];
 }
 
@@ -83,8 +86,9 @@ Future<bool> pasteInto(PlopNode node) async {
 }
 
 /// One tap on a peer's item. Text is copied; files are saved to Downloads on
-/// desktop and handed to the share sheet on mobile. Returns a message to show.
-Future<String?> grab(
+/// desktop (with an offer to copy) and handed to the share sheet on mobile.
+/// Returns a snack bar to show, if any.
+Future<SnackBar?> grab(
   BuildContext context,
   PlopNode node,
   ShelfItem item,
@@ -97,14 +101,20 @@ Future<String?> grab(
     await Clipboard.setData(
       ClipboardData(text: await File(path).readAsString()),
     );
-    return 'Copied';
+    return const SnackBar(content: Text('Copied'));
   }
   if (isDesktop) {
     final dir = await getDownloadsDirectory() ?? await getTemporaryDirectory();
     await dir.create(recursive: true);
     final dest = _unique(dir, item.name);
     await File(path).copy(dest.path);
-    return 'Saved to ${dest.path}';
+    return SnackBar(
+      content: Text('Saved to ${dest.path}'),
+      action: SnackBarAction(
+        label: 'Copy',
+        onPressed: () => Pasteboard.writeFiles([dest.path]),
+      ),
+    );
   }
   await SharePlus.instance.share(
     ShareParams(

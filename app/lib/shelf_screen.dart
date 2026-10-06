@@ -9,6 +9,9 @@ import 'grab.dart';
 /// How long to wait for a peer before saying none were found.
 const _peerGrace = Duration(seconds: 6);
 
+/// Items fade out over this final stretch of their time.
+const _fadeOut = Duration(seconds: 5);
+
 class ShelfScreen extends StatefulWidget {
   const ShelfScreen({super.key, required this.node});
 
@@ -41,12 +44,15 @@ class _ShelfScreenState extends State<ShelfScreen> {
     super.dispose();
   }
 
-  Future<void> _run(Future<String?> Function() action) async {
+  /// Runs a UI action. It may return a message or a [SnackBar] to show.
+  Future<void> _run(Future<Object?> Function() action) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final msg = await action();
-      if (msg != null) {
-        messenger.showSnackBar(SnackBar(content: Text(msg)));
+      switch (await action()) {
+        case final SnackBar bar:
+          messenger.showSnackBar(bar);
+        case final String msg:
+          messenger.showSnackBar(SnackBar(content: Text(msg)));
       }
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(friendlyError(e))));
@@ -117,7 +123,9 @@ class _ShelfScreenState extends State<ShelfScreen> {
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => _run(() async => _addPaths(await pickFiles())),
+        // On phones the common case is a photo or screenshot; "Files" is below.
+        onTap: () =>
+            _run(() async => _addPaths(await pickFiles(media: !isDesktop))),
         child: Stack(
           children: [
             Center(
@@ -131,7 +139,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    canDrop ? 'Drop or tap to add' : 'Tap to add',
+                    canDrop ? 'Drop or tap to add' : 'Tap to add a photo',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ],
@@ -140,10 +148,22 @@ class _ShelfScreenState extends State<ShelfScreen> {
             Positioned(
               right: 8,
               bottom: 8,
-              child: TextButton.icon(
-                onPressed: () => _run(_paste),
-                icon: const Icon(Icons.content_paste),
-                label: const Text('Paste'),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!isDesktop)
+                    TextButton.icon(
+                      onPressed: () =>
+                          _run(() async => _addPaths(await pickFiles())),
+                      icon: const Icon(Icons.folder_open),
+                      label: const Text('Files'),
+                    ),
+                  TextButton.icon(
+                    onPressed: () => _run(_paste),
+                    icon: const Icon(Icons.content_paste),
+                    label: const Text('Paste'),
+                  ),
+                ],
               ),
             ),
           ],
@@ -197,8 +217,14 @@ class _ShelfScreenState extends State<ShelfScreen> {
         .clamp(0.0, 1.0);
     final from = mine ? 'You' : item.originName;
     final keepOpen = mine && item.size > defaultEagerCopyBytes;
+    final ending = left < const Duration(seconds: 10);
+    // Fade out over the last few seconds instead of vanishing.
+    final opacity = (left.inMilliseconds / _fadeOut.inMilliseconds).clamp(
+      0.0,
+      1.0,
+    );
 
-    return Card(
+    final card = Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -226,6 +252,7 @@ class _ShelfScreenState extends State<ShelfScreen> {
                     _countdown(left),
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontFeatures: const [FontFeature.tabularFigures()],
+                      color: ending ? theme.colorScheme.error : null,
                     ),
                   ),
                   if (mine)
@@ -245,6 +272,26 @@ class _ShelfScreenState extends State<ShelfScreen> {
             ),
           ],
         ),
+      ),
+    );
+
+    // New items slide in; expiring ones fade out.
+    return TweenAnimationBuilder<double>(
+      key: ValueKey(item.key),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      builder: (_, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 12),
+          child: child,
+        ),
+      ),
+      child: AnimatedOpacity(
+        opacity: opacity,
+        duration: const Duration(seconds: 1),
+        child: card,
       ),
     );
   }
