@@ -112,7 +112,7 @@ abstract final class Hotkeys {
   };
 
   static PlopNode? _node;
-  static void Function(String message)? _onPlopped;
+  static void Function(String message, {bool ok})? _onPlopped;
 
   /// Global shortcuts only work on X11 under Linux, not Wayland.
   static bool get supported =>
@@ -126,10 +126,11 @@ abstract final class Hotkeys {
   static DateTime _lastSnipPress = DateTime(0);
   static bool _askedForScreen = false;
 
-  /// [onPlopped] gets a short message after something lands (or fails).
+  /// [onPlopped] gets a short message after something lands, or with
+  /// `ok: false` when it failed and the user needs to act.
   static Future<void> register(
     PlopNode node,
-    void Function(String message) onPlopped,
+    void Function(String message, {bool ok}) onPlopped,
   ) async {
     _node = node;
     _onPlopped = onPlopped;
@@ -169,12 +170,9 @@ abstract final class Hotkeys {
               const Duration(milliseconds: 500);
           _lastSnipPress = now; // reset on every event: a long hold fires once
           if (repeat) return;
-          run().catchError((Object e) {
-            _feedback(false);
-            onPlopped(friendlyError(e));
-          });
+          run().catchError((Object e) => _fail(friendlyError(e)));
         } else {
-          _once(run, onPlopped);
+          _once(run);
         }
       },
     );
@@ -185,27 +183,27 @@ abstract final class Hotkeys {
           _feedback(true);
           onPlopped('plopped clipboard');
         } else {
-          _feedback(false);
-          onPlopped('nothing to paste');
+          _fail('nothing to paste');
         }
-      }, onPlopped),
+      }),
     );
   }
 
-  static Future<void> _once(
-    Future<void> Function() f,
-    void Function(String) onPlopped,
-  ) async {
+  static Future<void> _once(Future<void> Function() f) async {
     if (_busy) return;
     _busy = true;
     try {
       await f();
     } catch (e) {
-      _feedback(false);
-      onPlopped(friendlyError(e));
+      _fail(friendlyError(e));
     } finally {
       _busy = false;
     }
+  }
+
+  static void _fail(String message) {
+    _feedback(false);
+    _onPlopped?.call(message, ok: false);
   }
 
   /// Lets the user drag out a region with the OS's own tool. Returns null if

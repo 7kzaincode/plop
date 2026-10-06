@@ -56,7 +56,15 @@ Future<void> _start() async {
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
-  void say(String msg) => screen.currentState?.toast(msg);
+  // The shortcuts fire with the window closed (macOS keeps plop running), so
+  // a failure that needs the user, like the Screen Recording steps, waits
+  // until they look instead of fading out unseen.
+  void say(String msg, {bool ok = true}) => screen.currentState?.toast(
+    msg,
+    sticky:
+        !ok &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.hidden,
+  );
   Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
   Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;
   try {
