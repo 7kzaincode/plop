@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -26,6 +27,13 @@ Future<void> main() async {
 }
 
 Future<void> _start() async {
+  // Android's picker copies every pick into its own cache dir and leaves it;
+  // copies made from now on go with their item (addCopy), this clears what
+  // earlier builds left. Android only: on iOS it would empty all of tmp,
+  // plop's own dirs included.
+  if (Platform.isAndroid) {
+    await FilePicker.clearTemporaryFiles().catchError((_) {});
+  }
   // PLOP_INSTANCE lets two copies run side by side on one machine (each needs
   // its own scratch dirs, since they are wiped on launch).
   // Debug builds (flutter run) default to their own instance, so running

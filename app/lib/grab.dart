@@ -61,6 +61,40 @@ Future<List<String>> pickFolder() async {
   return [?dir];
 }
 
+/// Puts a file that is plop's own copy on the shelf. Phones' pickers and
+/// Share-to-plop hand over a copy in the app cache rather than the user's
+/// file, and the store serves a picked path in place and only ever deletes
+/// files it made, so without this every shared photo and video stayed in
+/// the cache until the OS purged it. The copy goes when its item does
+/// (expiry or ✕). Desktop pickers return the user's real files: not for them.
+Future<ShelfItem> addCopy(PlopNode node, String path) async {
+  final ShelfItem item;
+  try {
+    item = await node.addPath(path);
+  } catch (_) {
+    _deleteCopy(path); // too big, say: nothing will ever refer to it
+    rethrow;
+  }
+  _copies[item.key] = path;
+  _copyWatch ??= node.store.localChanges.listen((_) {
+    final live = {for (final i in node.items) i.key};
+    for (final key in [..._copies.keys]) {
+      if (!live.contains(key)) _deleteCopy(_copies.remove(key)!);
+    }
+  });
+  return item;
+}
+
+final _copies = <String, String>{};
+StreamSubscription<void>? _copyWatch;
+
+void _deleteCopy(String path) {
+  final f = File(path);
+  // The copy sits in a per-pick directory; a non-recursive delete leaves
+  // the directory alone while another file from the same share is listed.
+  f.delete().then((_) => f.parent.delete()).then((_) {}, onError: (_) {});
+}
+
 Widget wrapDropTarget({
   required Widget child,
   required void Function(bool hovering) onHover,

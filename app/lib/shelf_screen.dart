@@ -158,7 +158,8 @@ class ShelfScreenState extends State<ShelfScreen> {
         toast('packing $name…', sticky: true);
       }
       try {
-        await node.addPath(p);
+        // Phones' pickers hand over a copy in the app cache, not the file.
+        await (isDesktop ? node.addPath(p) : addCopy(node, p));
       } catch (e) {
         failed++;
         first ??= e;

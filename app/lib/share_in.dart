@@ -6,7 +6,8 @@ import 'package:plop_core/plop_core.dart';
 import 'grab.dart';
 
 /// Android "Share to plop": MainActivity copies shared files into the cache
-/// and passes their paths (or shared text) over this channel.
+/// and passes their paths (or shared text) over this channel. The copies
+/// are plop's own, so they go when their items do (see addCopy).
 abstract final class ShareIn {
   static const _channel = MethodChannel('plop/share');
 
@@ -21,7 +22,7 @@ abstract final class ShareIn {
         final failed = (shared['failed'] as int?) ?? 0;
         final paths = [for (final p in shared['paths'] as List? ?? []) '$p'];
         for (final p in paths) {
-          await node.addPath(p);
+          await addCopy(node, p);
         }
         // Text only stands in when no file could be read, so a caption must
         // not pass for the photo it came with.
