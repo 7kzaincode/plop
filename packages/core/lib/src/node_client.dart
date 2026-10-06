@@ -37,18 +37,19 @@ class NodeClient {
     required int expectedSize,
     void Function(int received)? onProgress,
   }) async {
-    final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
-    final res = await req.close().timeout(const Duration(seconds: 10));
-    if (res.statusCode != HttpStatus.ok) {
-      await res.drain<void>();
-      throw HttpException('download failed: ${res.statusCode}', uri: base);
-    }
+    // Opened before asking, so a local error never strands a response.
     final part = File('$destPath.part');
     await part.parent.create(recursive: true);
     final out = await part.open(mode: FileMode.write);
     var received = 0;
     var ok = false;
     try {
+      final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
+      final res = await req.close().timeout(const Duration(seconds: 10));
+      if (res.statusCode != HttpStatus.ok) {
+        await res.drain<void>();
+        throw HttpException('download failed: ${res.statusCode}', uri: base);
+      }
       // A stalled sender (e.g. an iOS app that got suspended) should fail the
       // download rather than hang it forever.
       await for (final chunk in res.timeout(const Duration(seconds: 15))) {

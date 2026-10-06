@@ -451,24 +451,31 @@ void main() {
     c = await Cluster.start(1);
     final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() => liar.close(force: true));
-    liar.listen((req) async {
-      req.response.add(List.filled(64 * 1024, 1)); // more than advertised
-      await req.response.close();
+    liar.listen((req) {
+      final res = req.response;
+      if (req.uri.path.endsWith('/gone')) {
+        res.statusCode = HttpStatus.notFound;
+      } else {
+        res.add(List.filled(64 * 1024, 1)); // more than advertised
+      }
+      res.close().ignore(); // the client may hang up first
     });
     final client = NodeClient();
     addTearDown(client.close);
     final dest = '${c.root.path}/got.bin';
-    await expectLater(
-      client.download(
-        Uri.parse('http://127.0.0.1:${liar.port}'),
-        'x',
-        dest,
-        expectedSize: 1000,
-      ),
-      throwsA(isA<HttpException>()),
-    );
-    expect(File('$dest.part').existsSync(), isFalse);
-    expect(File(dest).existsSync(), isFalse);
+    for (final id in ['x', 'gone']) {
+      await expectLater(
+        client.download(
+          Uri.parse('http://127.0.0.1:${liar.port}'),
+          id,
+          dest,
+          expectedSize: 1000,
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(File('$dest.part').existsSync(), isFalse, reason: id);
+      expect(File(dest).existsSync(), isFalse, reason: id);
+    }
   });
 
   test('lifetime can change; each item keeps its own', () async {
