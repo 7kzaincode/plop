@@ -9,6 +9,7 @@ import 'package:plop_core/plop_core.dart';
 import 'package:uni_platform/uni_platform.dart';
 
 import 'grab.dart';
+import 'window.dart';
 
 /// System-wide shortcuts on desktop, so things can go on the shelf without
 /// switching to plop. The defaults, which the user can rebind:
@@ -184,7 +185,7 @@ abstract final class Hotkeys {
   };
 
   static PlopNode? _node;
-  static void Function(String message, {bool ok})? _onPlopped;
+  static Plopped? _onPlopped;
 
   /// Global shortcuts only work on X11 under Linux, not Wayland.
   static bool get supported =>
@@ -214,10 +215,7 @@ abstract final class Hotkeys {
 
   /// [onPlopped] gets a short message after something lands, or with
   /// `ok: false` when it failed and the user needs to act.
-  static Future<void> register(
-    PlopNode node,
-    void Function(String message, {bool ok}) onPlopped,
-  ) async {
+  static Future<void> register(PlopNode node, Plopped onPlopped) async {
     _node = node;
     _onPlopped = onPlopped;
     await apply();
@@ -302,7 +300,7 @@ abstract final class Hotkeys {
     final name = 'Screenshot ${_dateStamp()}.png';
     final path = '${outDir.path}${Platform.pathSeparator}$name';
     if (Platform.isMacOS) {
-      _checkScreenAccess();
+      if (!_checkScreenAccess()) return null;
       // -i: interactive region/window selection (space toggles), -x: silent.
       await Process.run('/usr/sbin/screencapture', ['-i', '-x', path]);
       return _addAndDelete(node, path, name);
@@ -338,33 +336,50 @@ abstract final class Hotkeys {
   }
 
   /// Without Screen Recording permission, screencapture silently saves only
-  /// the wallpaper and menu bar.
-  static void _checkScreenAccess() {
+  /// the wallpaper and menu bar. False when it is missing, once the user has
+  /// been told what to do.
+  static bool _checkScreenAccess() {
     final cg = DynamicLibrary.open(
       '/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics',
     );
     bool call(String fn) =>
         cg.lookupFunction<Bool Function(), bool Function()>(fn)();
-    if (call('CGPreflightScreenCaptureAccess')) return;
+    if (call('CGPreflightScreenCaptureAccess')) return true;
     // The first request shows the system prompt; later ones return false
-    // silently, so open the settings pane instead.
+    // silently, so the message offers the settings pane instead.
     if (!_askedForScreen) {
       _askedForScreen = true;
-      if (call('CGRequestScreenCaptureAccess')) return;
-      throw const PlopMessage(
+      if (call('CGRequestScreenCaptureAccess')) return true;
+      _needScreenAccess(
         'allow plop for Screen Recording, then quit plop (⌘Q) and reopen it',
       );
+      return false;
     }
-    Process.run('/usr/bin/open', [
-      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
-    ]);
     // A switch that is already on usually belongs to an older build of plop,
     // which macOS treats as a different app.
-    throw PlopMessage(
+    _needScreenAccess(
       "plop isn't allowed yet · if it's already switched on, remove it with −, "
       'press $snipLabel again, allow it, then reopen plop',
     );
+    return false;
   }
+
+  /// The snip was pressed from another app, so the window comes forward
+  /// with the steps, which stay until tapped; the tap opens the pane.
+  static void _needScreenAccess(String message) {
+    _feedback(false);
+    MacWindow.show();
+    _onPlopped?.call(
+      message,
+      ok: false,
+      action: 'open settings',
+      onTap: _openScreenRecordingSettings,
+    );
+  }
+
+  static void _openScreenRecordingSettings() => Process.run('/usr/bin/open', [
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  ]).ignore();
 
   /// The Snipping Tool overlay puts its result on the clipboard. Watch the
   /// clipboard's sequence number rather than its contents, so nothing is read
@@ -440,6 +455,15 @@ abstract final class Hotkeys {
     return false;
   }
 }
+
+/// A short message after something lands, or with `ok: false` when it failed
+/// and the user needs to act; [action] names what a tap then does.
+typedef Plopped = void Function(
+  String message, {
+  bool ok,
+  String? action,
+  void Function()? onTap,
+});
 
 String _dateStamp() {
   final t = DateTime.now();

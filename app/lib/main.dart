@@ -69,12 +69,22 @@ Future<void> _start() async {
   Arrivals.watch(node);
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
-  // the Screen Recording steps, waits until they look instead of fading out.
-  void say(String msg, {bool ok = true}) => screen.currentState?.toast(
+  // the Screen Recording steps, waits until they look instead of fading out;
+  // one that hands them something to tap waits for the tap.
+  void say(
+    String msg, {
+    bool ok = true,
+    String? action,
+    void Function()? onTap,
+  }) => screen.currentState?.toast(
     msg,
+    action: action,
+    onTap: onTap,
     sticky:
         !ok &&
-        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed,
+        (onTap != null ||
+            WidgetsBinding.instance.lifecycleState !=
+                AppLifecycleState.resumed),
   );
   Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
   Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;

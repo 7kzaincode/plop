@@ -23,6 +23,12 @@ abstract final class MacWindow {
 
   static void drag() => _channel.invokeMethod<void>('drag').ignore();
   static void zoom() => _channel.invokeMethod<void>('zoom').ignore();
+
+  /// Brings the window to the front, reopening it if it was closed, for a
+  /// message the user must act on while they are in another app.
+  static void show() {
+    if (Platform.isMacOS) _channel.invokeMethod<void>('show').ignore();
+  }
 }
 
 /// Something from another device landed while plop was closed or behind

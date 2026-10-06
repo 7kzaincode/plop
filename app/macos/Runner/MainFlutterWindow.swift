@@ -73,6 +73,13 @@ class MainFlutterWindow: NSWindow {
       case "zoom":
         window.performZoom(nil)
         result(nil)
+      case "show":
+        // Something needs the user's eyes while they are in another app (a
+        // snip that failed for want of Screen Recording): bring the window
+        // back, reopening it if it was closed.
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        result(nil)
       case "loginItem":
         if #available(macOS 13.0, *) {
           result(SMAppService.mainApp.status == .enabled)
