@@ -888,6 +888,19 @@ void main() {
     );
     expect(a.oneWay.map((p) => p.id), [b.id]);
 
+    // B reached A long ago, slept, and has just become reachable again: the
+    // grace period starts over rather than flagging it on the spot.
+    a.server.seenBy[b.id] = DateTime.now().subtract(
+      const Duration(minutes: 10),
+    );
+    a.engine.debugSetOkSince(b.id, DateTime.now());
+    expect(a.oneWay, isEmpty, reason: 'stale seenBy must not win');
+    a.engine.debugSetOkSince(
+      b.id,
+      DateTime.now().subtract(const Duration(seconds: 20)),
+    );
+    expect(a.oneWay.map((p) => p.id), [b.id], reason: 'both stale: flagged');
+
     // Once B polls A, the flag clears.
     c.connect(1, 0);
     await eventually(() => a.oneWay.isEmpty && b.peers.isNotEmpty);

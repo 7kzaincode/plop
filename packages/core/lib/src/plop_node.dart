@@ -77,10 +77,18 @@ class PlopNode {
     final now = DateTime.now();
     return [
       for (final p in engine.reachablePeers)
-        if (now.difference(server.seenBy[p.id] ?? engine.okSince(p.id) ?? now) >
-            oneWayAfter)
-          p,
+        if (now.difference(_lastContact(p.id, now)) > oneWayAfter) p,
     ];
+  }
+
+  /// The later of: since when we have reached [id], and when it last reached
+  /// us. A `seenBy` entry older than `okSince` predates the current reachable
+  /// window (the peer slept or dropped off Wi-Fi), so it must not count, or
+  /// a phone coming back from sleep is flagged until its first poll lands.
+  DateTime _lastContact(String id, DateTime now) {
+    final ok = engine.okSince(id) ?? now;
+    final seen = server.seenBy[id];
+    return seen != null && seen.isAfter(ok) ? seen : ok;
   }
 
   /// Brings networking back after the app was suspended: re-binds the
