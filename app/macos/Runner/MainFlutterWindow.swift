@@ -3,6 +3,22 @@ import FlutterMacOS
 import ServiceManagement
 
 class MainFlutterWindow: NSWindow {
+  // Files dropped on the Dock icon (AppDelegate.swift), on the same contract
+  // as the Android MainActivity: Dart asks for "initial" once it listens and
+  // gets whatever arrived before that (a drop can cold-launch plop, long
+  // before Dart has a handler); later drops are pushed as "shared".
+  private var share: FlutterMethodChannel?
+  private var pendingOpens: [String] = []
+  private var dartListening = false
+
+  func open(_ paths: [String]) {
+    if dartListening {
+      share?.invokeMethod("shared", arguments: ["paths": paths])
+    } else {
+      pendingOpens += paths
+    }
+  }
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     flutterViewController.backgroundColor = .clear
@@ -79,6 +95,17 @@ class MainFlutterWindow: NSWindow {
         result(FlutterMethodNotImplemented)
       }
     }
+
+    let share = FlutterMethodChannel(
+      name: "plop/share", binaryMessenger: flutterViewController.engine.binaryMessenger)
+    share.setMethodCallHandler { [weak self] call, result in
+      guard let window = self else { return result(nil) }
+      guard call.method == "initial" else { return result(FlutterMethodNotImplemented) }
+      window.dartListening = true
+      result(window.pendingOpens.isEmpty ? nil : ["paths": window.pendingOpens])
+      window.pendingOpens = []
+    }
+    self.share = share
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 

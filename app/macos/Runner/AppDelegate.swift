@@ -27,6 +27,23 @@ class AppDelegate: FlutterAppDelegate {
     }
   }
 
+  // Files dropped on the Dock icon go on the shelf, so the window never has
+  // to be open to add something (Info.plist declares the document type).
+  // Launch Services grants the sandbox access to files opened this way. The
+  // drop activates the app, so applicationDidBecomeActive above shows the
+  // window with the new row. Anything else (plop registers no URL schemes)
+  // goes to FlutterAppDelegate, which hands it to plugins.
+  override func application(_ application: NSApplication, open urls: [URL]) {
+    let paths = urls.filter(\.isFileURL).map(\.path)
+    if !paths.isEmpty {
+      (mainFlutterWindow as? MainFlutterWindow)?.open(paths)
+    }
+    let rest = urls.filter { !$0.isFileURL }
+    if !rest.isEmpty {
+      super.application(application, open: rest)
+    }
+  }
+
   override func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
     return true
   }

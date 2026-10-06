@@ -5,8 +5,11 @@ import 'package:plop_core/plop_core.dart';
 
 import 'grab.dart';
 
-/// Android "Share to plop": MainActivity copies shared files into the cache
-/// and passes their paths (or shared text) over this channel.
+/// Things the OS hands to plop: Android "Share to plop" (MainActivity copies
+/// shared files into the cache and passes their paths, or the shared text)
+/// and files dropped on the macOS Dock icon (MainFlutterWindow passes their
+/// paths). Both answer "initial" with what arrived before Dart listened and
+/// push later arrivals as "shared".
 abstract final class ShareIn {
   static const _channel = MethodChannel('plop/share');
 
@@ -14,7 +17,7 @@ abstract final class ShareIn {
     PlopNode node,
     void Function(String message) onMessage,
   ) async {
-    if (!Platform.isAndroid) return;
+    if (!Platform.isAndroid && !Platform.isMacOS) return;
     Future<void> ingest(Object? shared) async {
       if (shared is! Map) return;
       try {
