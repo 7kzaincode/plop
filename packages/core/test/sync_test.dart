@@ -440,6 +440,27 @@ void main() {
     expect(safeFileName(r'..\x'), '.._x');
   });
 
+  test('safeFileName fixes what Windows cannot store', () async {
+    c = await Cluster.start(1);
+    // Device names, with any extension, in any case: the stem gets a `_`.
+    expect(safeFileName('CON'), 'CON_');
+    expect(safeFileName('con.txt'), 'con_.txt');
+    expect(safeFileName('Nul.tar.gz'), 'Nul_.tar.gz');
+    expect(safeFileName('COM1'), 'COM1_');
+    expect(safeFileName('lpt9.log'), 'lpt9_.log');
+    expect(safeFileName('aux.'), 'aux_', reason: 'bare once the dot goes');
+    // Near misses are left alone.
+    for (final fine in ['console.txt', 'com10', 'config', 'nul-1', 'CONTENT']) {
+      expect(safeFileName(fine), fine);
+    }
+    // Trailing dots and spaces are dropped there, so drop them everywhere,
+    // or the name a Windows receiver shows differs from everyone else's.
+    expect(safeFileName('notes.'), 'notes');
+    expect(safeFileName('notes . . '), 'notes');
+    expect(safeFileName('report.pdf. '), 'report.pdf');
+    expect(safeFileName('.env'), '.env', reason: 'leading dots are fine');
+  });
+
   test('odd remote fields are refused or clamped', () async {
     c = await Cluster.start(1);
     final s = c.nodes.single.store;

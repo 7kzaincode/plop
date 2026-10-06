@@ -171,13 +171,24 @@ String mimeFor(String name) {
       'application/octet-stream';
 }
 
-/// Makes a peer-supplied name safe to use as a single path segment. Dotfiles
-/// stay dotfiles (`.env` must not arrive as `env`); with the separators
-/// replaced, only the bare `.` and `..` names need refusing.
+/// Makes a peer-supplied name safe to use as a single path segment on every
+/// platform plop runs on. Dotfiles stay dotfiles (`.env` must not arrive as
+/// `env`); with the separators replaced, only the bare `.` and `..` names
+/// need refusing. Windows also drops trailing dots and spaces, so `notes.`
+/// would land on `notes`, and reserves its device names (`CON`, `NUL.txt`,
+/// `com1.log`…), which get a `_` after the stem.
 String safeFileName(String name) {
-  final cleaned = name.replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_').trim();
-  if (RegExp(r'^\.*$').hasMatch(cleaned)) return 'file';
-  return cleaned.length > 120
-      ? cleaned.substring(cleaned.length - 120)
-      : cleaned;
+  var cleaned = name
+      .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
+      .trim()
+      .replaceAll(RegExp(r'[. ]+$'), '');
+  if (cleaned.isEmpty) return 'file';
+  if (cleaned.length > 120) cleaned = cleaned.substring(cleaned.length - 120);
+  return cleaned.replaceFirstMapped(_reserved, (m) => '${m[1]}_${m[2]}');
 }
+
+/// Windows device names, with any extension, in any case.
+final _reserved = RegExp(
+  r'^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)',
+  caseSensitive: false,
+);
