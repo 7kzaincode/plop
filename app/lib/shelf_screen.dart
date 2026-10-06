@@ -49,6 +49,10 @@ class ShelfScreenState extends State<ShelfScreen> {
   /// instead of saving another copy.
   final _saved = <String, String>{};
 
+  /// Items with a grab in flight. Enter and ⌘C skip the row's own guard, and
+  /// two saves of a big item would race on the same .part file.
+  final _inFlight = <String>{};
+
   PlopNode get node => widget.node;
 
   @override
@@ -106,23 +110,29 @@ class ShelfScreenState extends State<ShelfScreen> {
     }
   }
 
-  /// One tap on an item.
+  /// One tap on an item; a repeat while it is still running is ignored.
   Future<void> _act(BuildContext ctx, ShelfItem item, GrabAction a) async {
-    if (a != GrabAction.save) return run(() => grab(ctx, node, item, a));
+    if (!_inFlight.add(item.key)) return;
+    try {
+      await run(() => _grab(ctx, item, a));
+    } finally {
+      _inFlight.remove(item.key);
+    }
+  }
+
+  Future<String?> _grab(BuildContext ctx, ShelfItem item, GrabAction a) async {
+    if (a != GrabAction.save) return grab(ctx, node, item, a);
     final known = _saved[item.key];
     if (known != null &&
         FileSystemEntity.typeSync(known) != FileSystemEntityType.notFound) {
       await reveal(known);
-      return;
+      return null;
     }
-    try {
-      final path = await saveItem(node, item);
-      _saved[item.key] = path;
-      final where = path.split(Platform.pathSeparator).reversed.skip(1).first;
-      toast('saved to $where  ·  show', onTap: () => reveal(path));
-    } catch (e) {
-      toast(friendlyError(e));
-    }
+    final path = await saveItem(node, item);
+    _saved[item.key] = path;
+    final where = path.split(Platform.pathSeparator).reversed.skip(1).first;
+    toast('saved to $where  ·  show', onTap: () => reveal(path));
+    return null;
   }
 
   /// Adds picked or dropped paths, carrying on past failures.
@@ -238,14 +248,20 @@ class ShelfScreenState extends State<ShelfScreen> {
       ],
     );
 
-    SingleActivator cmd(LogicalKeyboardKey k) =>
-        SingleActivator(k, meta: Platform.isMacOS, control: !Platform.isMacOS);
+    // No repeats: a held ⌘V would plop the clipboard once per repeat.
+    SingleActivator cmd(LogicalKeyboardKey k) => SingleActivator(
+      k,
+      meta: Platform.isMacOS,
+      control: !Platform.isMacOS,
+      includeRepeats: false,
+    );
     return CallbackShortcuts(
       bindings: {
         cmd(LogicalKeyboardKey.keyV): () => run(paste),
         cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
         cmd(LogicalKeyboardKey.keyC): _grabNewest,
-        const SingleActivator(LogicalKeyboardKey.enter): _grabNewest,
+        const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false):
+            _grabNewest,
       },
       child: Focus(
         autofocus: true,
