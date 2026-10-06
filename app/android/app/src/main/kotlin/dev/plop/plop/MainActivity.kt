@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
+import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -57,13 +58,16 @@ class MainActivity : FlutterActivity() {
   }
 
   /// Copies shared streams into the cache (big videos can take a while, so
-  /// this runs off the UI thread) and returns their paths, or the shared text.
+  /// this runs off the UI thread) and returns their paths, or the shared text,
+  /// plus how many streams could not be read (no grant, offline provider,
+  /// no space) so Dart can say so rather than silently plop nothing.
   private fun take(i: Intent?): Map<String, Any>? {
     if (i == null || (i.action != Intent.ACTION_SEND && i.action != Intent.ACTION_SEND_MULTIPLE)) {
       return null
     }
     val dir = File(cacheDir, "plop-in/${System.nanoTime()}").apply { mkdirs() }
-    val paths = streams(i).mapNotNull { uri ->
+    val uris = streams(i)
+    val paths = uris.mapNotNull { uri ->
       runCatching {
         val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
           ?.use { if (it.moveToFirst()) it.getString(0) else null }
@@ -73,10 +77,10 @@ class MainActivity : FlutterActivity() {
           file.outputStream().use { input.copyTo(it) }
         }
         file.path
-      }.getOrNull()
+      }.onFailure { Log.w("plop", "share: could not read $uri", it) }.getOrNull()
     }
     val text = if (paths.isEmpty()) i.getStringExtra(Intent.EXTRA_TEXT) ?: "" else ""
-    return mapOf("paths" to paths, "text" to text)
+    return mapOf("paths" to paths, "text" to text, "failed" to uris.size - paths.size)
   }
 
   @Suppress("DEPRECATION")
