@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plop/grab.dart';
@@ -60,6 +61,9 @@ void main() {
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(PlopApp(node: me, settings: Settings.inMemory()));
     await tester.pump(); // autofocus
+    // Rows fade in from nothing, and a row that is not painted cannot
+    // report an overflow; let them arrive before a test looks at them.
+    await tester.pump(const Duration(milliseconds: 250));
   }
 
   /// Puts a 1 KB file called [name] on [other] and waits for [me] to see it.
@@ -254,10 +258,39 @@ void main() {
     expect(tester.takeException(), isNull);
 
     expect(find.text(name), findsNothing, reason: 'split into head and tail');
-    expect(find.text('14.23.11.png'), findsOneWidget);
-    splitName(tester, name);
+    final (head, tail) = splitName(tester, name);
+    expect(tail, endsWith('.png'));
+    expect(
+      tester.renderObject<RenderParagraph>(find.text(head)).didExceedMaxLines,
+      isTrue,
+      reason: 'the head is the part that gives way',
+    );
     // Text items are labelled by their first line and keep the end ellipsis.
     expect(find.text('hello'), findsOneWidget);
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('a wide CJK name fits a 320px row', (tester) async {
+    debugDesktopOverride = false;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    // Forty full-em characters: a fixed twelve-character tail alone is
+    // wider than the space the name gets beside two action icons.
+    final name = '${'渋谷区神宮前設計資料' * 4}.png';
+    await addFile(tester, name);
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpApp(tester);
+    expect(tester.takeException(), isNull);
+
+    final (head, tail) = splitName(tester, name);
+    expect(tail, endsWith('.png'));
+    expect(
+      tester.renderObject<RenderParagraph>(find.text(head)).didExceedMaxLines,
+      isTrue,
+    );
 
     await stopNodes(tester);
   });

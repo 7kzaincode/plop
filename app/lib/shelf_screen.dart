@@ -699,33 +699,6 @@ class _RowState extends State<_Row> {
       style: monoStyle(color: ending ? Palette.warn : Palette.dim),
     );
 
-    // A long file name truncates in the middle, never at the end: the tail
-    // is what tells "…at 14.23.11.png" from "…at 14.23.14.png" or "v3" from
-    // "v3 (copy)". Text items have no such tail; they keep the end ellipsis.
-    const nameStyle = TextStyle(
-      fontSize: 13.5,
-      color: Palette.text,
-      height: 1.25,
-    );
-    // Counted in grapheme clusters, not UTF-16 units: a cut inside an emoji
-    // or a combining mark would leave half a character on each side.
-    final chars = item.name.characters;
-    final keep = item.kind == ItemKind.text ? 0 : min(12, chars.length ~/ 2);
-    final nameRow = Row(
-      children: [
-        Flexible(
-          child: Text(
-            chars.skipLast(keep).toString(),
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-            style: nameStyle,
-          ),
-        ),
-        if (keep > 0) Text(chars.takeLast(keep).toString(), style: nameStyle),
-      ],
-    );
-
     // A focused row looks hovered, plus a hairline ring, and Enter or ⌘C
     // does what a click would. Rows with nothing to do are skipped.
     final lit = _hover || _focused;
@@ -767,7 +740,7 @@ class _RowState extends State<_Row> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            nameRow,
+                            _Name(item),
                             const SizedBox(height: 3),
                             Text(
                               meta,
@@ -847,6 +820,89 @@ class _RowState extends State<_Row> {
     }
     return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
   }
+}
+
+/// The item's name on one line. A long file name truncates in the middle,
+/// never at the end: the tail is what tells "…at 14.23.11.png" from "…at
+/// 14.23.14.png" or "v3" from "v3 (copy)". Text items have no such tail and
+/// keep the end ellipsis; so do names in a right-to-left script, where a
+/// head and a tail laid out left to right would swap places.
+class _Name extends StatelessWidget {
+  const _Name(this.item);
+  final ShelfItem item;
+
+  static const _style = TextStyle(
+    fontSize: 13.5,
+    color: Palette.text,
+    height: 1.25,
+  );
+
+  /// Hebrew through Arabic Extended-A.
+  static final _rtl = RegExp(r'[֐-ࣿ]');
+
+  @override
+  Widget build(BuildContext context) {
+    final name = item.name;
+    if (item.kind == ItemKind.text || _rtl.hasMatch(name)) return _end(name);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        // Measure in the style Text will draw with, so the tail's measured
+        // width is the width it takes in the row.
+        var style = DefaultTextStyle.of(context).style.merge(_style);
+        if (MediaQuery.boldTextOf(context)) {
+          style = style.merge(const TextStyle(fontWeight: FontWeight.bold));
+        }
+        final painter = TextPainter(
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          locale: Localizations.maybeLocaleOf(context),
+          maxLines: 1,
+        );
+        double widthOf(String s) {
+          painter
+            ..text = TextSpan(text: s, style: style)
+            ..layout();
+          return painter.width;
+        }
+
+        try {
+          if (!width.isFinite || widthOf(name) <= width) {
+            return Text(name, maxLines: 1, softWrap: false, style: _style);
+          }
+          // Counted in grapheme clusters, not UTF-16 units: a cut inside an
+          // emoji or a combining mark would leave half a character on each
+          // side. The tail cannot shrink, so it gives up characters until it
+          // takes at most half the width; otherwise a wide script (CJK runs
+          // a full em per character) pushes the row past its edge.
+          final chars = name.characters;
+          var keep = min(12, chars.length ~/ 2);
+          while (keep > 0 &&
+              widthOf(chars.takeLast(keep).toString()) > width / 2) {
+            keep--;
+          }
+          if (keep == 0) return _end(name);
+          return Row(
+            children: [
+              Flexible(child: _end(chars.skipLast(keep).toString())),
+              Text(chars.takeLast(keep).toString(), style: _style),
+            ],
+          );
+        } finally {
+          painter.dispose();
+        }
+      },
+    );
+  }
+
+  /// One line, giving way at the end.
+  static Widget _end(String s) => Text(
+    s,
+    maxLines: 1,
+    softWrap: false,
+    overflow: TextOverflow.ellipsis,
+    style: _style,
+  );
 }
 
 /// Type icon, or a bucket-shaped thumbnail once an image is on this device.
