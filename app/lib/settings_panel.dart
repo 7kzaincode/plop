@@ -88,7 +88,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     }
     final k = HotKey(key: key, modifiers: mods);
     final other = _recording == 'snip' ? Hotkeys.clip : Hotkeys.snip;
-    if (Hotkeys.label(k) == Hotkeys.label(other)) {
+    if (Hotkeys.same(k, other)) {
       setState(() => _note = 'that one is already taken');
       return true;
     }

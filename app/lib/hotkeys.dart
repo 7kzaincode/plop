@@ -54,16 +54,62 @@ abstract final class Hotkeys {
             (HotKeyModifier.alt, 'Alt+'),
             (HotKeyModifier.meta, 'Win+'),
           ];
-    final key = (k.physicalKey.debugName ?? '?').replaceFirst(
-      RegExp(r'^(Key|Digit) '),
-      '',
-    );
     return [
       for (final (m, s) in order)
         if (mods.contains(m)) s,
-      key,
+      keyName(k.physicalKey),
     ].join();
   }
+
+  /// Whether two bindings are the same key with the same modifiers.
+  static bool same(HotKey a, HotKey b) =>
+      a.physicalKey == b.physicalKey &&
+      {...?a.modifiers}.containsAll({...?b.modifiers}) &&
+      {...?b.modifiers}.containsAll({...?a.modifiers});
+
+  /// A key's printed name from its USB HID usage code. PhysicalKeyboardKey's
+  /// debugName is null in release builds, so it can't be used for this.
+  static String keyName(PhysicalKeyboardKey key) {
+    final u = key.usbHidUsage;
+    if (u >= 0x00070004 && u <= 0x0007001d) {
+      return String.fromCharCode(0x41 + u - 0x00070004); // A-Z
+    }
+    if (u >= 0x0007001e && u <= 0x00070026) {
+      return '${u - 0x0007001e + 1}'; // 1-9
+    }
+    if (u >= 0x0007003a && u <= 0x00070045) {
+      return 'F${u - 0x0007003a + 1}'; // F1-F12
+    }
+    return _keyNames[u] ?? '#${(u & 0xffff).toRadixString(16)}';
+  }
+
+  static const _keyNames = {
+    0x00070027: '0',
+    0x00070028: '↩',
+    0x0007002a: '⌫',
+    0x0007002b: '⇥',
+    0x0007002c: 'Space',
+    0x0007002d: '-',
+    0x0007002e: '=',
+    0x0007002f: '[',
+    0x00070030: ']',
+    0x00070031: r'\',
+    0x00070033: ';',
+    0x00070034: "'",
+    0x00070035: '`',
+    0x00070036: ',',
+    0x00070037: '.',
+    0x00070038: '/',
+    0x0007004a: 'Home',
+    0x0007004b: 'PgUp',
+    0x0007004c: 'Del',
+    0x0007004d: 'End',
+    0x0007004e: 'PgDn',
+    0x0007004f: '→',
+    0x00070050: '←',
+    0x00070051: '↓',
+    0x00070052: '↑',
+  };
 
   static PlopNode? _node;
   static void Function(String message)? _onPlopped;
