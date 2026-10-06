@@ -54,6 +54,8 @@ Future<void> _start() async {
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
   void say(String msg) => screen.currentState?.toast(msg);
+  Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
+  Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;
   try {
     await Hotkeys.register(node, say);
   } catch (_) {

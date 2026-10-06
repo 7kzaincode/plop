@@ -10,20 +10,63 @@ import 'package:plop_core/plop_core.dart';
 import 'grab.dart';
 
 /// System-wide shortcuts on desktop, so things can go on the shelf without
-/// switching to plop:
+/// switching to plop. The defaults, which the user can rebind:
 ///   ⌃⌥P / Ctrl+Shift+Alt+P  select a region of the screen; it lands on the shelf
 ///   ⌃⌥V / Ctrl+Shift+Alt+V  put whatever is on the clipboard on the shelf
 /// Windows and Linux add Shift: Ctrl+Alt alone is AltGr on many layouts and
 /// clashes with Office and JetBrains shortcuts.
 abstract final class Hotkeys {
-  static final _mods = Platform.isMacOS
-      ? [HotKeyModifier.control, HotKeyModifier.alt]
-      : [HotKeyModifier.control, HotKeyModifier.shift, HotKeyModifier.alt];
-  static final snip = HotKey(key: PhysicalKeyboardKey.keyP, modifiers: _mods);
-  static final clip = HotKey(key: PhysicalKeyboardKey.keyV, modifiers: _mods);
+  static final defaultMods = Platform.isMacOS
+      ? const [HotKeyModifier.control, HotKeyModifier.alt]
+      : const [
+          HotKeyModifier.control,
+          HotKeyModifier.shift,
+          HotKeyModifier.alt,
+        ];
+  static final defaultSnip = HotKey(
+    key: PhysicalKeyboardKey.keyP,
+    modifiers: defaultMods,
+  );
+  static final defaultClip = HotKey(
+    key: PhysicalKeyboardKey.keyV,
+    modifiers: defaultMods,
+  );
 
-  static String get snipLabel => Platform.isMacOS ? '⌃⌥P' : 'Ctrl+Shift+Alt+P';
-  static String get clipLabel => Platform.isMacOS ? '⌃⌥V' : 'Ctrl+Shift+Alt+V';
+  static HotKey snip = defaultSnip;
+  static HotKey clip = defaultClip;
+
+  static String get snipLabel => label(snip);
+  static String get clipLabel => label(clip);
+
+  /// ⌃⌥⇧⌘P on macOS, Ctrl+Shift+Alt+P elsewhere.
+  static String label(HotKey k) {
+    final mods = k.modifiers ?? const <HotKeyModifier>[];
+    final order = Platform.isMacOS
+        ? const [
+            (HotKeyModifier.control, '⌃'),
+            (HotKeyModifier.alt, '⌥'),
+            (HotKeyModifier.shift, '⇧'),
+            (HotKeyModifier.meta, '⌘'),
+          ]
+        : const [
+            (HotKeyModifier.control, 'Ctrl+'),
+            (HotKeyModifier.shift, 'Shift+'),
+            (HotKeyModifier.alt, 'Alt+'),
+            (HotKeyModifier.meta, 'Win+'),
+          ];
+    final key = (k.physicalKey.debugName ?? '?').replaceFirst(
+      RegExp(r'^(Key|Digit) '),
+      '',
+    );
+    return [
+      for (final (m, s) in order)
+        if (mods.contains(m)) s,
+      key,
+    ].join();
+  }
+
+  static PlopNode? _node;
+  static void Function(String message)? _onPlopped;
 
   /// Global shortcuts only work on X11 under Linux, not Wayland.
   static bool get supported =>
@@ -41,7 +84,20 @@ abstract final class Hotkeys {
     PlopNode node,
     void Function(String message) onPlopped,
   ) async {
-    if (!supported) return;
+    _node = node;
+    _onPlopped = onPlopped;
+    await apply();
+  }
+
+  /// Stops listening, e.g. while the user records a new binding.
+  static Future<void> pause() async {
+    if (supported) await hotKeyManager.unregisterAll();
+  }
+
+  /// (Re)registers the current bindings.
+  static Future<void> apply() async {
+    final node = _node, onPlopped = _onPlopped;
+    if (!supported || node == null || onPlopped == null) return;
     await hotKeyManager.unregisterAll();
     await hotKeyManager.register(
       snip,

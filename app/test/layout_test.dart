@@ -226,6 +226,27 @@ void main() {
     });
   }
 
+  testWidgets('settings panel fits on small desktop windows', (tester) async {
+    debugDesktopOverride = true;
+    await startNodes(tester, withItems: false);
+    for (final size in const [Size(360, 320), Size(460, 560)]) {
+      final key = await pumpApp(tester, size);
+      await tester.tap(find.byIcon(Icons.tune_rounded));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'settings $size');
+      await tester.runAsync(
+        () => _shot(
+          key,
+          'desktop-settings-${size.width.toInt()}x${size.height.toInt()}',
+        ),
+      );
+      await tester.tap(find.text('snip a screen region').hitTestable().first);
+      await tester.tapAt(const Offset(5, 5)); // close the dialog
+      await tester.pumpAndSettle();
+    }
+    await stopNodes(tester);
+  });
+
   test('sizes format compactly', () {
     expect(formatSize(0), '0 B');
     expect(formatSize(1536), '1.5 KB');

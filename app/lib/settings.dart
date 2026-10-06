@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Lifetimes offered in the picker.
@@ -48,6 +50,35 @@ class Settings {
 
   set ttl(Duration d) {
     _data['ttlMs'] = d.inMilliseconds;
+    _save();
+  }
+
+  /// A custom global shortcut, or null for the default.
+  HotKey? hotkey(String name) {
+    final j = _data['hotkey.$name'];
+    if (j is! Map) return null;
+    try {
+      return HotKey(
+        key: PhysicalKeyboardKey(j['key'] as int),
+        modifiers: [
+          for (final m in j['mods'] as List)
+            HotKeyModifier.values.byName(m as String),
+        ],
+      );
+    } catch (_) {
+      return null; // written by another version; fall back to the default
+    }
+  }
+
+  void setHotkey(String name, HotKey? k) {
+    if (k == null) {
+      _data.remove('hotkey.$name');
+    } else {
+      _data['hotkey.$name'] = {
+        'key': k.physicalKey.usbHidUsage,
+        'mods': [for (final m in k.modifiers ?? const []) m.name],
+      };
+    }
     _save();
   }
 

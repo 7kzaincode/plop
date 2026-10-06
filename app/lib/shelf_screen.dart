@@ -8,6 +8,7 @@ import 'package:plop_core/plop_core.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
 import 'settings.dart';
+import 'settings_panel.dart';
 import 'theme.dart';
 import 'type_icons.dart';
 import 'window.dart';
@@ -171,6 +172,10 @@ class ShelfScreenState extends State<ShelfScreen> {
               onTtl: _setTtl,
               onAddFiles: () => run(() => _add(pickFiles)),
               onAddFolder: () => run(() => _add(pickFolder)),
+              onSettings: () async {
+                await showSettings(context, widget.settings);
+                if (mounted) setState(() {}); // shortcut labels may change
+              },
             ),
             const Divider(height: 1, thickness: 1, color: Palette.line),
             Expanded(
@@ -341,6 +346,7 @@ class _TopBar extends StatelessWidget {
     required this.onTtl,
     required this.onAddFiles,
     required this.onAddFolder,
+    required this.onSettings,
   });
 
   final List<String> peers;
@@ -350,6 +356,7 @@ class _TopBar extends StatelessWidget {
   final ValueChanged<Duration> onTtl;
   final VoidCallback onAddFiles;
   final VoidCallback onAddFolder;
+  final VoidCallback onSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -463,6 +470,11 @@ class _TopBar extends StatelessWidget {
                     child: Icon(Icons.add, size: 16, color: Palette.dim),
                   ),
                 ),
+              _IconAction(
+                icon: Icons.tune_rounded,
+                tip: 'shortcuts and settings',
+                onTap: onSettings,
+              ),
             ],
           ],
         ),

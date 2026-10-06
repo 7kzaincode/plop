@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import ServiceManagement
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
@@ -56,6 +57,24 @@ class MainFlutterWindow: NSWindow {
       case "zoom":
         window.performZoom(nil)
         result(nil)
+      case "loginItem":
+        if #available(macOS 13.0, *) {
+          result(SMAppService.mainApp.status == .enabled)
+        } else {
+          result(false)
+        }
+      case "setLoginItem":
+        guard #available(macOS 13.0, *) else { return result(false) }
+        do {
+          if call.arguments as? Bool == true {
+            try SMAppService.mainApp.register()
+          } else {
+            try SMAppService.mainApp.unregister()
+          }
+          result(SMAppService.mainApp.status == .enabled)
+        } catch {
+          result(SMAppService.mainApp.status == .enabled)
+        }
       default:
         result(FlutterMethodNotImplemented)
       }
