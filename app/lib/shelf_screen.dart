@@ -490,13 +490,13 @@ class _TopBar extends StatelessWidget {
                     ),
                   ),
               ],
-              child: _Chip(icon: Icons.timer_outlined, label: formatTtl(ttl)),
+              child: _Chip(icon: Icons.timer_rounded, label: formatTtl(ttl)),
             ),
             if (isDesktop) ...[
               const SizedBox(width: 4),
               if (Platform.isMacOS)
                 _IconAction(
-                  icon: Icons.add,
+                  icon: Icons.add_rounded,
                   tip: 'add files or folders (⌘O)',
                   onTap: onAddFiles,
                 )
@@ -527,7 +527,11 @@ class _TopBar extends StatelessWidget {
                   ],
                   child: const Padding(
                     padding: EdgeInsets.all(6),
-                    child: Icon(Icons.add, size: 16, color: Palette.dim),
+                    child: Icon(
+                      Icons.add_rounded,
+                      size: 16,
+                      color: Palette.dim,
+                    ),
                   ),
                 ),
               _IconAction(
