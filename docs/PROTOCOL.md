@@ -72,7 +72,8 @@ the header the receiver re-fetches all peers. Responds `204`.
 - Peer gone (mDNS lost event, or 3 failed polls in a row): keep fully copied
   items until their timers end; drop items that were never copied.
 - Downloads are written to `<name>.part` and renamed when complete and the
-  byte count matches `size`.
+  byte count matches `size`. On any failure (more or fewer bytes, a stall, a
+  full disk) the `.part` file is deleted.
 
 ## Storage
 

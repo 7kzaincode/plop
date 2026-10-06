@@ -428,6 +428,30 @@ void main() {
     expect(File(dest).existsSync(), isTrue);
   });
 
+  test('a failed download leaves no .part behind', () async {
+    c = await Cluster.start(1);
+    final liar = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => liar.close(force: true));
+    liar.listen((req) async {
+      req.response.add(List.filled(64 * 1024, 1)); // more than advertised
+      await req.response.close();
+    });
+    final client = NodeClient();
+    addTearDown(client.close);
+    final dest = '${c.root.path}/got.bin';
+    await expectLater(
+      client.download(
+        Uri.parse('http://127.0.0.1:${liar.port}'),
+        'x',
+        dest,
+        expectedSize: 1000,
+      ),
+      throwsA(isA<HttpException>()),
+    );
+    expect(File('$dest.part').existsSync(), isFalse);
+    expect(File(dest).existsSync(), isFalse);
+  });
+
   test('lifetime can change; each item keeps its own', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;

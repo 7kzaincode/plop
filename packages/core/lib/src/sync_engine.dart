@@ -224,6 +224,8 @@ class SyncEngine {
           },
         );
         return;
+      } on FileSystemException {
+        rethrow; // e.g. a full disk: another address will not help
       } catch (e) {
         lastError = e;
       }
