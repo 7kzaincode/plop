@@ -112,6 +112,39 @@ void main() {
 
     await stopNodes(tester);
   });
+
+  testWidgets('a long file name keeps its tail when it truncates', (
+    tester,
+  ) async {
+    debugDesktopOverride = false;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    // Two snips seconds apart differ only in the seconds, which an end
+    // ellipsis would drop first.
+    const name = 'Screenshot 2026-10-06 at 14.23.11.png';
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        await other.addBytes(List.filled(1024, 1), name);
+        final end = DateTime.now().add(const Duration(seconds: 5));
+        while (!me.items.any((i) => i.name == name)) {
+          if (DateTime.now().isAfter(end)) throw 'item did not sync';
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }, _RealHttp()),
+    );
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpApp(tester);
+    expect(tester.takeException(), isNull);
+
+    expect(find.text(name), findsNothing, reason: 'split into head and tail');
+    expect(find.text('14.23.11.png'), findsOneWidget);
+    // Text items are labelled by their first line and keep the end ellipsis.
+    expect(find.text('hello'), findsOneWidget);
+
+    await stopNodes(tester);
+  });
 }
 
 class _RealHttp extends HttpOverrides {}

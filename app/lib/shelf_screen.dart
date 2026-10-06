@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -648,6 +649,32 @@ class _RowState extends State<_Row> {
       style: monoStyle(color: ending ? Palette.warn : Palette.dim),
     );
 
+    // A long file name truncates in the middle, never at the end: the tail
+    // is what tells "…at 14.23.11.png" from "…at 14.23.14.png" or "v3" from
+    // "v3 (copy)". Text items have no such tail; they keep the end ellipsis.
+    const nameStyle = TextStyle(
+      fontSize: 13.5,
+      color: Palette.text,
+      height: 1.25,
+    );
+    final name = item.name;
+    final keep = item.kind == ItemKind.text ? 0 : min(12, name.length ~/ 2);
+    final nameRow = Row(
+      children: [
+        Flexible(
+          child: Text(
+            name.substring(0, name.length - keep),
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: nameStyle,
+          ),
+        ),
+        if (keep > 0)
+          Text(name.substring(name.length - keep), style: nameStyle),
+      ],
+    );
+
     final row = MouseRegion(
       cursor: actions.isEmpty ? MouseCursor.defer : SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
@@ -673,16 +700,7 @@ class _RowState extends State<_Row> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            item.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13.5,
-                              color: Palette.text,
-                              height: 1.25,
-                            ),
-                          ),
+                          nameRow,
                           const SizedBox(height: 3),
                           Text(
                             meta,
