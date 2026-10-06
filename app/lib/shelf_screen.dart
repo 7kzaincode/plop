@@ -1136,24 +1136,32 @@ class _Toast extends StatelessWidget {
           border: Border.all(color: const Color(0xFF2A2A2A)),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Text.rich(
-          TextSpan(
-            text: text,
-            style: monoStyle(
-              color: action == null ? Palette.text : Palette.dim,
-            ),
-            children: [
-              if (action != null)
-                TextSpan(
-                  text: '  ·  $action',
-                  style: monoStyle(color: Palette.text),
-                ),
-            ],
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-        ),
+        child: action == null
+            ? Text(
+                text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: monoStyle(color: Palette.text),
+              )
+            // The action is its own Text: however long the message, the
+            // ellipsis can only ever eat the message, never the one word
+            // that says what a tap does.
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      text,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: monoStyle(color: Palette.dim),
+                    ),
+                  ),
+                  Text('  ·  $action', style: monoStyle(color: Palette.text)),
+                ],
+              ),
       ),
     ),
   );
