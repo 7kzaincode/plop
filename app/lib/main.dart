@@ -8,6 +8,7 @@ import 'package:plop_core/plop_core.dart';
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
+import 'login_item.dart';
 import 'settings.dart';
 import 'share_in.dart';
 import 'shelf_screen.dart';
@@ -56,6 +57,7 @@ Future<void> _start() async {
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
+  LoginItem.installLauncher();
   void say(String msg) => screen.currentState?.toast(msg);
   Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
   Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;

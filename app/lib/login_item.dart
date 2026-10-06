@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Starting plop when the user logs in, so the global shortcuts are always
@@ -13,6 +14,38 @@ abstract final class LoginItem {
 
   static File get _linuxEntry =>
       File('${Platform.environment['HOME']}/.config/autostart/plop.desktop');
+
+  /// Named after the GTK application id (linux/CMakeLists.txt): that is how
+  /// GNOME matches the running window to its launcher entry and icon.
+  static File get _linuxLauncher => File(
+    '${Platform.environment['HOME']}/.local/share/applications/dev.plop.plop.desktop',
+  );
+
+  /// A desktop entry for this build. Icon= takes an absolute path, so the
+  /// plop.png the tarball puts next to the executable needs no icon theme.
+  /// StartupWMClass is GTK's WM_CLASS on X11 (the program name); on Wayland
+  /// the application id does the matching.
+  static String _linuxDesktopEntry() {
+    final exe = Platform.resolvedExecutable;
+    return '[Desktop Entry]\nType=Application\nName=plop\nExec="$exe"\n'
+        'Icon=${File(exe).parent.path}/plop.png\nStartupWMClass=plop\n'
+        'Categories=Utility;\n';
+  }
+
+  /// Linux: the tarball has no installer, so the first launch registers plop
+  /// with the desktop (launcher search, dock icon, pinning). Release builds
+  /// only, so `flutter run` never points the launcher at a build directory.
+  static void installLauncher() {
+    if (!Platform.isLinux || !kReleaseMode) return;
+    try {
+      final entry = _linuxDesktopEntry();
+      final f = _linuxLauncher;
+      if (f.existsSync() && f.readAsStringSync() == entry) return;
+      f
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(entry);
+    } catch (_) {}
+  }
 
   static Future<bool> get enabled async {
     try {
@@ -49,8 +82,7 @@ abstract final class LoginItem {
           _linuxEntry
             ..parent.createSync(recursive: true)
             ..writeAsStringSync(
-              '[Desktop Entry]\nType=Application\nName=plop\nExec="$exe"\n'
-              'X-GNOME-Autostart-enabled=true\n',
+              '${_linuxDesktopEntry()}X-GNOME-Autostart-enabled=true\n',
             );
         } else if (_linuxEntry.existsSync()) {
           _linuxEntry.deleteSync();
