@@ -123,6 +123,7 @@ abstract final class Hotkeys {
 
   static bool _busy = false;
   static int _snipGen = 0;
+  static DateTime _lastSnipPress = DateTime(0);
   static bool _askedForScreen = false;
 
   /// [onPlopped] gets a short message after something lands (or fails).
@@ -157,8 +158,17 @@ abstract final class Hotkeys {
         }
 
         // The Windows snip waits on the user, so it must not hold the lock
-        // that the other shortcut shares.
+        // that the other shortcut shares. hotkey_manager registers without
+        // MOD_NOREPEAT there, so a held chord fires at the keyboard repeat
+        // rate; anything within half a second of the previous event is the
+        // same press (the slowest Windows repeat rate is 2.5/s).
         if (Platform.isWindows) {
+          final now = DateTime.now();
+          final repeat =
+              now.difference(_lastSnipPress) <
+              const Duration(milliseconds: 500);
+          _lastSnipPress = now; // reset on every event: a long hold fires once
+          if (repeat) return;
           run().catchError((Object e) {
             _feedback(false);
             onPlopped(friendlyError(e));
