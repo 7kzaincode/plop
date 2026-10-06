@@ -364,7 +364,7 @@ String friendlyError(Object e) => switch (e) {
   SocketException() ||
   HttpException() ||
   TimeoutException() ||
-  StateError() => 'could not get it · is the sender still here?',
+  StateError() => "couldn't get it · is the sender still here?",
   FileSystemException(:final path?) =>
     "can't access ${path.split(RegExp(r'[/\\]')).last.replaceAll(RegExp(r'\.part$'), '')}",
   _ => "that didn't work",

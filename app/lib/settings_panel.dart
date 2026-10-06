@@ -110,7 +110,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     try {
       widget.settings.setHotkey(which, k);
     } catch (_) {
-      setState(() => _note = "couldn't save that; it works until plop quits");
+      setState(() => _note = "couldn't save that · it works until plop quits");
     }
     return true;
   }
