@@ -121,6 +121,8 @@ const _mimes = {
   'jpeg': 'image/jpeg',
   'gif': 'image/gif',
   'webp': 'image/webp',
+  'bmp': 'image/bmp',
+  'avif': 'image/avif',
   'heic': 'image/heic',
   'svg': 'image/svg+xml',
   'pdf': 'application/pdf',
