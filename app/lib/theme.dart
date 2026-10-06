@@ -55,6 +55,9 @@ ThemeData plopTheme() {
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
     hoverColor: Palette.hover,
+    // Keyboard focus on the few Material controls (the TTL and add menus),
+    // in the palette rather than Material's 12% white.
+    focusColor: Palette.pressed,
     dividerColor: Palette.line,
     scrollbarTheme: const ScrollbarThemeData(
       thickness: WidgetStatePropertyAll(4),

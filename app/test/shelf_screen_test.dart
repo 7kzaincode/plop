@@ -113,6 +113,66 @@ void main() {
     await stopNodes(tester);
   });
 
+  testWidgets('Tab and the arrows pick a row; Enter grabs it, Esc lets go', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    // A second, newer item, so "the focused row" and "the newest" differ.
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        await other.addText('world');
+        final end = DateTime.now().add(const Duration(seconds: 5));
+        while (!me.items.any((i) => i.isReady && i.name == 'world')) {
+          if (DateTime.now().isAfter(end)) throw 'item did not sync';
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }, _RealHttp()),
+    );
+    final copied = <String>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add((call.arguments as Map)['text'] as String);
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await pumpApp(tester);
+
+    // Tab reaches the TTL chip, ↓ the first row, ↓ the older one below it.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    final ring = find.byWidgetPredicate(
+      (w) => w is Container && w.foregroundDecoration != null,
+    );
+    expect(ring, findsOneWidget, reason: 'one row shows the focus ring');
+    expect(find.descendant(of: ring, matching: find.text('hello')), findsOne);
+
+    await tester.runAsync(() async {
+      await pressEnter(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    expect(copied, ['hello']);
+
+    // Esc returns to the shelf, where Enter grabs the newest again.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(ring, findsNothing);
+    await tester.runAsync(() async {
+      await pressEnter(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    expect(copied, ['hello', 'world']);
+
+    await stopNodes(tester);
+  });
+
   testWidgets('a long file name keeps its tail when it truncates', (
     tester,
   ) async {

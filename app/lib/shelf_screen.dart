@@ -28,6 +28,22 @@ const _iconInset = 6.0;
 
 final _mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
 
+/// ⌘ on macOS, Ctrl elsewhere. No repeats: a held ⌘V would plop the
+/// clipboard once per repeat.
+SingleActivator _cmd(LogicalKeyboardKey k) => SingleActivator(
+  k,
+  meta: Platform.isMacOS,
+  control: !Platform.isMacOS,
+  includeRepeats: false,
+);
+
+/// The two ways to grab: the shelf applies them to the newest item, a
+/// focused row to itself.
+final _grabKeys = [
+  const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
+  _cmd(LogicalKeyboardKey.keyC),
+];
+
 class ShelfScreen extends StatefulWidget {
   const ShelfScreen({super.key, required this.node, required this.settings});
 
@@ -59,6 +75,10 @@ class ShelfScreenState extends State<ShelfScreen> {
   /// Items with a grab in flight. Enter and ⌘C skip the row's own guard, and
   /// two saves of a big item would race on the same .part file.
   final _inFlight = <String>{};
+
+  /// Where keyboard focus rests: the shelf itself, so Enter and ⌘C grab the
+  /// newest item. Tab and the arrows move it onto a row; Esc brings it back.
+  final _focus = FocusNode();
 
   PlopNode get node => widget.node;
 
@@ -96,6 +116,7 @@ class ShelfScreenState extends State<ShelfScreen> {
     _changes.cancel();
     _tick.cancel();
     _toastTimer?.cancel();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -192,7 +213,8 @@ class ShelfScreenState extends State<ShelfScreen> {
   Future<String?> paste() async =>
       await pasteInto(node) ? null : 'nothing to paste';
 
-  /// ⌘C / Enter: grab the newest thing someone else put on the shelf.
+  /// ⌘C / Enter with no row focused: grab the newest thing someone else put
+  /// on the shelf.
   void _grabNewest() {
     final it = node.items.where((i) => i.originId != node.id).firstOrNull;
     if (it != null) _act(context, it, actionsFor(it).first);
@@ -283,23 +305,19 @@ class ShelfScreenState extends State<ShelfScreen> {
       ],
     );
 
-    // No repeats: a held ⌘V would plop the clipboard once per repeat.
-    SingleActivator cmd(LogicalKeyboardKey k) => SingleActivator(
-      k,
-      meta: Platform.isMacOS,
-      control: !Platform.isMacOS,
-      includeRepeats: false,
-    );
     return CallbackShortcuts(
       bindings: {
-        cmd(LogicalKeyboardKey.keyV): () => run(paste),
-        cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
-        cmd(LogicalKeyboardKey.keyC): _grabNewest,
-        const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false):
-            _grabNewest,
+        _cmd(LogicalKeyboardKey.keyV): () => run(paste),
+        _cmd(LogicalKeyboardKey.keyO): () => run(() => _add(pickFiles)),
+        // A focused row takes these first (see _Row).
+        for (final k in _grabKeys) k: _grabNewest,
+        const SingleActivator(LogicalKeyboardKey.escape): _focus.requestFocus,
       },
       child: Focus(
+        focusNode: _focus,
         autofocus: true,
+        // Tab goes straight to the controls and rows, never back here.
+        skipTraversal: true,
         child: Scaffold(
           body: SafeArea(
             child: wrapDropTarget(
@@ -601,6 +619,7 @@ class _Row extends StatefulWidget {
 
 class _RowState extends State<_Row> {
   bool _hover = false;
+  bool _focused = false; // keyboard focus, via Tab or the arrows
   bool _flash = false;
   bool _busy = false;
 
@@ -697,75 +716,92 @@ class _RowState extends State<_Row> {
       ],
     );
 
-    final row = MouseRegion(
-      cursor: actions.isEmpty ? MouseCursor.defer : SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: actions.isEmpty ? null : () => _act(actions.first),
-        child: Container(
-          color: _flash
-              ? Palette.pressed
-              : _hover
-              ? Palette.hover
-              : Colors.transparent,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                child: Row(
-                  children: [
-                    _Leading(item),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          nameRow,
-                          const SizedBox(height: 3),
-                          Text(
-                            meta,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: monoStyle(size: 11),
-                          ),
-                        ],
+    // A focused row looks hovered, plus a hairline ring, and Enter or ⌘C
+    // does what a click would. Rows with nothing to do are skipped.
+    final lit = _hover || _focused;
+    final row = Focus(
+      canRequestFocus: actions.isNotEmpty,
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, e) {
+        if (!_grabKeys.any((k) => k.accepts(e, HardwareKeyboard.instance))) {
+          return KeyEventResult.ignored;
+        }
+        _act(actions.first);
+        return KeyEventResult.handled;
+      },
+      child: MouseRegion(
+        cursor: actions.isEmpty ? MouseCursor.defer : SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: actions.isEmpty ? null : () => _act(actions.first),
+          child: Container(
+            color: _flash
+                ? Palette.pressed
+                : lit
+                ? Palette.hover
+                : Colors.transparent,
+            foregroundDecoration: _focused
+                ? BoxDecoration(border: Border.all(color: Palette.border))
+                : null,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                  child: Row(
+                    children: [
+                      _Leading(item),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            nameRow,
+                            const SizedBox(height: 3),
+                            Text(
+                              meta,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: monoStyle(size: 11),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    // Desktop: one fixed slot that swaps the countdown for the
-                    // actions on hover, so the name never reflows.
-                    if (isDesktop)
-                      SizedBox(
-                        width: 60,
-                        child: _hover && icons.isNotEmpty
-                            ? Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: icons,
-                              )
-                            : Align(
-                                alignment: Alignment.centerRight,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                    right: _iconInset,
+                      // Desktop: one fixed slot that swaps the countdown for the
+                      // actions on hover, so the name never reflows.
+                      if (isDesktop)
+                        SizedBox(
+                          width: 60,
+                          child: lit && icons.isNotEmpty
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: icons,
+                                )
+                              : Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(
+                                      right: _iconInset,
+                                    ),
+                                    child: countdown,
                                   ),
-                                  child: countdown,
                                 ),
-                              ),
-                      )
-                    else ...[
-                      ...icons,
-                      const SizedBox(width: 6),
-                      SizedBox(width: 44, child: countdown),
+                        )
+                      else ...[
+                        ...icons,
+                        const SizedBox(width: 6),
+                        SizedBox(width: 44, child: countdown),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              _Hairline(
-                fraction: item.progress ?? fraction,
-                bright: item.progress != null,
-              ),
-            ],
+                _Hairline(
+                  fraction: item.progress ?? fraction,
+                  bright: item.progress != null,
+                ),
+              ],
+            ),
           ),
         ),
       ),
