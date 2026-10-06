@@ -9,6 +9,7 @@ import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
 import 'settings.dart';
+import 'share_in.dart';
 import 'shelf_screen.dart';
 import 'theme.dart';
 import 'window.dart';
@@ -52,11 +53,13 @@ Future<void> _start() async {
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
+  void say(String msg) => screen.currentState?.toast(msg);
   try {
-    await Hotkeys.register(node, (msg) => screen.currentState?.toast(msg));
+    await Hotkeys.register(node, say);
   } catch (_) {
     // Another app owns the shortcut, or the platform has none.
   }
+  await ShareIn.listen(node, say).catchError((_) {});
 }
 
 /// Debug builds only: put something on the shelf at launch, for testing
