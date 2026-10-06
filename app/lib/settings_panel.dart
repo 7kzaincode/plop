@@ -31,6 +31,12 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   String? _note;
   bool? _login;
 
+  /// The two key chips, so recording can put focus on the one recording.
+  final _keyFocus = {
+    for (final which in ['snip', 'clip'])
+      which: FocusNode(debugLabel: '$which key'),
+  };
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +50,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
   @override
   void dispose() {
     _stopRecording(apply: true);
+    for (final f in _keyFocus.values) {
+      f.dispose();
+    }
     super.dispose();
   }
 
@@ -51,6 +60,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _stopRecording(apply: false);
     Hotkeys.pause();
     HardwareKeyboard.instance.addHandler(_onKey);
+    // A click may come while Tab has the reset link or the toggle focused;
+    // the key being recorded takes focus, so a bare Enter or Space is
+    // offered to the recorder rather than pressing whatever Tab reached.
+    _keyFocus[which]!.requestFocus();
     setState(() {
       _recording = which;
       _note = 'press the new keys · esc to cancel';
@@ -176,6 +189,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                     text: _recording == 'snip' ? '…' : Hotkeys.snipLabel,
                     active: _recording == 'snip',
                     recording: _recording != null,
+                    focusNode: _keyFocus['snip']!,
                     onTap: () => _record('snip'),
                   ),
                   label,
@@ -186,13 +200,18 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                     text: _recording == 'clip' ? '…' : Hotkeys.clipLabel,
                     active: _recording == 'clip',
                     recording: _recording != null,
+                    focusNode: _keyFocus['clip']!,
                     onTap: () => _record('clip'),
                   ),
                   label,
                 ),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: _Link('reset to defaults', onTap: _reset),
+                  child: _Link(
+                    'reset to defaults',
+                    recording: _recording != null,
+                    onTap: _reset,
+                  ),
                 ),
               ],
               // The README promises shortcuts on Linux; say why they are
@@ -218,6 +237,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   _Toggle(
                     label: _loginLabel,
                     value: _login ?? false,
+                    recording: _recording != null,
                     onChanged: _login == null ? null : _toggleLogin,
                   ),
                   label,
@@ -287,6 +307,7 @@ class _Key extends StatefulWidget {
     required this.text,
     required this.active,
     required this.recording,
+    required this.focusNode,
     required this.onTap,
   });
   final String text;
@@ -295,6 +316,9 @@ class _Key extends StatefulWidget {
   /// While any shortcut is being recorded, Enter and Space are keys being
   /// offered as the new binding, not presses of this button.
   final bool recording;
+
+  /// The panel's, so it can focus this chip when recording starts.
+  final FocusNode focusNode;
   final VoidCallback onTap;
 
   @override
@@ -308,6 +332,7 @@ class _KeyState extends State<_Key> {
   Widget build(BuildContext context) => Semantics(
     button: true,
     child: Focus(
+      focusNode: widget.focusNode,
       onFocusChange: (f) => setState(() => _focused = f),
       onKeyEvent: (_, e) {
         if (widget.recording || !_isPress(e)) return KeyEventResult.ignored;
@@ -349,8 +374,11 @@ class _KeyState extends State<_Key> {
 /// A dim line of text that acts when clicked, brightening under the pointer
 /// or keyboard focus, which Tab gives it and Enter or Space press.
 class _Link extends StatefulWidget {
-  const _Link(this.text, {required this.onTap});
+  const _Link(this.text, {required this.recording, required this.onTap});
   final String text;
+
+  /// See [_Key.recording]: no press while a shortcut is being recorded.
+  final bool recording;
   final VoidCallback onTap;
 
   @override
@@ -366,7 +394,7 @@ class _LinkState extends State<_Link> {
     child: Focus(
       onFocusChange: (f) => setState(() => _focused = f),
       onKeyEvent: (_, e) {
-        if (!_isPress(e)) return KeyEventResult.ignored;
+        if (widget.recording || !_isPress(e)) return KeyEventResult.ignored;
         widget.onTap();
         return KeyEventResult.handled;
       },
@@ -406,10 +434,14 @@ class _Toggle extends StatefulWidget {
   const _Toggle({
     required this.label,
     required this.value,
+    required this.recording,
     required this.onChanged,
   });
   final String label;
   final bool value;
+
+  /// See [_Key.recording]: no flip while a shortcut is being recorded.
+  final bool recording;
   final ValueChanged<bool>? onChanged; // null while loading
 
   @override
@@ -434,7 +466,7 @@ class _ToggleState extends State<_Toggle> {
         canRequestFocus: enabled,
         onFocusChange: (f) => setState(() => _focused = f),
         onKeyEvent: (_, e) {
-          if (!_isPress(e)) return KeyEventResult.ignored;
+          if (widget.recording || !_isPress(e)) return KeyEventResult.ignored;
           flip();
           return KeyEventResult.handled;
         },

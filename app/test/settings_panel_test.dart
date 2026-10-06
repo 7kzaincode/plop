@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/hotkeys.dart';
 import 'package:plop/settings.dart';
@@ -165,6 +166,106 @@ void main() {
     expect(settings.hotkey('snip'), isNull);
     expect(find.text(Hotkeys.label(Hotkeys.defaultSnip)), findsOneWidget);
   });
+
+  testWidgets('while recording, Enter on the reset link resets nothing', (
+    tester,
+  ) async {
+    // A binding of its own, so a reset that slipped through would show.
+    final own = HotKey(
+      key: PhysicalKeyboardKey.keyS,
+      modifiers: Hotkeys.defaultMods,
+    );
+    Hotkeys.clip = own;
+    addTearDown(() => Hotkeys.clip = Hotkeys.defaultClip);
+    await openPanel(tester);
+    bool focused(Finder f) => Focus.of(tester.element(f)).hasPrimaryFocus;
+
+    // Tab to the reset link, then start recording with a click on the snip
+    // key. The click takes focus with it, so a bare Enter is offered to the
+    // recorder (and refused) rather than pressing the link.
+    for (var i = 0; i < 3; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    }
+    await tester.pump();
+    expect(focused(find.text('reset to defaults')), isTrue);
+    await tester.tap(find.text(Hotkeys.snipLabel));
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget);
+    expect(focused(find.text('…')), isTrue, reason: 'the click took focus');
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+    expect(find.textContaining('everywhere'), findsOneWidget);
+    expect(Hotkeys.same(Hotkeys.clip, own), isTrue);
+    expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
+
+    // Tab is refused as a binding too, but still moves focus; Enter on the
+    // link it reaches is no reset either while the recorder is up.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(focused(find.text('reset to defaults')), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+    expect(Hotkeys.same(Hotkeys.clip, own), isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.text('…'), findsNothing);
+    expect(Hotkeys.same(Hotkeys.clip, own), isTrue);
+  });
+
+  testWidgets('while recording, Space on the login toggle flips nothing', (
+    tester,
+  ) async {
+    const window = MethodChannel('plop/window');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    var sets = 0;
+    messenger.setMockMethodCallHandler(window, (call) async {
+      if (call.method == 'loginItem') return false;
+      if (call.method == 'setLoginItem') sets++;
+      return 'on';
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(window, null));
+    await openPanel(tester);
+    final toggle = find.descendant(
+      of: toggled(false),
+      matching: find.byType(GestureDetector),
+    );
+    bool focused(Finder f) => Focus.of(tester.element(f)).hasPrimaryFocus;
+
+    // Tab past the keys and the reset link onto the toggle; a click on the
+    // clipboard key then starts recording and takes focus with it.
+    for (var i = 0; i < 4; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    }
+    await tester.pump();
+    expect(focused(toggle), isTrue);
+    await tester.tap(find.text(Hotkeys.clipLabel));
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(sets, 0);
+    expect(toggled(false), findsOneWidget);
+    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+
+    // Back on the toggle by Tab, Space is still a key being offered.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    expect(focused(toggle), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(sets, 0);
+    expect(toggled(false), findsOneWidget);
+    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.text('…'), findsNothing);
+  }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
 
   testWidgets('a Shift-only combo is refused and recording goes on', (
     tester,
