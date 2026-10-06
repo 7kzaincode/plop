@@ -13,7 +13,7 @@ Downloads are on the [Releases](https://github.com/7kzaincode/plop/releases)
 page. They aren't signed by Apple or Microsoft (that needs paid accounts), so
 each system warns once; the steps below get past it.
 
-### macOS (12 or later, Apple silicon or Intel)
+### macOS (12 or later, Apple silicon or Intel; open at login needs 13)
 
 1. Download `plop-macos.dmg`, open it and drag plop to Applications.
 2. The first open is blocked ("Apple could not verify plop"): click Done, then
@@ -23,9 +23,10 @@ each system warns once; the steps below get past it.
 3. Allow plop to find devices on your local network when asked.
 4. The first screen snip (⌃⌥P) asks for Screen Recording. Allow it, then quit
    plop (⌘Q) and open it again: macOS only applies it to a fresh launch. After
-   an update macOS treats plop as a new app, so if a snip just opens the
-   Screen Recording settings with plop already switched on, remove that entry
-   with −, press ⌃⌥P again and allow it.
+   an update macOS treats plop as a new app, so if a snip instead brings plop
+   forward saying it isn't allowed yet, open the settings from that message;
+   if plop is already switched on there, remove that entry with −, press ⌃⌥P
+   again and allow it.
 
 Closing the window keeps plop running, so the shortcuts and your items stay
 live. Click its Dock icon or ⌘Tab back to it to bring the window back; ⌘Q
@@ -72,11 +73,11 @@ found by search.
 The global shortcuts work only in an X11 session. Ubuntu and Debian GNOME log
 in to Wayland by default: pick the "… on Xorg" option from the gear menu at
 the login screen, or just use the in-window drop and paste (on Wayland the
-shortcut rows are hidden). Snipping runs `gnome-screenshot`, `spectacle` or
-`scrot`, whichever is installed (`sudo apt install gnome-screenshot` on stock
-Ubuntu). Unlike on macOS, closing the window quits plop and stops the
-shortcuts; minimize it instead. If you turned on ufw or firewalld, allow your
-LAN subnet in: plop listens on a random port.
+settings panel says so in place of the shortcut rows). Snipping runs
+`gnome-screenshot`, `spectacle` or `scrot`, whichever is installed (`sudo apt
+install gnome-screenshot` on stock Ubuntu). Unlike on macOS, closing the
+window quits plop and stops the shortcuts; minimize it instead. If you turned
+on ufw or firewalld, allow your LAN subnet in: plop listens on a random port.
 
 ### iPhone and iPad
 
@@ -110,7 +111,8 @@ to renew it.
   - ⌃⌥P / Ctrl+Shift+Alt+P: select a region of the screen; it lands on plop.
   - ⌃⌥V / Ctrl+Shift+Alt+V: plop whatever is on the clipboard.
   - Change either in the settings panel (sliders icon), where you can also
-    make plop open at login.
+    make plop open at login (macOS 13 or later; if macOS holds the switch for
+    approval, the panel says where).
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
   folders save to Downloads (folders unpacked). Hover for the other option;
   tap a saved row again to show it in Finder or Explorer (its folder, on
@@ -121,8 +123,8 @@ to renew it.
 - **Lifetime:** the timer chip in the top bar (30s to 1h), remembered.
 - **Big items:** anything over 25 MB is fetched only when someone grabs it, so
   keep plop open until then (the row says so). Smaller items copy to every
-  device as soon as they appear. Phones only see the shelf while plop is in
-  the foreground.
+  device as soon as they appear. Your own rows say which devices have them.
+  Phones only see the shelf while plop is in the foreground.
 
 ## From source
 
