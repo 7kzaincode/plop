@@ -15,14 +15,17 @@ import 'package:plop_core/plop_core.dart';
 void main() {
   late Directory root;
   late PlopNode me, other;
+  late StaticDiscovery dMe, dOther;
 
   /// Starts [me] seeing [other], which has one text item [me] has mirrored.
+  /// [other] does not see [me] back until a test adds it to [dOther].
   Future<void> startNodes(WidgetTester tester) => tester.runAsync(
     // flutter_test stubs HttpClient to answer 400; the nodes need the real one.
     () => HttpOverrides.runWithHttpOverrides(() async {
       root = await Directory.systemTemp.createTemp('plop_shelf');
       outDir = Directory('${root.path}/out')..createSync();
-      final dMe = StaticDiscovery();
+      dMe = StaticDiscovery();
+      dOther = StaticDiscovery();
       me = await PlopNode.start(
         dir: Directory('${root.path}/me'),
         discovery: dMe,
@@ -30,7 +33,7 @@ void main() {
       );
       other = await PlopNode.start(
         dir: Directory('${root.path}/other'),
-        discovery: StaticDiscovery(),
+        discovery: dOther,
         name: 'other',
       );
       dMe.add(
@@ -453,6 +456,42 @@ void main() {
       isFalse,
     );
     expect(tester.getRect(action).right, lessThanOrEqualTo(320 - 16));
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('your own row names the devices that have it', (tester) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    // Both ways round, so other mirrors what me adds and says so.
+    late ShelfItem mine;
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        dOther.add(
+          Peer(id: me.id, name: 'me', hosts: ['127.0.0.1'], port: me.port),
+        );
+        mine = await me.addText('mine');
+        final end = DateTime.now().add(const Duration(seconds: 5));
+        while (!mine.receivedBy.contains(other.id)) {
+          if (DateTime.now().isAfter(end)) throw 'receipt did not arrive';
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }, _RealHttp()),
+    );
+    await pumpApp(tester);
+    expect(find.text('you  ·  on other'), findsOneWidget);
+    expect(find.text('other'), findsOneWidget, reason: "the mirror's row");
+
+    // Once that peer is gone its name is too; the row keeps the count. A
+    // peer leaving is not a shelf change, so the countdown tick redraws it.
+    await tester.runAsync(() async {
+      dMe.remove(other.id);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    expect(me.peerName(other.id), isNull);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('you  ·  on 1 device'), findsOneWidget);
 
     await stopNodes(tester);
   });

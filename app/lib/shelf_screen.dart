@@ -225,6 +225,19 @@ class ShelfScreenState extends State<ShelfScreen> {
     widget.settings.ttl = d;
   }
 
+  /// Who has a copy of one of your own items: 'on Zain's iPhone', 'on a and
+  /// b', or a count once there are more, or once a name is gone (a peer that
+  /// grabbed and left). Null while nobody has it.
+  String? _receivedBy(ShelfItem item) {
+    final ids = item.receivedBy;
+    if (ids.isEmpty) return null;
+    final names = [for (final id in ids) ?node.peerName(id)];
+    if (names.length == ids.length && names.length <= 2) {
+      return 'on ${names.join(' and ')}';
+    }
+    return ids.length == 1 ? 'on 1 device' : 'on ${ids.length} devices';
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = node.items;
@@ -271,6 +284,7 @@ class ShelfScreenState extends State<ShelfScreen> {
                               key: ValueKey(it.key),
                               item: it,
                               mine: it.originId == node.id,
+                              receivedBy: _receivedBy(it),
                               saved: _saved.containsKey(it.key),
                               onAction: (ctx, a) => _act(ctx, it, a),
                               onRemove: () => node.remove(it.key),
@@ -611,6 +625,7 @@ class _Row extends StatefulWidget {
     super.key,
     required this.item,
     required this.mine,
+    required this.receivedBy,
     required this.saved,
     required this.onAction,
     required this.onRemove,
@@ -618,6 +633,9 @@ class _Row extends StatefulWidget {
 
   final ShelfItem item;
   final bool mine;
+
+  /// Which other devices hold an own item, once any does.
+  final String? receivedBy;
   final bool saved;
   final Future<void> Function(BuildContext context, GrabAction action) onAction;
   final VoidCallback onRemove;
@@ -671,7 +689,11 @@ class _RowState extends State<_Row> {
       widget.mine ? 'you' : item.originName,
       if (item.progress != null) '${(item.progress! * 100).round()}%',
       if (widget.saved) 'saved',
-      if (widget.mine && item.size > defaultEagerCopyBytes)
+      // A big item is fetched only when grabbed, so until someone has it
+      // the row says the sender must stay; after that, who has it.
+      if (widget.receivedBy case final who?)
+        who
+      else if (widget.mine && item.size > defaultEagerCopyBytes)
         'keep plop open until grabbed',
     ].join('  ·  ');
 
