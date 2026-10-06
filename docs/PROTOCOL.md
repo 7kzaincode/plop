@@ -43,6 +43,8 @@ one-way (usually a firewall on this side).
 ]
 ```
 
+- Entries are oldest first; a receiver orders its shelf by when it first
+  saw each item.
 - `id` is 1–64 characters from `A-Z a-z 0-9 _ -` (plop sends 16 hex
   digits). Items with any other id are ignored.
 - `size` is 0 to the receiver's cap (100 GB); items outside that are
