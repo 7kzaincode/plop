@@ -126,7 +126,12 @@ class ShelfStore {
     await File(zip).parent.create(recursive: true);
     await Isolate.run(() async {
       final enc = ZipFileEncoder()..create(zip, level: ZipFileEncoder.store);
-      await enc.addDirectory(Directory(path), includeDirName: false);
+      // Links are skipped, not followed: they can point outside the folder.
+      await enc.addDirectory(
+        Directory(path),
+        includeDirName: false,
+        followLinks: false,
+      );
       await enc.close();
     });
     final size = await File(zip).length();

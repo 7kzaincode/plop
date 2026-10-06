@@ -362,6 +362,28 @@ void main() {
     expect(File('$out/src/deep/main.dart').lengthSync(), 5000);
   });
 
+  test('zipping a folder skips symlinks rather than following them', () async {
+    c = await Cluster.start(1);
+    final [a] = c.nodes;
+    final outside = '${c.root.path}/outside';
+    File('$outside/secret.txt')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('secret');
+    final src = Directory('${c.root.path}/dropped');
+    File('${src.path}/a.txt')
+      ..createSync(recursive: true)
+      ..writeAsStringSync('a');
+    Link('${src.path}/ext').createSync(outside);
+    Link('${src.path}/secret.txt').createSync('$outside/secret.txt');
+    Link('${src.path}/loop').createSync(src.path);
+
+    final item = await a.addPath(src.path);
+    final input = InputFileStream(item.path!);
+    final names = ZipDecoder().decodeStream(input).map((f) => f.name);
+    expect(names, ['a.txt']);
+    await input.close();
+  }, skip: Platform.isWindows ? 'creating symlinks needs admin rights' : false);
+
   test('saveTo writes outside the store and outlives the item', () async {
     c = await Cluster.start(
       2,
