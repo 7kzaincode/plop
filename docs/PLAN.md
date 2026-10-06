@@ -10,6 +10,16 @@
 6. Polish: paste, clipboard copy for images/files, expiry animation, icon, device name
 7. Packaging (signed builds only when asked)
 
+## Status (2026-10-05)
+
+- Done and tested: core (15 tests), macOS app end to end over Bonjour, iOS
+  simulator <-> macOS both ways, Linux and Windows builds in CI.
+- Built, not yet tested on hardware: Android (no device yet), Windows and
+  Linux at runtime, global shortcuts (need a human keypress).
+- Added beyond the brief: folders, per-item lifetime picker, copy vs save,
+  global snip/clipboard shortcuts, 100 GB cap with transfers that outlive
+  expiry.
+
 ## After v1
 
 1. **Room code and TLS.** Today anyone on the LAN running the app can grab
