@@ -37,6 +37,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>plop finds other devices on your Wi-Fi so you can share files with them.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>plop saves photos and videos you grab to your library.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
