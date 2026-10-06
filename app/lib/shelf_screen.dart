@@ -968,44 +968,71 @@ class _IconAction extends StatefulWidget {
 
 class _IconActionState extends State<_IconAction> {
   bool _flash = false;
+  bool _focused = false;
+
+  static final _activateKeys = [
+    const SingleActivator(LogicalKeyboardKey.enter, includeRepeats: false),
+    const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
+  ];
+
+  void _tap() {
+    setState(() => _flash = true);
+    Timer(const Duration(milliseconds: 160), () {
+      if (mounted) setState(() => _flash = false);
+    });
+    widget.onTap();
+  }
 
   @override
   Widget build(BuildContext context) => Tooltip(
     message: widget.tip,
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        setState(() => _flash = true);
-        Timer(const Duration(milliseconds: 160), () {
-          if (mounted) setState(() => _flash = false);
-        });
-        widget.onTap();
+    // Tab reaches it; Enter or Space is a tap, with the hairline ring while
+    // focused. The keys are handled here rather than left to ActivateIntent
+    // because a row's own Focus sits above and would take Enter first.
+    child: Focus(
+      onFocusChange: (f) => setState(() => _focused = f),
+      onKeyEvent: (_, e) {
+        if (!_activateKeys.any(
+          (k) => k.accepts(e, HardwareKeyboard.instance),
+        )) {
+          return KeyEventResult.ignored;
+        }
+        _tap();
+        return KeyEventResult.handled;
       },
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: _flash ? Palette.pressed : null,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: _HoverIcon(
-          widget.icon,
-          // Phones get a 36x40 target that still fits the row height.
-          padding: isDesktop
-              ? const EdgeInsets.all(_iconInset)
-              : const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _tap,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: _flash ? Palette.pressed : null,
+            border: _focused ? Border.all(color: Palette.border) : null,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: _HoverIcon(
+            widget.icon,
+            lit: _focused,
+            // Phones get a 36x40 target that still fits the row height.
+            padding: isDesktop
+                ? const EdgeInsets.all(_iconInset)
+                : const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          ),
         ),
       ),
     ),
   );
 }
 
-/// A 16px glyph that brightens under the pointer; the padding is part of
-/// the hover target.
+/// A 16px glyph that brightens under the pointer, or while [lit]; the
+/// padding is part of the hover target.
 class _HoverIcon extends StatefulWidget {
   const _HoverIcon(
     this.icon, {
+    this.lit = false,
     this.padding = const EdgeInsets.all(_iconInset),
   });
   final IconData icon;
+  final bool lit;
   final EdgeInsets padding;
 
   @override
@@ -1025,7 +1052,7 @@ class _HoverIconState extends State<_HoverIcon> {
       child: Icon(
         widget.icon,
         size: 16,
-        color: _hover ? Palette.text : Palette.dim,
+        color: _hover || widget.lit ? Palette.text : Palette.dim,
       ),
     ),
   );

@@ -241,6 +241,74 @@ void main() {
     await stopNodes(tester);
   });
 
+  testWidgets('Tab reaches the icon buttons; Enter presses them', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    final copied = <String>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add((call.arguments as Map)['text'] as String);
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    await pumpApp(tester);
+
+    // Chip, ↓ to the row, Tab onto the row's own copy icon: Enter there is
+    // the icon's press, and the row above it does not grab a second time.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump(); // a desktop row shows its icons once it is lit
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pump();
+    final ring = find.byWidgetPredicate(
+      (w) =>
+          w is DecoratedBox &&
+          w.decoration is BoxDecoration &&
+          (w.decoration as BoxDecoration).border != null,
+    );
+    expect(
+      find.descendant(of: ring, matching: find.byIcon(Icons.copy_rounded)),
+      findsOneWidget,
+      reason: 'the copy icon shows the ring',
+    );
+    await tester.runAsync(() async {
+      await pressEnter(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    expect(copied, ['hello']);
+
+    // Esc back to the shelf; chip, add, settings. Enter opens the panel.
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    for (var i = 0; i < 3; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    }
+    await tester.pump();
+    expect(
+      find.descendant(of: ring, matching: find.byIcon(Icons.tune_rounded)),
+      findsOneWidget,
+      reason: 'the settings icon shows the ring',
+    );
+    await tester.runAsync(() async {
+      await pressEnter(tester);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsOneWidget);
+    expect(copied, ['hello'], reason: 'the shelf did not grab');
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsNothing);
+
+    await stopNodes(tester);
+  });
+
   testWidgets('a long file name keeps its tail when it truncates', (
     tester,
   ) async {
