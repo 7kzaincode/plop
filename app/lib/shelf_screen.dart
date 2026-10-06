@@ -707,21 +707,22 @@ class _RowState extends State<_Row> {
       color: Palette.text,
       height: 1.25,
     );
-    final name = item.name;
-    final keep = item.kind == ItemKind.text ? 0 : min(12, name.length ~/ 2);
+    // Counted in grapheme clusters, not UTF-16 units: a cut inside an emoji
+    // or a combining mark would leave half a character on each side.
+    final chars = item.name.characters;
+    final keep = item.kind == ItemKind.text ? 0 : min(12, chars.length ~/ 2);
     final nameRow = Row(
       children: [
         Flexible(
           child: Text(
-            name.substring(0, name.length - keep),
+            chars.skipLast(keep).toString(),
             maxLines: 1,
             softWrap: false,
             overflow: TextOverflow.ellipsis,
             style: nameStyle,
           ),
         ),
-        if (keep > 0)
-          Text(name.substring(name.length - keep), style: nameStyle),
+        if (keep > 0) Text(chars.takeLast(keep).toString(), style: nameStyle),
       ],
     );
 

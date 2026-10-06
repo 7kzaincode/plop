@@ -62,6 +62,37 @@ void main() {
     await tester.pump(); // autofocus
   }
 
+  /// Puts a 1 KB file called [name] on [other] and waits for [me] to see it.
+  Future<void> addFile(WidgetTester tester, String name) => tester.runAsync(
+    () => HttpOverrides.runWithHttpOverrides(() async {
+      await other.addBytes(List.filled(1024, 1), name);
+      final end = DateTime.now().add(const Duration(seconds: 5));
+      while (!me.items.any((i) => i.name == name)) {
+        if (DateTime.now().isAfter(end)) throw 'item did not sync';
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+    }, _RealHttp()),
+  );
+
+  /// The head and tail a middle-truncated [name] is drawn as, checked to add
+  /// back up to the name and to part on a character boundary.
+  (String, String) splitName(WidgetTester tester, String name) {
+    final texts = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((t) => t.data)
+        .whereType<String>()
+        .where((t) => t.isNotEmpty && t != name);
+    final head = texts.singleWhere(name.startsWith);
+    final tail = texts.singleWhere(name.endsWith);
+    expect(head + tail, name);
+    expect(
+      tail,
+      name.characters.takeLast(tail.characters.length).toString(),
+      reason: 'the tail starts on a whole character',
+    );
+    return (head, tail);
+  }
+
   Future<void> pressEnter(WidgetTester tester, {int repeats = 0}) async {
     await tester.sendKeyDownEvent(LogicalKeyboardKey.enter);
     for (var i = 0; i < repeats; i++) {
@@ -215,16 +246,7 @@ void main() {
     // Two snips seconds apart differ only in the seconds, which an end
     // ellipsis would drop first.
     const name = 'Screenshot 2026-10-06 at 14.23.11.png';
-    await tester.runAsync(
-      () => HttpOverrides.runWithHttpOverrides(() async {
-        await other.addBytes(List.filled(1024, 1), name);
-        final end = DateTime.now().add(const Duration(seconds: 5));
-        while (!me.items.any((i) => i.name == name)) {
-          if (DateTime.now().isAfter(end)) throw 'item did not sync';
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-        }
-      }, _RealHttp()),
-    );
+    await addFile(tester, name);
     tester.view.physicalSize = const Size(320, 568);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -233,8 +255,31 @@ void main() {
 
     expect(find.text(name), findsNothing, reason: 'split into head and tail');
     expect(find.text('14.23.11.png'), findsOneWidget);
+    splitName(tester, name);
     // Text items are labelled by their first line and keep the end ellipsis.
     expect(find.text('hello'), findsOneWidget);
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('a name with emoji splits between characters, never inside', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    // Each camera is two UTF-16 units; counting twelve units back from the
+    // end lands inside the fourth one, where a code-unit split would cut.
+    const name =
+        'a very long screenshot name from a camera roll export '
+        '2026-10-06 📸📸📸📸📸.jpeg';
+    await addFile(tester, name);
+    await pumpApp(tester);
+    expect(tester.takeException(), isNull);
+
+    expect(find.text(name), findsNothing, reason: 'too wide even at 800px');
+    final (_, tail) = splitName(tester, name);
+    expect(tail, endsWith('📸.jpeg'));
 
     await stopNodes(tester);
   });
