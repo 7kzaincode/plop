@@ -7,28 +7,35 @@ import 'package:plop_core/plop_core.dart';
 
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
+import 'settings.dart';
 import 'shelf_screen.dart';
+import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // PLOP_INSTANCE lets two copies run side by side on one machine (each needs
-  // its own scratch dir, since the dir is wiped on launch).
+  // its own scratch dirs, since they are wiped on launch).
   final instance = Platform.environment['PLOP_INSTANCE'];
-  final tmp = await getTemporaryDirectory();
-  final dir = Directory(
-    '${tmp.path}${Platform.pathSeparator}plop${instance == null ? '' : '-$instance'}',
-  );
+  final suffix = instance == null ? '' : '-$instance';
+  final tmp = (await getTemporaryDirectory()).path;
+  final sep = Platform.pathSeparator;
+  outDir = Directory('$tmp${sep}plop-out$suffix');
+  if (outDir.existsSync()) outDir.deleteSync(recursive: true);
+  outDir.createSync(recursive: true);
+
   var name = await deviceName();
   if (instance != null) name = '$name ($instance)';
+  final settings = await Settings.load();
 
   final node = await PlopNode.start(
-    dir: dir,
+    dir: Directory('$tmp${sep}plop$suffix'),
     discovery: BonsoirPeerDiscovery(),
     name: name,
+    ttl: settings.ttl,
   );
   if (kDebugMode) await _seed(node);
-  runApp(PlopApp(node: node));
+  runApp(PlopApp(node: node, settings: settings));
 }
 
 /// Debug builds only: put something on the shelf at launch, for testing
@@ -36,28 +43,20 @@ Future<void> main() async {
 Future<void> _seed(PlopNode node) async {
   final env = Platform.environment;
   if (env['PLOP_SEED_TEXT'] case final t?) await node.addText(t);
-  if (env['PLOP_SEED_FILE'] case final f?) await node.addFile(f);
+  if (env['PLOP_SEED_FILE'] case final f?) await node.addPath(f);
 }
 
 class PlopApp extends StatelessWidget {
-  const PlopApp({super.key, required this.node});
+  const PlopApp({super.key, required this.node, required this.settings});
 
   final PlopNode node;
+  final Settings settings;
 
   @override
-  Widget build(BuildContext context) {
-    ThemeData theme(Brightness b) => ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF3B6EF5),
-        brightness: b,
-      ),
-    );
-    return MaterialApp(
-      title: 'plop',
-      debugShowCheckedModeBanner: false,
-      theme: theme(Brightness.light),
-      darkTheme: theme(Brightness.dark),
-      home: ShelfScreen(node: node),
-    );
-  }
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'plop',
+    debugShowCheckedModeBanner: false,
+    theme: plopTheme(),
+    home: ShelfScreen(node: node, settings: settings),
+  );
 }

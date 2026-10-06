@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:plop/bonsoir_discovery.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/main.dart';
+import 'package:plop/settings.dart';
 import 'package:plop_core/plop_core.dart';
 
 void main() {
@@ -37,6 +38,7 @@ void main() {
     tester,
   ) async {
     final tmp = await getTemporaryDirectory();
+    outDir = Directory('${tmp.path}/it-out')..createSync(recursive: true);
     final me = await PlopNode.start(
       dir: Directory('${tmp.path}/it-me'),
       discovery: BonsoirPeerDiscovery(),
@@ -54,13 +56,22 @@ void main() {
 
     final shot = GlobalKey();
     await tester.pumpWidget(
-      RepaintBoundary(key: shot, child: PlopApp(node: me)),
+      RepaintBoundary(
+        key: shot,
+        child: PlopApp(node: me, settings: await Settings.load()),
+      ),
     );
-    expect(find.textContaining('Anyone on this Wi-Fi'), findsOneWidget);
+    expect(find.textContaining('to paste'), findsOneWidget);
 
-    // Peer adds a text and a file over the eager-copy cap.
+    final stamp = DateTime.now().millisecondsSinceEpoch;
     await other.addText('hello from the other laptop');
-    final bigName = 'big-${DateTime.now().millisecondsSinceEpoch}.bin';
+    final logo = await rootBundle.load('assets/brand/logo.png');
+    await other.addBytes(logo.buffer.asUint8List(), 'screenshot.png');
+    final folder = Directory('${tmp.path}/Folder $stamp');
+    File('${folder.path}/a/notes.md').createSync(recursive: true);
+    File('${folder.path}/a/notes.md').writeAsStringSync('# hi');
+    await other.addPath(folder.path);
+    final bigName = 'big-$stamp.zip';
     final big = File('${tmp.path}/$bigName');
     await big.writeAsBytes(List.filled(defaultEagerCopyBytes + 1024, 42));
     await other.addFile(big.path);
@@ -68,13 +79,20 @@ void main() {
 
     await waitFor(tester, find.text('hello from the other laptop'));
     await waitFor(tester, find.text(bigName));
-    await waitFor(tester, find.text('1 device nearby'));
-    expect(find.textContaining('from Other Laptop'), findsNWidgets(2));
-    expect(find.textContaining('from You'), findsOneWidget);
+    await waitFor(tester, find.text('Folder $stamp'));
+    await waitFor(tester, find.textContaining(RegExp(r'^\d+ nearby$')));
+    // Let the eager copy of the image finish so its thumbnail shows.
+    final end = DateTime.now().add(const Duration(seconds: 10));
+    while (!me.items.any((i) => i.name == 'screenshot.png' && i.isReady)) {
+      if (DateTime.now().isAfter(end)) fail('image was not copied eagerly');
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+    }
+    await tester.pump();
 
-    // Big item was listed but not copied yet.
     final bigItem = me.items.firstWhere((i) => i.name == bigName);
-    expect(bigItem.isReady, isFalse);
+    expect(bigItem.isReady, isFalse, reason: 'over the eager cap');
 
     await tester.runAsync(() async {
       final boundary =
@@ -87,20 +105,36 @@ void main() {
       print('SCREENSHOT ${out.path}');
     });
 
-    // Tap text: copied to the clipboard.
+    // Text: tap copies.
     await tester.tap(find.text('hello from the other laptop'));
-    await waitFor(tester, find.text('Copied'));
-    final clip = await Clipboard.getData(Clipboard.kTextPlain);
-    expect(clip?.text, 'hello from the other laptop');
+    await waitFor(tester, find.text('copied'));
+    expect(
+      (await Clipboard.getData(Clipboard.kTextPlain))?.text,
+      'hello from the other laptop',
+    );
 
-    // Tap big file: fetched on demand and saved to Downloads.
     if (isDesktop) {
+      final downloads = (await getDownloadsDirectory())!.path;
+
+      // Image: tap copies the image itself.
+      await tester.tap(find.text('screenshot.png'));
+      await waitFor(tester, find.text('image copied'));
+
+      // Folder: tap saves and unpacks into Downloads.
+      await tester.tap(find.text('Folder $stamp'));
+      await waitFor(tester, find.textContaining('saved to'));
+      final saved = Directory('$downloads/Folder $stamp');
+      expect(File('${saved.path}/a/notes.md').readAsStringSync(), '# hi');
+      await saved.delete(recursive: true);
+
+      // Big file: fetched on demand straight into Downloads.
       await tester.tap(find.text(bigName));
-      await waitFor(tester, find.textContaining('Saved to'));
-      final saved = File('${(await getDownloadsDirectory())!.path}/$bigName');
-      expect(await saved.length(), defaultEagerCopyBytes + 1024);
-      await saved.delete();
+      await waitFor(tester, find.textContaining('saved to Downloads/$bigName'));
+      final file = File('$downloads/$bigName');
+      expect(await file.length(), defaultEagerCopyBytes + 1024);
+      await file.delete();
     }
     await big.delete();
+    await folder.delete(recursive: true);
   });
 }
