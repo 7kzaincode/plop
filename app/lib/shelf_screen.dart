@@ -810,15 +810,23 @@ class _RowState extends State<_Row> {
 
     final icons = [
       for (final a in actions)
-        _IconAction(
-          icon: switch (a) {
-            GrabAction.copy => Icons.copy_rounded,
-            GrabAction.save => Icons.arrow_downward_rounded,
-            GrabAction.share => Icons.ios_share_rounded,
-          },
-          tip: a.name,
-          onTap: () => _act(a),
-        ),
+        if (a == GrabAction.save && widget.saved)
+          // Saved already: a tap shows the file, as the save's toast did.
+          _IconAction(
+            icon: Icons.folder_open_rounded,
+            tip: 'show',
+            onTap: () => _act(a),
+          )
+        else
+          _IconAction(
+            icon: switch (a) {
+              GrabAction.copy => Icons.copy_rounded,
+              GrabAction.save => Icons.arrow_downward_rounded,
+              GrabAction.share => Icons.ios_share_rounded,
+            },
+            tip: a.name,
+            onTap: () => _act(a),
+          ),
       if (widget.mine)
         _IconAction(
           icon: Icons.close_rounded,

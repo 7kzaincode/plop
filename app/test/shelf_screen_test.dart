@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -706,6 +707,56 @@ void main() {
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.text('$what · $fix'), findsOneWidget);
 
+    await stopNodes(tester);
+  });
+
+  testWidgets('a saved row offers to show the file, not another save', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    await addFile(tester, 'report.pdf');
+    // Downloads, as path_provider would name it, in the test's own folder.
+    const paths = MethodChannel('plugins.flutter.io/path_provider');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final downloads = '${root.path}/Downloads';
+    messenger.setMockMethodCallHandler(paths, (call) async => downloads);
+    addTearDown(() => messenger.setMockMethodCallHandler(paths, null));
+    await pumpApp(tester);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(find.text('report.pdf')));
+    await tester.pump();
+    String tipOf(IconData icon) => tester
+        .widget<Tooltip>(
+          find.ancestor(of: find.byIcon(icon), matching: find.byType(Tooltip)),
+        )
+        .message!;
+    expect(tipOf(Icons.arrow_downward_rounded), 'save');
+    expect(find.byIcon(Icons.folder_open_rounded), findsNothing);
+
+    // A tap saves it; the row says so, and its icon now shows the file.
+    await tester.runAsync(() async {
+      await tester.tap(find.text('report.pdf'));
+      await _until(
+        () => File('$downloads/report.pdf').existsSync(),
+        'the save',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.text('${formatSize(1024)}  ·  other  ·  saved'),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.arrow_downward_rounded), findsNothing);
+    expect(tipOf(Icons.folder_open_rounded), 'show');
+
+    await tester.pump(const Duration(seconds: 5)); // the toast fades
     await stopNodes(tester);
   });
 
