@@ -68,4 +68,33 @@ void main() {
     await reread.setHotkey('grab', null);
     expect((await Settings.loadFrom(file)).hotkey('grab'), isNull);
   });
+
+  // Anyone nearby could fill the clipboard, so it starts off, and only an
+  // explicit true turns it on: a file edited by hand stays off.
+  test('copying arrivals is off until switched on, and remembered', () async {
+    final dir = Directory.systemTemp.createTempSync('plop_settings');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/settings.json');
+    final settings = await Settings.loadFrom(file);
+    expect(settings.autoCopy, isFalse);
+
+    /// What a relaunch reads, once the setter's background write has landed.
+    Future<bool> relaunched(bool expected) async {
+      final end = DateTime.now().add(const Duration(seconds: 2));
+      while (DateTime.now().isBefore(end)) {
+        final now = (await Settings.loadFrom(file)).autoCopy;
+        if (now == expected) return now;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      return !expected;
+    }
+
+    settings.autoCopy = true;
+    expect(await relaunched(true), isTrue);
+    settings.autoCopy = false;
+    expect(await relaunched(false), isFalse);
+
+    file.writeAsStringSync('{"autoCopy": "yes"}');
+    expect((await Settings.loadFrom(file)).autoCopy, isFalse);
+  });
 }

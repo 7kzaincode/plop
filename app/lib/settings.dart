@@ -70,6 +70,17 @@ class Settings {
     _save().ignore(); // the toggle has nowhere to say it failed
   }
 
+  /// Text and pictures from other devices go straight onto the clipboard as
+  /// they arrive (lib/auto_copy.dart). Off unless switched on: with it on,
+  /// anyone nearby with plop can put whatever they like on the clipboard,
+  /// to be pasted without a look.
+  bool get autoCopy => _data['autoCopy'] == true;
+
+  set autoCopy(bool on) {
+    _data['autoCopy'] = on;
+    _save().ignore(); // the toggle has nowhere to say it failed
+  }
+
   /// Whether plop has said, once, that closing the window keeps it running
   /// in the tray (lib/notify.dart).
   bool get trayNoticeShown => _data['trayNoticeShown'] == true;
