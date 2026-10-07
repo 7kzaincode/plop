@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'island.dart';
 import 'seen.dart';
 
 /// The macOS window draws its own title bar area (see MainFlutterWindow.swift).
@@ -125,7 +126,8 @@ abstract final class Arrivals {
     if (Platform.isMacOS) {
       _channel.invokeMethod<void>('badge', {
         'count': unseen,
-        'fresh': fresh,
+        // The island says what arrived now; no bounce on top of it.
+        'fresh': fresh && !Island.active,
       }).ignore();
     } else if (fresh) {
       _channel.invokeMethod<void>('flash').ignore();

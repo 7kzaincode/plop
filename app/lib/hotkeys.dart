@@ -221,7 +221,7 @@ abstract final class Hotkeys {
   static Future<void> register(PlopNode node, Plopped onPlopped) async {
     _node = node;
     _onPlopped = (message, {ok = true, action, onTap}) {
-      Notify.say(message);
+      Notify.say(message, ok: ok);
       onPlopped(message, ok: ok, action: action, onTap: onTap);
     };
     await apply();

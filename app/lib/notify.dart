@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'island.dart';
 import 'seen.dart';
 import 'settings.dart';
 import 'shelf_screen.dart' show formatSize;
@@ -99,11 +100,20 @@ abstract final class Notify {
         : ShortcutPolicy.requireCreate;
   }
 
-  /// What a global shortcut did, as the in-window toast says it.
-  static void say(String message) {
+  /// What a global shortcut did, as the in-window toast says it; on macOS
+  /// the island says it, in red when [ok] is false.
+  static void say(String message, {bool ok = true}) {
+    if (Island.active) {
+      if (_islandWanted) Island.say(message, ok: ok);
+      return;
+    }
     if (!_wanted) return;
     _show(title: 'plop', body: message);
   }
+
+  /// The island needs no notification permission, only the same consent.
+  static bool get _islandWanted =>
+      (_settings?.notifications ?? true) && !windowFocused;
 
   /// The window just closed into the tray, which until now quit plop on
   /// Windows and Linux: the first time, say where it went, focus or not.
@@ -172,7 +182,9 @@ abstract final class Notify {
       if (windowFocused || _quiet.containsKey(item.originId)) continue;
       final b = _bursts[item.originId] ??= _Burst(
         item.originName,
-        Timer(burst, () => _announce(item.originId)),
+        Timer(Island.active ? Island.burst : burst, () {
+          _announce(item.originId);
+        }),
       );
       b.items.add(item);
     }
@@ -181,6 +193,10 @@ abstract final class Notify {
 
   static void _announce(String sender) {
     final b = _bursts.remove(sender);
+    if (b != null && Island.active) {
+      if (_islandWanted) Island.arrived(b.sender, b.items).ignore();
+      return;
+    }
     // Focused in the meantime, or switched off: the rows are there to see.
     if (b == null || !_wanted) return;
     final items = b.items;

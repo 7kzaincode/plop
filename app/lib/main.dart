@@ -9,6 +9,7 @@ import 'package:plop_core/plop_core.dart';
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
+import 'island.dart';
 import 'login_item.dart';
 import 'notify.dart';
 import 'settings.dart';
@@ -81,6 +82,7 @@ Future<void> _start() async {
   Tray.init(node).ignore();
   Notify.init(settings).ignore();
   Notify.watch(node);
+  Island.init(node);
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
   // the Screen Recording steps, waits until they look instead of fading out;

@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:plop_core/plop_core.dart';
 
@@ -130,48 +133,140 @@ class TypeIcon extends StatelessWidget {
     );
   }
 
-  Widget _glyph(double s) {
-    const ink = Color(0xFF0A0A0A);
-    Widget icon(IconData d) => Icon(d, size: s, color: ink);
-    Widget label(String t, double k) => Text(
-      t,
-      style: TextStyle(
-        fontFamily: 'Geist',
-        fontWeight: FontWeight.w500,
-        fontSize: s * k,
-        height: 1,
-        color: ink,
-        letterSpacing: 0,
-      ),
-    );
-    return switch (category) {
-      FileCategory.image => icon(Icons.landscape_rounded),
-      FileCategory.video => icon(Icons.play_arrow_rounded),
-      FileCategory.audio => icon(Icons.music_note_rounded),
-      FileCategory.document => icon(Icons.notes_rounded),
-      FileCategory.pdf => label('PDF', 0.62),
-      FileCategory.code => icon(Icons.code_rounded),
-      FileCategory.spreadsheet => icon(Icons.grid_view_rounded),
-      FileCategory.presentation => icon(Icons.pie_chart_rounded),
-      FileCategory.archive => CustomPaint(
-        size: Size.square(s),
-        painter: const _ZipperPainter(ink),
-      ),
-      FileCategory.model3d => icon(Icons.view_in_ar_rounded),
-      FileCategory.project => icon(Icons.layers_rounded),
-      FileCategory.data => icon(Icons.storage_rounded),
-      FileCategory.executable => icon(Icons.settings_rounded),
-      FileCategory.terminal => icon(Icons.terminal_rounded),
-      FileCategory.font => label('Aa', 0.72),
-      FileCategory.note => icon(Icons.sticky_note_2_rounded),
-      FileCategory.web => icon(Icons.language_rounded),
-      FileCategory.folder => icon(Icons.folder_rounded),
-      FileCategory.unknown => Container(
-        width: s * 0.3,
-        height: s * 0.3,
-        decoration: const BoxDecoration(color: ink, shape: BoxShape.circle),
-      ),
-    };
+  Widget _glyph(double s) => switch (_glyphOf(category)) {
+    _Icon(:final data) => Icon(data, size: s, color: _ink),
+    _Label(:final text, :final scale) => Text(
+      text,
+      style: _labelStyle(s * scale),
+    ),
+    _Zipper() => CustomPaint(
+      size: Size.square(s),
+      painter: const _ZipperPainter(_ink),
+    ),
+    _Dot() => Container(
+      width: s * 0.3,
+      height: s * 0.3,
+      decoration: const BoxDecoration(color: _ink, shape: BoxShape.circle),
+    ),
+  };
+}
+
+const _ink = Color(0xFF0A0A0A);
+
+TextStyle _labelStyle(double size) => TextStyle(
+  fontFamily: 'Geist',
+  fontWeight: FontWeight.w500,
+  fontSize: size,
+  height: 1,
+  color: _ink,
+  letterSpacing: 0,
+);
+
+/// What sits on a category's tile: a Material glyph, a word, or a drawing.
+sealed class _Glyph {
+  const _Glyph();
+}
+
+class _Icon extends _Glyph {
+  const _Icon(this.data);
+  final IconData data;
+}
+
+class _Label extends _Glyph {
+  const _Label(this.text, this.scale);
+  final String text;
+  final double scale;
+}
+
+class _Zipper extends _Glyph {
+  const _Zipper();
+}
+
+class _Dot extends _Glyph {
+  const _Dot();
+}
+
+_Glyph _glyphOf(FileCategory category) => switch (category) {
+  FileCategory.image => const _Icon(Icons.landscape_rounded),
+  FileCategory.video => const _Icon(Icons.play_arrow_rounded),
+  FileCategory.audio => const _Icon(Icons.music_note_rounded),
+  FileCategory.document => const _Icon(Icons.notes_rounded),
+  FileCategory.pdf => const _Label('PDF', 0.62),
+  FileCategory.code => const _Icon(Icons.code_rounded),
+  FileCategory.spreadsheet => const _Icon(Icons.grid_view_rounded),
+  FileCategory.presentation => const _Icon(Icons.pie_chart_rounded),
+  FileCategory.archive => const _Zipper(),
+  FileCategory.model3d => const _Icon(Icons.view_in_ar_rounded),
+  FileCategory.project => const _Icon(Icons.layers_rounded),
+  FileCategory.data => const _Icon(Icons.storage_rounded),
+  FileCategory.executable => const _Icon(Icons.settings_rounded),
+  FileCategory.terminal => const _Icon(Icons.terminal_rounded),
+  FileCategory.font => const _Label('Aa', 0.72),
+  FileCategory.note => const _Icon(Icons.sticky_note_2_rounded),
+  FileCategory.web => const _Icon(Icons.language_rounded),
+  FileCategory.folder => const _Icon(Icons.folder_rounded),
+  FileCategory.unknown => const _Dot(),
+};
+
+/// A [TypeIcon] as PNG bytes, [size] logical pixels drawn at [scale], for
+/// what draws outside Flutter: the macOS island (Island.swift).
+Future<Uint8List> typeIconPng(
+  FileCategory category, {
+  double size = 34,
+  double scale = 2,
+}) async {
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder)..scale(scale);
+  paintTypeIcon(canvas, category, size);
+  final px = (size * scale).round();
+  final image = await recorder.endRecording().toImage(px, px);
+  try {
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    return data!.buffer.asUint8List();
+  } finally {
+    image.dispose();
+  }
+}
+
+/// [TypeIcon]'s tile and glyph on [canvas], [size] wide, the same layout.
+void paintTypeIcon(Canvas canvas, FileCategory category, double size) {
+  canvas.drawPath(
+    bucketPath(Size.square(size)),
+    Paint()..color = const Color(0xFFF5F5F5),
+  );
+  final s = size * 0.52;
+  // Glyph sits a little above centre, clear of the curved bottom.
+  final centre = Offset(size / 2, (size - size * 0.12) / 2);
+  void text(String t, TextStyle style) {
+    final p = TextPainter(
+      text: TextSpan(text: t, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    p.paint(canvas, centre - Offset(p.width / 2, p.height / 2));
+    p.dispose();
+  }
+
+  switch (_glyphOf(category)) {
+    case _Icon(:final data):
+      text(
+        String.fromCharCode(data.codePoint),
+        TextStyle(
+          fontFamily: data.fontFamily,
+          package: data.fontPackage,
+          fontSize: s,
+          height: 1,
+          color: _ink,
+        ),
+      );
+    case _Label(text: final t, :final scale):
+      text(t, _labelStyle(s * scale));
+    case _Zipper():
+      canvas.save();
+      canvas.translate(centre.dx - s / 2, centre.dy - s / 2);
+      const _ZipperPainter(_ink).paint(canvas, Size.square(s));
+      canvas.restore();
+    case _Dot():
+      canvas.drawCircle(centre, s * 0.15, Paint()..color = _ink);
   }
 }
 
