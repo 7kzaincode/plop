@@ -23,6 +23,11 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=..\..\app\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\plop.exe
+; Upgrading over a running plop, the usual case now that closing its window
+; keeps it in the tray: the Restart Manager asks it to close, which plop
+; answers by quitting (app/windows/runner/win32_window.cpp, WM_ENDSESSION),
+; and force ends it if it does not. [Code] below catches what this misses.
+CloseApplications=force
 WizardStyle=modern
 OutputDir=..\..\dist
 OutputBaseFilename=plop-windows-setup
@@ -64,3 +69,20 @@ Type: files; Name: "{userprograms}\plop.lnk"
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im plop.exe"; Flags: runhidden; RunOnceId: "StopPlop"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=plop"; Flags: runhidden; RunOnceId: "DeleteFirewallRule"
+
+[Code]
+// The fallback for a plop the Restart Manager left running (another user's,
+// "do not close" picked on the Preparing page, a /NOCLOSEAPPLICATIONS run):
+// end it just before the files are replaced, as the uninstaller does, and
+// give Windows a moment to let go of plop.exe.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    if Exec(ExpandConstant('{sys}\taskkill.exe'), '/f /im plop.exe', '',
+        SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+      Sleep(1000);
+  end;
+end;

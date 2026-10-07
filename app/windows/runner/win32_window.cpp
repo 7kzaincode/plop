@@ -194,6 +194,23 @@ Win32Window::MessageHandler(HWND hwnd,
       }
       break;  // DefWindowProc destroys the window
 
+    case WM_QUERYENDSESSION:
+      // Windows logging off or shutting down, or an installer's Restart
+      // Manager asking plop.exe to close so it can be replaced (lparam
+      // ENDSESSION_CLOSEAPP): plop agrees, and quits on WM_ENDSESSION.
+      return TRUE;
+
+    case WM_ENDSESSION:
+      // Quit for real, past hide_on_close_: hidden in the tray, plop would
+      // only be killed, and an upgrade would find its files in use. Not by
+      // way of WM_CLOSE, which the engine would put to Dart, and Dart would
+      // answer with a hide. Destroying the window ends the message loop.
+      if (wparam) {
+        quitting_ = true;
+        DestroyWindow(hwnd);
+      }
+      return 0;
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
