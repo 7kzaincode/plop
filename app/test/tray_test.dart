@@ -41,4 +41,27 @@ void main() {
       expect(calls, ['hide']);
     }
   });
+
+  test('Linux waits a while for the panel to host the icon', () async {
+    var calls = 0;
+    final late = await Tray.waitForHost(
+      () async => ++calls == 3,
+      every: Duration.zero,
+      tries: 5,
+    );
+    expect(late, isTrue, reason: 'the panel came up after plop');
+    expect(calls, 3);
+
+    calls = 0;
+    final never = await Tray.waitForHost(
+      () async {
+        calls++;
+        return false;
+      },
+      every: Duration.zero,
+      tries: 5,
+    );
+    expect(never, isFalse, reason: 'no tray on this desktop');
+    expect(calls, 5);
+  });
 }

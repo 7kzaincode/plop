@@ -53,7 +53,7 @@ abstract final class Tray {
   static Future<void> _start(PlopNode node) async {
     var shown = false;
     try {
-      if (Platform.isLinux && !await _linuxHasTrayHost()) return;
+      if (Platform.isLinux && !await waitForHost(_linuxHasTrayHost)) return;
       await trayManager.setIcon(
         Platform.isWindows ? await _windowsIcon() : 'assets/brand/tray.png',
         // macOS: alpha only, so the mark follows a light or dark menu bar,
@@ -140,6 +140,23 @@ abstract final class Tray {
           bringAppToFront: Platform.isWindows,
         )
         .catchError((_) {});
+  }
+
+  /// [probe] until it says yes, [tries] times [every] apart: about 30 s by
+  /// default. A launch at login can beat the panel to registering its tray
+  /// host; the icon then comes up late rather than not at all for the
+  /// session. Until it does, closing the window quits.
+  @visibleForTesting
+  static Future<bool> waitForHost(
+    Future<bool> Function() probe, {
+    Duration every = const Duration(seconds: 2),
+    int tries = 15,
+  }) async {
+    for (var i = 1; ; i++) {
+      if (await probe()) return true;
+      if (i >= tries) return false;
+      await Future<void>.delayed(every);
+    }
   }
 
   /// Whether a panel on this desktop shows StatusNotifier icons: KDE and
