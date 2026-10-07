@@ -89,18 +89,19 @@ abstract final class Hotkeys {
       {...?a.modifiers}.containsAll({...?b.modifiers}) &&
       {...?b.modifiers}.containsAll({...?a.modifiers});
 
-  /// Why [k] must not become a system-wide shortcut, or null if it may. The
-  /// usual recorder rule: at least one of ⌃ ⌥ ⌘ (Shift alone would swallow a
-  /// typed character everywhere), function keys exempt, and ⌘/Ctrl plus a
-  /// letter is some app's everyday shortcut (⌘C, ⌘V, Ctrl+Z…).
+  /// Why [k] must not become a system-wide shortcut, or null if it may. A
+  /// key this OS can't bind ([bindable]) never may, function keys included;
+  /// otherwise the usual recorder rule: at least one of ⌃ ⌥ ⌘ (Shift alone
+  /// would swallow a typed character everywhere), function keys exempt, and
+  /// ⌘/Ctrl plus a letter is some app's everyday shortcut (⌘C, ⌘V, Ctrl+Z…).
   static String? reject(HotKey k) {
     final key = k.physicalKey;
     final mods = k.modifiers ?? const <HotKeyModifier>[];
-    if (isFunctionKey(key)) return null;
     if (!bindable(key)) {
       return "${keyName(key)} can't be a system-wide shortcut here · "
           'try another key';
     }
+    if (isFunctionKey(key)) return null;
     if (!mods.any((m) => m != HotKeyModifier.shift)) {
       final add = Platform.isMacOS ? 'add ⌃ ⌥ or ⌘' : 'add Ctrl, Alt or Win';
       return '$add · ${label(k)} on its own would block typing '
@@ -118,22 +119,43 @@ abstract final class Hotkeys {
 
   /// Whether hotkey_manager can register [key] on this OS, by the code it
   /// sends for it (uni_platform's keyCode, which goes by uni_platform's idea
-  /// of the OS; tests set that). Windows: a key Flutter has no virtual-key
-  /// code for. Linux: keyCode is a GDK keyval for keys in Flutter's GTK
-  /// table and otherwise the 64-bit logical key id, which the plugin
-  /// narrows to a 32-bit guint, so ⌃⇧⌥< (the key left of Z on European
-  /// keyboards) would quietly bind ⌃⇧⌥Space, and media keys nothing; only
-  /// a code that fits is a keyval. Letters, digits and punctuation take
-  /// that fallback too, but their ids are Latin-1 code points, which their
-  /// keyvals equal. Saving such a binding would show it as set and never
-  /// fire.
+  /// of the OS; tests set that). Saving a binding it can't would show it as
+  /// set, and it would never fire.
+  ///
+  /// Windows: a key Flutter has no virtual-key code for.
+  ///
+  /// Linux: keyCode is the first GDK keyval in Flutter's GTK table that
+  /// stands for the key, or else its 64-bit logical key id, which the
+  /// plugin narrows to a 32-bit guint: ⌃⇧⌥< (the key left of Z on European
+  /// keyboards) would bind ⌃⇧⌥Space, media keys nothing. And the first
+  /// keyval is sometimes an alias that no key on the keyboard carries, so
+  /// keybinder binds nothing and says nothing: the 3270 terminal's
+  /// 0xfd00–0xfdff (Enter, Print Screen, Copy, Media Play) and the
+  /// keypad's 0xff80–0xffbd (Space as KP_Space, Period as KP_Decimal, F1–F4
+  /// as KP_F1–KP_F4), which only the keypad's own keys may have. Letters,
+  /// digits and punctuation take the logical id, but theirs are Latin-1
+  /// code points, which their keyvals equal.
   static bool bindable(PhysicalKeyboardKey key) {
     final code = key.keyCode;
     return switch (UniPlatform.operatingSystem) {
       'windows' => code != null,
-      'linux' => code != null && code <= 0xffffffff,
+      'linux' =>
+        code != null &&
+            code <= 0xffffffff &&
+            !(code >= 0xfd00 && code <= 0xfdff) &&
+            !(code >= 0xff80 && code <= 0xffbd && !_isKeypad(key)),
       _ => true,
     };
+  }
+
+  /// The numeric keypad's keys, by USB HID usage: / * - + Enter 1–9 0 . =,
+  /// and the rarer ones from the comma on.
+  static bool _isKeypad(PhysicalKeyboardKey k) {
+    final u = k.usbHidUsage;
+    return u >= 0x00070054 && u <= 0x00070063 ||
+        u == 0x00070067 ||
+        u == 0x00070085 ||
+        u >= 0x000700b0 && u <= 0x000700dd;
   }
 
   /// Whether no other app has [k]. Only Windows can tell: Win32 hot keys are

@@ -42,7 +42,7 @@ void main() {
       contains('everyday'),
     );
     for (final ok in [
-      k(PhysicalKeyboardKey.space, [HotKeyModifier.alt]),
+      k(PhysicalKeyboardKey.slash, [HotKeyModifier.alt]),
       k(PhysicalKeyboardKey.keyP, [HotKeyModifier.control, HotKeyModifier.alt]),
       k(PhysicalKeyboardKey.keyC, [primary, HotKeyModifier.shift]),
       k(PhysicalKeyboardKey.digit1, [primary]),
@@ -57,8 +57,8 @@ void main() {
   });
 
   // What hotkey_manager sends for a key is a code per OS; one it has no
-  // code for, or one that would arrive as another key, is refused rather
-  // than saved as a shortcut that never fires.
+  // code for, or one that would arrive as another key or as none, is
+  // refused rather than saved as a shortcut that never fires.
   test('the recorder refuses keys this OS cannot bind', () {
     addTearDown(() => UniPlatform.operatingSystem = Platform.operatingSystem);
     HotKey k(PhysicalKeyboardKey key) => HotKey(
@@ -67,8 +67,39 @@ void main() {
     );
     final iso = k(PhysicalKeyboardKey.intlBackslash); // < > left of Z
 
+    // Linux, every key there is: what the recorder takes must reach
+    // keybinder as a keyval some key carries. Not a 64-bit logical id cut
+    // to 32 bits, not one of the 3270 terminal's, and one of the keypad's
+    // only for a keypad key.
     UniPlatform.operatingSystem = 'linux';
-    for (final bad in [iso, k(PhysicalKeyboardKey.mediaPlayPause)]) {
+    final keypad = {
+      for (final key in PhysicalKeyboardKey.knownPhysicalKeys)
+        if (key.debugName!.startsWith('Numpad')) key,
+    };
+    expect(keypad, contains(PhysicalKeyboardKey.numpad1));
+    var taken = 0;
+    for (final key in PhysicalKeyboardKey.knownPhysicalKeys) {
+      if (Hotkeys.reject(k(key)) != null) continue;
+      taken++;
+      final code = key.keyCode, name = key.debugName;
+      expect(code, isNotNull, reason: '$name');
+      expect(code, lessThanOrEqualTo(0xffffffff), reason: '$name');
+      expect(code! >= 0xfd00 && code <= 0xfdff, isFalse, reason: '$name');
+      if (!keypad.contains(key)) {
+        expect(code >= 0xff80 && code <= 0xffbd, isFalse, reason: '$name');
+      }
+    }
+    expect(taken, greaterThan(100), reason: 'most keys still bind');
+    for (final bad in [
+      iso,
+      k(PhysicalKeyboardKey.mediaPlayPause),
+      k(PhysicalKeyboardKey.space), // KP_Space
+      k(PhysicalKeyboardKey.enter), // 3270_Enter
+      k(PhysicalKeyboardKey.period), // KP_Decimal
+      k(PhysicalKeyboardKey.printScreen), // 3270_PrintScreen
+      k(PhysicalKeyboardKey.f1), // KP_F1: function keys are no exception
+      HotKey(key: PhysicalKeyboardKey.f4),
+    ]) {
       expect(Hotkeys.reject(bad), contains("can't be a system-wide"));
     }
     for (final ok in [
@@ -77,8 +108,9 @@ void main() {
       k(PhysicalKeyboardKey.backquote),
       k(PhysicalKeyboardKey.insert),
       k(PhysicalKeyboardKey.numpad1),
-      k(PhysicalKeyboardKey.printScreen),
+      k(PhysicalKeyboardKey.numpadEnter),
       k(PhysicalKeyboardKey.f13),
+      HotKey(key: PhysicalKeyboardKey.f5),
       Hotkeys.defaultSnip,
       Hotkeys.defaultClip,
       Hotkeys.defaultGrab,

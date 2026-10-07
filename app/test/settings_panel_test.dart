@@ -11,6 +11,7 @@ import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop/settings_panel.dart';
 import 'package:plop/tray.dart';
+import 'package:uni_platform/uni_platform.dart';
 
 void main() {
   /// Opens the panel as on desktop. With [onQuit], the app has the window's
@@ -65,6 +66,13 @@ void main() {
         w is Semantics &&
         w.properties.label == 'open plop at login' &&
         w.properties.toggled == on,
+  );
+
+  /// The note that refuses a bare Enter: it would block typing it, or on
+  /// Linux, where keybinder can't bind Enter at all, no shortcut can use it
+  /// (Hotkeys.bindable, which goes by uni_platform's idea of the OS).
+  Finder refusedEnter() => find.textContaining(
+    UniPlatform.isLinux ? "can't be a system-wide" : 'everywhere',
   );
 
   Finder notifications(bool on) => find.byWidgetPredicate(
@@ -297,7 +305,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(find.text('…'), findsOneWidget);
-    expect(find.textContaining('everywhere'), findsOneWidget);
+    expect(refusedEnter(), findsOneWidget);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
@@ -352,7 +360,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(find.text('…'), findsOneWidget, reason: 'still recording');
-    expect(find.textContaining('everywhere'), findsOneWidget);
+    expect(refusedEnter(), findsOneWidget);
     expect(Hotkeys.same(Hotkeys.clip, own), isTrue);
     expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
 
