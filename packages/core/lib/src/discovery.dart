@@ -91,6 +91,28 @@ class StaticDiscovery implements PeerDiscovery {
   Future<void> stop() => _events.close();
 }
 
+/// The name mDNS answers for on this machine, without `.local`. On a Mac
+/// the OS host name follows the router's reverse DNS when there is one
+/// ("MacBookPro" on one home network) while Bonjour answers for the local
+/// host name from the Sharing settings, which `scutil` reads; elsewhere
+/// the two are one, bar a domain some networks hand out with it.
+Future<String> localHostName() async {
+  var name = Platform.localHostname;
+  if (Platform.isMacOS) {
+    try {
+      final r = await Process.run('/usr/sbin/scutil', [
+        '--get',
+        'LocalHostName',
+      ]);
+      final local = (r.stdout as String).trim();
+      if (r.exitCode == 0 && local.isNotEmpty) name = local;
+    } catch (_) {
+      // Not there (which would be a surprise): the OS name will do.
+    }
+  }
+  return name.split('.').first.toLowerCase();
+}
+
 /// Non-loopback IPv4 addresses of this machine.
 Future<List<String>> localIPv4s() async {
   try {

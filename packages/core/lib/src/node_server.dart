@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'item.dart';
 import 'shelf_store.dart';
+import 'web_host.dart';
 
 /// Header a node sets on its requests so the receiver knows which peer is
 /// talking to it.
@@ -16,6 +17,9 @@ class NodeServer {
 
   /// Called on `POST /v1/changed` with the sender's node id, if it gave one.
   final void Function(String? fromId)? onNudge;
+
+  /// Answers every path outside /v1 while it is enabled; 404 otherwise.
+  WebHost? web;
 
   HttpServer? _server;
 
@@ -130,6 +134,7 @@ class NodeServer {
         res.statusCode = HttpStatus.noContent;
         onNudge?.call(_callerId(req));
       default:
+        if (web case final web? when web.enabled) return web.handle(req);
         res.statusCode = HttpStatus.notFound;
     }
     await res.close();

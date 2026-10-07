@@ -7,18 +7,27 @@ import 'node_client.dart';
 import 'node_server.dart';
 import 'shelf_store.dart';
 import 'sync_engine.dart';
+import 'web_host.dart';
 
 /// One running node: store, HTTP server, sync engine and discovery, wired
 /// together.
 class PlopNode {
-  PlopNode._(this.store, this.server, this.engine, this.discovery);
+  PlopNode._(this.store, this.server, this.engine, this.discovery) {
+    web = WebHost(this);
+    server.web = web;
+  }
 
   final ShelfStore store;
   final NodeServer server;
   final SyncEngine engine;
   final PeerDiscovery discovery;
 
+  /// The web shelf for browsers, on the same port; off until enabled.
+  late final WebHost web;
+
   /// [dir] is wiped on start; give each node on one machine its own.
+  /// [port] is a preference: when it is taken, any free port is used, so
+  /// a second node on the machine still comes up.
   static Future<PlopNode> start({
     required Directory dir,
     required PeerDiscovery discovery,
@@ -44,7 +53,12 @@ class PlopNode {
       pollInterval: pollInterval,
     );
     final server = NodeServer(store, onNudge: engine.onNudge);
-    await server.start(port: port);
+    try {
+      await server.start(port: port);
+    } on SocketException {
+      if (port == 0) rethrow;
+      await server.start();
+    }
     engine.start();
     await discovery.start(
       LocalNode(
@@ -61,6 +75,18 @@ class PlopNode {
   int get port => server.port;
   List<ShelfItem> get items => store.items;
   List<Peer> get peers => engine.reachablePeers;
+
+  /// Where a browser on this network opens the web shelf, best first: the
+  /// mDNS name (see [localHostName]), which outlives a DHCP lease, then
+  /// each IPv4 address, for browsers that cannot resolve `.local`
+  /// (Android's, mostly).
+  Future<List<String>> get webUrls async {
+    final host = await localHostName();
+    return [
+      if (host.isNotEmpty && host != 'localhost') 'http://$host.local:$port/',
+      for (final ip in await localIPv4s()) 'http://$ip:$port/',
+    ];
+  }
 
   /// Name of a peer by id, for showing who an item's [ShelfItem.receivedBy]
   /// lists; null once that peer has left the network.
