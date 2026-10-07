@@ -52,6 +52,10 @@ abstract final class Notify {
   static final _seen = SeenItems();
   static final _bursts = <String, _Burst>{};
 
+  /// The arrival copying arrivals last put on the clipboard, while its
+  /// announcement is still to come.
+  static String? _copied;
+
   static bool get supported =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
@@ -117,6 +121,19 @@ abstract final class Notify {
 
   static bool get _islandWanted =>
       (_settings?.notifications ?? true) && !windowFocused;
+
+  /// [item] went onto the clipboard by itself (lib/auto_copy.dart). True
+  /// when its arrival is still to be announced, and then says so ("text ·
+  /// 7 characters · copied"), so one arrival is one notification; false
+  /// when it won't be (announced already, the window in front, a web
+  /// upload, which is never announced), for the caller to say it on a line
+  /// of its own. Not used with the island, which marks its row instead.
+  static bool copied(ShelfItem item) {
+    final b = _bursts[item.originId];
+    if (b == null || !b.items.any((i) => i.key == item.key)) return false;
+    _copied = item.key; // the clipboard holds one thing: the last
+    return true;
+  }
 
   /// The window just closed into the tray, which until now quit plop on
   /// Windows and Linux: the first time, say where it went, focus or not.
@@ -203,17 +220,26 @@ abstract final class Notify {
     // Focused in the meantime, or switched off: the rows are there to see.
     if (b == null || !_wanted) return;
     final items = b.items;
+    final copied = _copied;
+    if (items.any((i) => i.key == copied)) _copied = null;
     if (items.length >= 3) {
       _show(
         title: '${items.length} items from ${b.sender}',
         body: items
-            .map((i) => i.kind == ItemKind.text ? 'text' : i.name)
+            .map(
+              (i) =>
+                  '${i.kind == ItemKind.text ? 'text' : i.name}'
+                  '${i.key == copied ? ' (copied)' : ''}',
+            )
             .join(' · '),
       );
       return;
     }
     for (final i in items) {
-      _show(title: b.sender, body: describe(i));
+      _show(
+        title: b.sender,
+        body: '${describe(i)}${i.key == copied ? ' · copied' : ''}',
+      );
     }
   }
 
@@ -279,6 +305,7 @@ abstract final class Notify {
       b.timer.cancel();
     }
     _bursts.clear();
+    _copied = null;
     _seen.clear();
     _settling?.cancel();
     _settling = null;

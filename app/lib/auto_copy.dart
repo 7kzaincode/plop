@@ -221,10 +221,12 @@ abstract final class AutoCopy {
       return;
     }
     _ours = await _readStamp();
+    // On macOS the island marks its row; elsewhere its arrival's
+    // notification says so, or a line of its own when there is none.
     final hook = onCopied;
     if (hook != null) {
       hook(item);
-    } else {
+    } else if (!Notify.copied(item)) {
       Notify.say('copied ${messageName(item)} from ${senderOf(item)}');
     }
   }

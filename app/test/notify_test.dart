@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_notifier/local_notifier.dart' show ShortcutPolicy;
+import 'package:plop/auto_copy.dart';
+import 'package:plop/grab.dart';
 import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop_core/plop_core.dart';
@@ -284,6 +286,84 @@ void main() {
     changes.add(null);
     await tester.pump(Notify.burst);
     expect(shown.last['title'], 'iPad');
+  });
+
+  // Copying arrivals (lib/auto_copy.dart) with no island: an arrival that
+  // went onto the clipboard is one notification that says so, not two.
+  testWidgets('a copied arrival is one notification that says so', (
+    tester,
+  ) async {
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.inactive);
+    settings.autoCopy = true;
+    final changes = StreamController<void>.broadcast();
+    var shelf = <ShelfItem>[];
+    final uploads = <String>{};
+    final copied = <String>[];
+    Notify.watchItems(
+      changes.stream,
+      () => shelf.where((i) => i.originId != 'me'),
+      () => const ['phone'],
+    );
+    AutoCopy.watchItems(
+      changes.stream,
+      () => shelf,
+      () => const ['phone'],
+      self: 'me',
+      isUpload: uploads.contains,
+      settings: settings,
+      stamp: () async => null,
+      copy: (item) async => copied.add(item.name),
+    );
+    // Pictures copy as pictures, as on a Mac, whatever runs the tests.
+    debugClipboardOs = 'macos';
+    addTearDown(() {
+      debugClipboardOs = null;
+      changes.close();
+    });
+    await tester.pump(Notify.grace); // the phone's first seconds are over
+
+    ShelfItem ready(ShelfItem i) => i..path = '/nowhere/${i.id}';
+    shelf = [ready(item('t', kind: ItemKind.text, name: 'hunter2', size: 7))];
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect(copied, ['hunter2']);
+    expect(shown, hasLength(1));
+    expect(shown.single['title'], "Zain's iPhone");
+    expect(shown.single['body'], 'text · copied');
+
+    // Three at once: the summary marks the one on the clipboard.
+    shown.clear();
+    shelf = [
+      ready(item('c', name: 'IMG_3.png', kind: ItemKind.file)),
+      ready(item('b', name: 'IMG_2.png', kind: ItemKind.file)),
+      ready(item('a', name: 'notes.pdf')),
+      ...shelf,
+    ];
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect(shown, hasLength(1));
+    expect(shown.single['body'], contains('(copied)'));
+    expect(
+      RegExp(r'\(copied\)').allMatches(shown.single['body'] as String),
+      hasLength(1),
+    );
+
+    // A phone without the app put it up through the web shelf: no arrival
+    // is announced for it, so the copy is a line of its own.
+    shown.clear();
+    final upload = ready(
+      item('u', from: 'me', kind: ItemKind.text, name: 'from a phone'),
+    );
+    shelf = [upload, ...shelf];
+    uploads.add(upload.key);
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect(shown, hasLength(1));
+    expect(shown.single['title'], 'plop');
+    expect(shown.single['body'], 'copied text from a phone (web)');
+    AutoCopy.reset(); // its clocks, before the test's end checks for timers
+    Notify.reset();
   });
 
   testWidgets('focusing the window before the burst ends cancels it', (
