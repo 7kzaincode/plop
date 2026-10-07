@@ -64,7 +64,5 @@ flutter_launcher_icons:
   macos:
     generate: true
     image_path: assets/icon/icon_macos.png
-  windows:
-    generate: true
-    image_path: assets/icon/icon_macos.png
-    icon_size: 256
+  # No windows: block: tool/make_icon.py writes app_icon.ico with every size,
+  # where this would overwrite it with a single 256 px one.
