@@ -219,12 +219,27 @@ class SyncEngine {
     }
   }
 
+  /// Drops a gone peer's mirrors that were never copied. One with a
+  /// transfer still running keeps its row and progress bar, as in
+  /// [_reconcile] and at expiry: a large save runs outside [_downloads],
+  /// and dropping its row would invite a second, parallel one when the
+  /// peer comes back. [_dropUncopiedIfGone] clears it once it ends.
   void _dropUncopied(String peerId) {
     for (final item in store.mirrorsOf(peerId)) {
-      if (!item.isReady && !_downloads.containsKey(item.key)) {
+      if (!item.isReady &&
+          item.progress == null &&
+          !_downloads.containsKey(item.key)) {
         store.remove(item.key);
       }
     }
+  }
+
+  /// Run when a transfer from [peerId] ends: if the peer went away
+  /// meanwhile, its row (and any other left for the same reason) goes now
+  /// rather than lingering, uncopied and unfetchable, until it expires.
+  void _dropUncopiedIfGone(String peerId) {
+    final s = _peers[peerId];
+    if (s == null || s.failures >= maxFailures) _dropUncopied(peerId);
   }
 
   /// Returns the local path of an item, downloading it first if needed.
@@ -237,6 +252,7 @@ class SyncEngine {
     // wait on it, and it is the future being completed.
     return _downloads[key] ??= _mirror(item).whenComplete(() {
       _downloads.remove(key);
+      _dropUncopiedIfGone(item.originId);
     });
   }
 
@@ -259,6 +275,7 @@ class SyncEngine {
       await _transfer(item, destPath);
     } finally {
       store.setProgress(key, null);
+      _dropUncopiedIfGone(item.originId);
     }
   }
 

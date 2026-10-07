@@ -106,6 +106,31 @@ class CountingClient extends NodeClient {
   }
 }
 
+/// A [NodeClient] whose downloads wait for [gate] before they start.
+class GatedClient extends NodeClient {
+  GatedClient(this.gate);
+
+  final Future<void> gate;
+
+  @override
+  Future<void> download(
+    Uri base,
+    String id,
+    String destPath, {
+    required int expectedSize,
+    void Function(int received)? onProgress,
+  }) async {
+    await gate;
+    await super.download(
+      base,
+      id,
+      destPath,
+      expectedSize: expectedSize,
+      onProgress: onProgress,
+    );
+  }
+}
+
 /// Stats of [path] hang until [release] completes, as on a share whose
 /// server went away. Others go through.
 final class HangingStat extends IOOverrides {
@@ -871,6 +896,46 @@ void main() {
       timeout: const Duration(seconds: 4),
     );
     expect(File(dest).existsSync(), isTrue);
+  });
+
+  test('a transfer keeps its row while its sender drops out', () async {
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+      client: (i) => i == 1 ? GatedClient(gate.future) : null,
+    );
+    final [a, b] = c.nodes;
+    final saved = await a.addBytes(List.filled(5000, 4), 'saved.bin');
+    final fetched = await a.addBytes(List.filled(5000, 5), 'fetched.bin');
+    await eventually(() => b.items.length == 2);
+    final dest = '${c.root.path}/saved.bin';
+    final save = b.saveTo(saved.key, dest);
+    // Listened to now: it fails while the save is still being awaited.
+    final fetch = expectLater(
+      b.fetch(fetched.key),
+      throwsA(isA<HttpException>()),
+    );
+    await eventually(() => b.items.every((i) => i.progress != null));
+
+    // A's mDNS record goes mid-transfer: a flicker, or iOS re-registering.
+    c.discoveries[1].remove(a.id);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(b.store[saved.key]?.progress, isNotNull, reason: 'save dropped');
+    expect(b.store[fetched.key]?.progress, isNotNull, reason: 'fetch dropped');
+
+    // The save lands; the fetch fails, its item gone from A meanwhile.
+    a.remove(fetched.key);
+    gate.complete();
+    await save;
+    expect(File(dest).lengthSync(), 5000);
+    await fetch;
+    // The sender is still gone, so neither row lingers.
+    expect(b.items, isEmpty);
   });
 
   test('the sender learns which peers have received an item', () async {
