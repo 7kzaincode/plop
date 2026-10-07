@@ -51,6 +51,23 @@ void main() {
     );
   });
 
+  // Files dropped on the Dock icon are the user's own, served in place:
+  // taking their item off the shelf must not take the file with it, as it
+  // does Android's cache copies.
+  test('a file dropped on a desktop outlives its item', () async {
+    final a = File('${root.path}/report.pdf')..writeAsStringSync('mine');
+    expect(
+      await take({
+        'paths': [a.path],
+      }),
+      ['plopped'],
+    );
+    node.remove(node.items.single.key);
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(node.items, isEmpty);
+    expect(a.readAsStringSync(), 'mine');
+  });
+
   test(
     'what was shared says it landed, and what Android could not read',
     () async {

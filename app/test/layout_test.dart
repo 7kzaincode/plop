@@ -52,6 +52,7 @@ Future<void> _shot(GlobalKey key, String name) async {
 void main() {
   late Directory root;
   late PlopNode me, other;
+  late StaticDiscovery dMe, dOther;
   late Settings settings;
 
   setUpAll(() async {
@@ -59,18 +60,25 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
   });
 
-  Future<void> startNodes(WidgetTester tester, {bool withItems = true}) async {
+  /// [poll] is how often each node polls its peers.
+  Future<void> startNodes(
+    WidgetTester tester, {
+    bool withItems = true,
+    Duration poll = const Duration(seconds: 3),
+  }) async {
     // flutter_test stubs HttpClient to answer 400; the nodes need the real one.
     await tester.runAsync(
       () => HttpOverrides.runWithHttpOverrides(() async {
         root = await Directory.systemTemp.createTemp('plop_layout');
         outDir = Directory('${root.path}/out')..createSync();
         settings = Settings.inMemory();
-        final dMe = StaticDiscovery(), dOther = StaticDiscovery();
+        dMe = StaticDiscovery();
+        dOther = StaticDiscovery();
         me = await PlopNode.start(
           dir: Directory('${root.path}/me'),
           discovery: dMe,
           name: 'This Mac',
+          pollInterval: poll,
         );
         me.web.enabled = true; // as on desktop: the panel shows its address
         other = await PlopNode.start(
@@ -78,6 +86,7 @@ void main() {
           discovery: dOther,
           name: "Zain's iPhone 17 Pro Max with a long name",
           eagerCopyBytes: 200 * 1024,
+          pollInterval: poll,
         );
         if (!withItems) return;
         dMe.add(
@@ -261,6 +270,71 @@ void main() {
           () => _shot(
             key,
             '$kind-alone-${size.width.toInt()}x${size.height.toInt()}',
+          ),
+        );
+      }
+      await stopNodes(tester);
+    });
+  }
+
+  for (final desktop in [true, false]) {
+    final kind = desktop ? 'desktop' : 'phone';
+
+    // A device whose firewall keeps plop out: the bar's amber count, and
+    // the line under it naming the device, as long a name as any.
+    testWidgets('$kind: an unreachable device fits at every size', (
+      tester,
+    ) async {
+      debugDesktopOverride = desktop;
+      peerGrace = Duration.zero;
+      addTearDown(() => peerGrace = const Duration(seconds: 6));
+      await startNodes(
+        tester,
+        withItems: false,
+        poll: const Duration(milliseconds: 100),
+      );
+      const name = "Zain's iPhone 17 Pro Max with a long name";
+      await tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(() async {
+          // A port nothing listens on stands in for its firewall: it
+          // reaches this Mac, this Mac never reaches it.
+          final closed = await ServerSocket.bind(
+            InternetAddress.loopbackIPv4,
+            0,
+          );
+          final port = closed.port;
+          await closed.close();
+          dOther.add(
+            Peer(
+              id: me.id,
+              name: 'This Mac',
+              hosts: ['127.0.0.1'],
+              port: me.port,
+            ),
+          );
+          dMe.add(
+            Peer(id: other.id, name: name, hosts: ['127.0.0.1'], port: port),
+          );
+          await me.addText('short note');
+          final end = DateTime.now().add(const Duration(seconds: 5));
+          while (me.unreachable.isEmpty) {
+            if (DateTime.now().isAfter(end)) throw 'not unreachable';
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+        }, _RealHttp()),
+      );
+      for (final size in desktop ? desktopSizes : phoneSizes) {
+        final key = await pumpApp(tester, size);
+        expect(tester.takeException(), isNull, reason: '$kind $size');
+        expect(find.text('1 unreachable'), findsOneWidget);
+        expect(
+          find.textContaining("can't reach $name · its firewall"),
+          findsOneWidget,
+        );
+        await tester.runAsync(
+          () => _shot(
+            key,
+            '$kind-unreachable-${size.width.toInt()}x${size.height.toInt()}',
           ),
         );
       }
