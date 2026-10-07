@@ -30,6 +30,7 @@ class PlopNode {
   /// [ports] are preferences, tried in order; when each is taken, or is not
   /// a port at all (a corrupt setting must not keep the app from starting),
   /// any free port is used, so a second node on the machine still comes up.
+  /// [client] is for tests, to watch or fail this node's requests.
   static Future<PlopNode> start({
     required Directory dir,
     required PeerDiscovery discovery,
@@ -37,8 +38,10 @@ class PlopNode {
     List<int> ports = const [],
     Duration ttl = defaultTtl,
     int eagerCopyBytes = defaultEagerCopyBytes,
+    Duration eagerDeadline = defaultEagerDeadline,
     int maxItemBytes = defaultMaxItemBytes,
     Duration pollInterval = const Duration(seconds: 3),
+    NodeClient? client,
   }) async {
     final store = ShelfStore(
       nodeId: randomId(),
@@ -51,7 +54,9 @@ class PlopNode {
     final engine = SyncEngine(
       store: store,
       discovery: discovery,
+      client: client,
       eagerCopyBytes: eagerCopyBytes,
+      eagerDeadline: eagerDeadline,
       pollInterval: pollInterval,
     );
     final server = NodeServer(store, onNudge: engine.onNudge);
@@ -118,6 +123,34 @@ class PlopNode {
     return [
       for (final p in engine.reachablePeers)
         if (now.difference(_lastContact(p.id, now)) > oneWayAfter) p,
+    ];
+  }
+
+  /// Peers that reach this node but that it cannot reach: the other side of
+  /// [oneWay], usually a firewall on theirs (a Windows PC whose firewall
+  /// prompt was dismissed, ufw on Linux). Their lists fail every poll, so
+  /// they are not in [peers] and none of their items show; without this
+  /// the shelf here reads as "just you" while they show up in [oneWay] on
+  /// their own screen.
+  ///
+  /// A peer counts once it has missed [SyncEngine.maxFailures] polls in a
+  /// row (it left [peers] at the first) and has reached this node since
+  /// the first of them failed, within [oneWayAfter]. A device that just
+  /// went quiet (a phone locking, a laptop going to sleep or off the
+  /// Wi-Fi) stops answering and polling at once, so its last contact here
+  /// comes before that and it is never listed; nor is one that discovery
+  /// keeps listing after it left. Time-based, like [oneWay]: [changes]
+  /// fires when a peer stops answering, not when its last contact here
+  /// ages out, so a screen that shows this checks it again on a timer.
+  List<Peer> get unreachable {
+    final now = DateTime.now();
+    return [
+      for (final p in engine.unreachablePeers)
+        if ((server.seenBy[p.id], engine.failingSince(p.id)) case (
+          final seen?,
+          final since?,
+        ) when seen.isAfter(since) && now.difference(seen) <= oneWayAfter)
+          p,
     ];
   }
 

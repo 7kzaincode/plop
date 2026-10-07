@@ -572,8 +572,8 @@ void main() {
       return p.a.store[(jsonDecode(utf8.decode(r.body)) as Map)['key']]!;
     }
 
-    expect((await up('invoice\u202Efdp.exe')).name, 'invoicefdp.exe');
-    expect((await up(' a\r\nb\u2067c.txt ')).name, 'abc.txt');
+    expect((await up('invoice\u202Efdp.exe')).name, 'invoice_fdp.exe');
+    expect((await up(' a\r\nb\u2067c.txt ')).name, 'a__b_c.txt');
     final long = await up('${'x' * 20000}.jpg');
     expect(long.name.length, ShelfStore.maxNameLength);
     expect(long.name, endsWith('….jpg'));
@@ -609,7 +609,7 @@ void main() {
     final d = await get(p.url('/web/items/peer1/rlo1'));
     expect(
       d.headers.value('content-disposition'),
-      "attachment; filename=\"invoicefdp.exe\"; filename*=UTF-8''invoicefdp.exe",
+      "attachment; filename=\"invoice_fdp.exe\"; filename*=UTF-8''invoice_fdp.exe",
     );
   });
 

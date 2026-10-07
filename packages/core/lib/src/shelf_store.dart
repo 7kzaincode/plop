@@ -6,6 +6,7 @@ import 'dart:isolate';
 import 'dart:math';
 
 import 'package:archive/archive_io.dart';
+import 'package:characters/characters.dart';
 
 import 'item.dart';
 
@@ -19,11 +20,18 @@ import 'item.dart';
 /// or binary still runs; the rest is the receiver's business.
 ///
 /// plop only ever stores entries, so a compressed one comes from a hostile
-/// or foreign peer and is refused with a [FormatException]: the archive
+/// or foreign peer and is refused with a [FormatException], as is an
+/// encrypted one, which would be read whole to decrypt it: the archive
 /// package inflates into memory whole, and a 1 MB deflate can unpack to
 /// gigabytes. Stored entries can only add up to more than the zip itself
 /// when their headers overlap, another bomb, so the output is bounded by
 /// the zip's own size. A failure removes [outDir] if this call created it.
+///
+/// The central directory is read and vetted here rather than through
+/// [ZipDecoder], which reads every entry flagged as a Unix symlink while
+/// decoding, to learn its target: a deflated "link" would be inflated into
+/// memory before any check here ran. Nothing is read until its header has
+/// passed. An entry named twice is written twice, the second numbered.
 Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
   () async {
     final target = Directory(outDir);
@@ -38,28 +46,42 @@ Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
     final places = _Places(outDir);
     final input = InputFileStream(zipPath);
     try {
-      for (final f in ZipDecoder().decodeStream(input)) {
-        final parts = f.name.split(RegExp(r'[/\\]'))
-          ..removeWhere((s) => s.isEmpty || s == '.');
-        if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
-          continue;
+      final dir = ZipDirectory()..read(input);
+      for (final h in dir.fileHeaders) {
+        final f = h.file!;
+        // plop never encrypts either, and the archive package would decrypt
+        // with no password, reading the whole entry into memory and doing
+        // big-integer sums on every byte of it. Bit 0, in either header.
+        if (h.generalPurposeBitFlag & 1 != 0 || f.flags & 1 != 0) {
+          throw const FormatException('folder zip is encrypted');
         }
-        if (f.isCompressed) {
+        // Before anything is skipped, so no compressed entry gets past: a
+        // link or a `..` name is still a zip plop did not make. Both
+        // headers, since the local one maps a method it does not know to
+        // "stored" and would copy the packed bytes out as they are.
+        if (f.compressionMethod != CompressionType.none ||
+            h.compressionMethod != ZipFile.zipCompressionStore) {
           throw const FormatException('folder zip is compressed');
         }
-        final path = places.of(parts, isDir: f.isDirectory);
-        if (f.isDirectory) {
+        final mode = h.externalFileAttributes >> 16;
+        final isLink = h.versionMadeBy >> 8 == 3 && mode & 0xf000 == 0xa000;
+        final parts = h.filename.split(RegExp(r'[/\\]'))
+          ..removeWhere((s) => s.isEmpty || s == '.');
+        if (isLink || parts.isEmpty || parts.contains('..')) continue;
+        final isDir = h.filename.endsWith('/') || h.filename.endsWith('\\');
+        final path = places.of(parts, isDir: isDir);
+        if (isDir) {
           await Directory(path).create(recursive: true);
           continue;
         }
         final out = _BoundedOutput(path, budget - written);
         try {
-          f.writeContent(out);
+          f.decompress(out); // stored: copied through in 1 MB writes
         } finally {
           written += out.length;
           await out.close();
         }
-        if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
+        if (mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
           _setExecutable(path);
         }
       }
@@ -267,6 +289,21 @@ Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
   await enc.close();
 }
 
+/// The whole characters (grapheme clusters) at the start of [s] that fit
+/// in [n] UTF-16 units. A cut inside one leaves a broken glyph on every
+/// peer and in a saved file's name: half a surrogate pair turns into
+/// U+FFFD, half a flag is a boxed letter, and a family emoji cut at a
+/// joiner loses a member.
+String _head(String s, int n) {
+  if (s.length <= n) return s;
+  var end = 0;
+  for (final c in s.characters) {
+    if (end + c.length > n) break;
+    end += c.length;
+  }
+  return s.substring(0, end);
+}
+
 class ItemTooLargeException implements Exception {
   ItemTooLargeException(this.size, this.max);
   final int size;
@@ -448,9 +485,11 @@ class ShelfStore {
   }
 
   Future<ShelfItem> addText(String text) {
-    final firstLine = text.trim().split('\n').first;
+    // `\r` too: a Windows line ends in `\r\n`, and a `\r` left on the
+    // label would show as `_` on every peer.
+    final firstLine = text.trim().split(RegExp('[\r\n]')).first;
     final label = firstLine.length > 60
-        ? '${firstLine.substring(0, 60)}…'
+        ? '${_head(firstLine, 60)}…'
         : firstLine;
     return _addOwned(utf8.encode(text), label, ItemKind.text, 'text.txt');
   }
@@ -521,7 +560,9 @@ class ShelfStore {
   /// Records a peer's item. Returns the new mirror, or null if it was already
   /// known, has a size outside 0..cap, or an id that is not a plain token.
   /// An odd but honest peer still gets its item shown: a huge `ttlMs` is
-  /// clamped and a long name cut rather than refused.
+  /// clamped and a long name cut rather than refused. Invisible formatting
+  /// characters in the name are shown as `_` ([safeLabel]), as saving it
+  /// would write them, so a row cannot pass off `fdp.exe` as `exe.pdf`.
   ShelfItem? addRemote(String peerId, String peerName, RemoteItem r) {
     final key = itemKey(peerId, r.id);
     if (!isValidId(r.id) ||
@@ -535,9 +576,7 @@ class ShelfStore {
     final ttl = Duration(
       milliseconds: min(r.ttlMs, maxRemoteTtl.inMilliseconds),
     );
-    final name = r.name.length > maxNameLength
-        ? r.name.substring(0, maxNameLength)
-        : r.name;
+    final name = _head(safeLabel(r.name), maxNameLength);
     final now = DateTime.now();
     final seen = _firstSeen.remove(key);
     final item = ShelfItem(
@@ -578,10 +617,17 @@ class ShelfStore {
     _changes.add(null);
   }
 
+  /// Most peers an own item's [ShelfItem.receivedBy] records. A real shelf
+  /// has a handful; a peer making up ids must not grow it without end, and
+  /// under such a flood the list may miss a real peer, which is all.
+  static const maxReceivedBy = 64;
+
   /// Records that [peerId] holds a complete copy of an own item. Fires a
   /// change only when that is news.
   void markReceived(String key, String peerId) {
-    if (_items[key]?.receivedBy.add(peerId) ?? false) _changes.add(null);
+    final item = _items[key];
+    if (item == null || item.receivedBy.length >= maxReceivedBy) return;
+    if (item.receivedBy.add(peerId)) _changes.add(null);
   }
 
   /// Whether an item is still what was put on the shelf. A file served in
@@ -594,8 +640,22 @@ class ShelfStore {
   /// Asynchronous because this runs on every poll from every peer, and a
   /// stat of a file on an unmounted share or a cloud placeholder can hang
   /// for seconds; a synchronous one would stall the whole isolate with it.
-  Future<bool> stillThere(ShelfItem i) async {
-    if (i.ownsFile || i.path == null) return true;
+  ///
+  /// A check still running is shared, so a hung stat is joined by every
+  /// poll from every peer rather than one more each time; callers bound
+  /// their wait ([NodeServer.statBudget]).
+  Future<bool> stillThere(ShelfItem i) {
+    if (i.ownsFile || i.path == null) return Future.value(true);
+    // The callback must not return the removed future: whenComplete would
+    // wait on it, and it is the future being completed.
+    return _checks[i.key] ??= _check(i).whenComplete(() {
+      _checks.remove(i.key);
+    });
+  }
+
+  final _checks = <String, Future<bool>>{};
+
+  Future<bool> _check(ShelfItem i) async {
     final st = await File(i.path!).stat();
     // Size alone misses a rewrite that keeps it, so the modification time
     // counts too; a store that never recorded one only has the size.

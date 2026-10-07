@@ -81,9 +81,15 @@ class NodeServer {
 
   HttpServer? _server;
 
-  /// When each peer last reached this node, by node id. A peer that we can
-  /// reach but that never shows up here is being blocked by a firewall.
+  /// When each peer last reached this node, by node id, least recent
+  /// first. A peer that we can reach but that never shows up here is being
+  /// blocked by a firewall. At most [maxSeenBy] entries.
   final seenBy = <String, DateTime>{};
+
+  /// Most callers [seenBy] remembers; past it, the one heard from longest
+  /// ago is let go. A real peer polls every 3 s, so it is never that one
+  /// unless something is inventing ids by the hundred.
+  static const maxSeenBy = 256;
 
   int _port = 0;
 
@@ -117,10 +123,11 @@ class NodeServer {
     }
   }
 
-  /// The caller's node id, if it sent one that passes [isValidId]. Anything
-  /// else is treated as no id: [seenBy] and an item's `receivedBy` grow by
-  /// one entry per distinct value, so a hostile peer must not be able to
-  /// supply an endless run of them.
+  /// The caller's node id, if it sent one that passes [isValidId], which
+  /// makes it safe as a map key and a path segment; anything else is
+  /// treated as no id. The check says nothing about how many there are: a
+  /// hostile peer can make up a fresh id for every request, so [seenBy] and
+  /// an item's `receivedBy` are capped rather than trusted to stay small.
   String? _callerId(HttpRequest req) {
     final from = req.headers.value(nodeIdHeader);
     return from != null && isValidId(from) ? from : null;
@@ -128,8 +135,18 @@ class NodeServer {
 
   void _noteCaller(HttpRequest req) {
     final from = _callerId(req);
-    if (from != null) seenBy[from] = DateTime.now();
+    if (from == null) return;
+    seenBy.remove(from); // to the end, so the first is the least recent
+    seenBy[from] = DateTime.now();
+    if (seenBy.length > maxSeenBy) seenBy.remove(seenBy.keys.first);
   }
+
+  /// How long a list waits on any one file's check. A stat on a dead mount
+  /// can hang for a minute; the list must still answer well inside a
+  /// peer's 5 s timeout, or every peer drops this node and its items, and
+  /// inside the 1 s probe of `PlopNode.revive`, or the server is restarted
+  /// under its transfers.
+  static const statBudget = Duration(milliseconds: 500);
 
   Future<void> _handle(HttpRequest req) async {
     final res = req.response;
@@ -145,14 +162,24 @@ class NodeServer {
     switch ((req.method, req.uri.pathSegments)) {
       case ('GET', ['v1', 'items']):
         _noteCaller(req);
-        final items = <Map<String, Object>>[];
-        for (final i in store.localItems.toList()) {
-          // The list is a snapshot: remove() mutates, and an item can
-          // expire while another's stat is in flight.
-          if (i.isReady && await store.stillThere(i) && store[i.key] == i) {
-            items.add(i.toJson());
-          }
-        }
+        // A snapshot: remove() mutates, and an item can expire while a
+        // stat is in flight.
+        final ready = [
+          for (final i in store.localItems)
+            if (i.isReady) i,
+        ];
+        // All at once, each within [statBudget]. One that runs over lists
+        // its item: calling it gone would make every peer drop the row and
+        // add it back on the next poll. If the stat does come back with the
+        // file gone, the item still leaves then, and peers are nudged.
+        final present = await Future.wait([
+          for (final i in ready)
+            store.stillThere(i).timeout(statBudget, onTimeout: () => true),
+        ]);
+        final items = [
+          for (final (n, i) in ready.indexed)
+            if (present[n] && store[i.key] == i) i.toJson(),
+        ];
         res.headers.contentType = ContentType.json;
         res.write(jsonEncode(items));
       case ('GET', ['v1', 'items', final id]):

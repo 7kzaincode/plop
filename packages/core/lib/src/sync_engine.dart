@@ -18,6 +18,9 @@ class _PeerState {
   /// Since when this peer has answered every poll; null while unreachable.
   DateTime? okSince;
 
+  /// When the current run of failed polls began; null while it answers.
+  DateTime? failingSince;
+
   List<Uri> get candidates => [
     ?base,
     for (final u in peer.baseUris)
@@ -33,6 +36,7 @@ class SyncEngine {
     required this.discovery,
     NodeClient? client,
     this.eagerCopyBytes = defaultEagerCopyBytes,
+    this.eagerDeadline = defaultEagerDeadline,
     this.pollInterval = const Duration(seconds: 3),
   }) : client = client ?? NodeClient();
 
@@ -40,13 +44,49 @@ class SyncEngine {
   final PeerDiscovery discovery;
   final NodeClient client;
   final int eagerCopyBytes;
+
+  /// Wall-clock time an eager copy gets, plus a second per 256 KB of the
+  /// item. One that runs over is dropped and counts as a failed try: a
+  /// sender that trickles bytes never trips the stall timeout, and would
+  /// otherwise hold its slots for as long as it likes, past the item's
+  /// expiry and its own departure. A tap has no deadline.
+  final Duration eagerDeadline;
   final Duration pollInterval;
 
   /// After this many failed polls in a row, a peer counts as gone.
   static const maxFailures = 3;
 
+  /// Eager copies running at once. A burst of small items would otherwise
+  /// open a socket and a `.part` file each, all in the same tick, and run
+  /// a phone or a Mac app out of file descriptors (256 by default), failing
+  /// most of the copies and this node's own server with them.
+  static const maxEagerDownloads = 4;
+
+  /// Eager copies running at once from any one sender, so a slow one (or a
+  /// hostile one, trickling bytes) cannot take every slot while another's
+  /// one-line text waits behind it.
+  static const maxEagerPerPeer = 2;
+
+  /// Eager copies started per item. One that fails is queued again by the
+  /// next poll; after this many, the item waits for a tap like a large one.
+  static const maxEagerTries = 3;
+
   final _peers = <String, _PeerState>{};
   final _downloads = <String, Future<String>>{};
+
+  /// Keys of items waiting for an eager copy, oldest first; a set, since
+  /// every poll queues whatever is still uncopied.
+  final _eagerQueue = <String>{};
+  var _eagerRunning = 0;
+  final _eagerByPeer = <String, int>{};
+
+  /// Deadlines of running eager copies, by key.
+  final _deadlines = <String, Timer>{};
+
+  /// Eager copies started per mirror. Kept beside the item, not by key, so
+  /// the count goes with it; a mirror that leaves and comes back is a new
+  /// item, with a fresh count.
+  final _eagerTries = Expando<int>();
   final _peerChanges = StreamController<void>.broadcast();
   final _subs = <StreamSubscription<void>>[];
 
@@ -59,8 +99,20 @@ class SyncEngine {
       if (s.base != null && s.failures == 0) s.peer,
   ];
 
+  /// Peers discovery still lists that have missed [maxFailures] polls in a
+  /// row: their uncopied items are gone and they are not in
+  /// [reachablePeers]. Discovery can keep a device that left without
+  /// saying so for a long while, so this alone does not mean it is there.
+  List<Peer> get unreachablePeers => [
+    for (final s in _peers.values)
+      if (s.failures >= maxFailures) s.peer,
+  ];
+
   /// Since when [id] has been continuously reachable; null if it is not.
   DateTime? okSince(String id) => _peers[id]?.okSince;
+
+  /// When [id]'s current run of failed polls began; null if it answers.
+  DateTime? failingSince(String id) => _peers[id]?.failingSince;
 
   /// Name of a peer this node knows, reachable or not; null once it is gone.
   String? peerName(String id) => _peers[id]?.peer.name;
@@ -130,6 +182,7 @@ class SyncEngine {
         s
           ..base = base
           ..failures = 0
+          ..failingSince = null
           ..okSince ??= DateTime.now();
         if (changed) _peerChanges.add(null);
         _reconcile(s, list);
@@ -138,8 +191,10 @@ class SyncEngine {
         // try the next address
       }
     }
-    s.failures++;
-    s.okSince = null;
+    s
+      ..failures += 1
+      ..okSince = null
+      ..failingSince ??= DateTime.now();
     if (s.failures == maxFailures) {
       _dropUncopied(s.peer.id);
       _peerChanges.add(null);
@@ -155,31 +210,108 @@ class SyncEngine {
       }
     }
     for (final r in list) {
-      final item = store.addRemote(s.peer.id, s.peer.name, r);
-      if (item != null && item.size <= eagerCopyBytes) {
-        fetch(item.key).catchError((_) => '');
+      // Known mirrors too, so an eager copy that failed is tried again.
+      final item =
+          store.addRemote(s.peer.id, s.peer.name, r) ??
+          store[itemKey(s.peer.id, r.id)];
+      if (item != null && _wantsEagerCopy(item)) _eagerQueue.add(item.key);
+    }
+    _pumpEager();
+  }
+
+  bool _wantsEagerCopy(ShelfItem item) =>
+      item.size <= eagerCopyBytes &&
+      !item.isReady &&
+      item.progress == null &&
+      !_downloads.containsKey(item.key) &&
+      (_eagerTries[item] ?? 0) < maxEagerTries;
+
+  /// Starts queued eager copies while fewer than [maxEagerDownloads] run,
+  /// each from a sender with fewer than [maxEagerPerPeer] running, smallest
+  /// first: a text or a screenshot does not wait behind a burst of videos.
+  /// An item that expired, was dropped, landed or was tapped while it
+  /// waited leaves the queue. A tap ([fetch], [saveTo]) never queues: it
+  /// starts at once, and the queue then finds the copy already running.
+  void _pumpEager() {
+    while (_eagerRunning < maxEagerDownloads) {
+      ShelfItem? next;
+      for (final key in _eagerQueue.toList()) {
+        final item = store[key];
+        if (item == null || !_wantsEagerCopy(item)) {
+          _eagerQueue.remove(key);
+        } else if ((_eagerByPeer[item.originId] ?? 0) < maxEagerPerPeer &&
+            (next == null || item.size < next.size)) {
+          next = item;
+        }
       }
+      if (next == null) return;
+      _startEager(next);
     }
   }
 
+  void _startEager(ShelfItem item) {
+    final key = item.key, peer = item.originId;
+    _eagerQueue.remove(key);
+    _eagerTries[item] = (_eagerTries[item] ?? 0) + 1;
+    _eagerRunning++;
+    _eagerByPeer.update(peer, (n) => n + 1, ifAbsent: () => 1);
+    final cutOff = Completer<void>();
+    final deadline = _deadlines[key] = Timer(
+      eagerDeadline + Duration(milliseconds: item.size * 1000 ~/ (256 << 10)),
+      cutOff.complete,
+    );
+    _fetch(key, cutOff: cutOff.future).catchError((_) => '').whenComplete(() {
+      deadline.cancel();
+      if (_deadlines[key] == deadline) _deadlines.remove(key);
+      _eagerRunning--;
+      if (_eagerByPeer.update(peer, (n) => n - 1) == 0) {
+        _eagerByPeer.remove(peer);
+      }
+      _pumpEager();
+    });
+  }
+
+  /// Drops a gone peer's mirrors that were never copied. One with a
+  /// transfer still running keeps its row and progress bar, as in
+  /// [_reconcile] and at expiry: a large save runs outside [_downloads],
+  /// and dropping its row would invite a second, parallel one when the
+  /// peer comes back. [_dropUncopiedIfGone] clears it once it ends.
   void _dropUncopied(String peerId) {
     for (final item in store.mirrorsOf(peerId)) {
-      if (!item.isReady && !_downloads.containsKey(item.key)) {
+      if (!item.isReady &&
+          item.progress == null &&
+          !_downloads.containsKey(item.key)) {
         store.remove(item.key);
       }
     }
   }
 
+  /// Run when a transfer from [peerId] ends: if the peer went away
+  /// meanwhile, its row (and any other left for the same reason) goes now
+  /// rather than lingering, uncopied and unfetchable, until it expires.
+  void _dropUncopiedIfGone(String peerId) {
+    final s = _peers[peerId];
+    if (s == null || s.failures >= maxFailures) _dropUncopied(peerId);
+  }
+
   /// Returns the local path of an item, downloading it first if needed.
   /// The file is deleted when the item expires; use [saveTo] to keep it.
+  /// A tap waits as long as the transfer takes, so one that finds an eager
+  /// copy of the item running lifts that copy's deadline.
   Future<String> fetch(String key) {
+    _deadlines.remove(key)?.cancel();
+    return _fetch(key);
+  }
+
+  Future<String> _fetch(String key, {Future<void>? cutOff}) {
     final item = store[key];
     if (item == null) return Future.error(StateError('item expired'));
     if (item.isReady) return Future.value(item.path!);
     // The callback must not return the removed future: whenComplete would
     // wait on it, and it is the future being completed.
-    return _downloads[key] ??= _mirror(item).whenComplete(() {
+    return _downloads[key] ??= _mirror(item, cutOff).whenComplete(() {
       _downloads.remove(key);
+      _dropUncopiedIfGone(item.originId);
     });
   }
 
@@ -202,13 +334,14 @@ class SyncEngine {
       await _transfer(item, destPath);
     } finally {
       store.setProgress(key, null);
+      _dropUncopiedIfGone(item.originId);
     }
   }
 
-  Future<String> _mirror(ShelfItem item) async {
+  Future<String> _mirror(ShelfItem item, Future<void>? cutOff) async {
     final dest = store.downloadPath(item);
     try {
-      await _transfer(item, dest);
+      await _transfer(item, dest, cutOff: cutOff);
     } catch (_) {
       store.setProgress(item.key, null);
       rethrow;
@@ -222,7 +355,11 @@ class SyncEngine {
     return dest;
   }
 
-  Future<void> _transfer(ShelfItem item, String dest) async {
+  Future<void> _transfer(
+    ShelfItem item,
+    String dest, {
+    Future<void>? cutOff,
+  }) async {
     final s = _peers[item.originId];
     if (s == null) throw StateError('sender is gone');
     store.setProgress(item.key, 0);
@@ -235,6 +372,7 @@ class SyncEngine {
           item.id,
           dest,
           expectedSize: item.size,
+          cutOff: cutOff,
           onProgress: (n) {
             final step = item.size == 0 ? 100 : n * 100 ~/ item.size;
             if (step != lastStep) {
@@ -269,6 +407,11 @@ class SyncEngine {
       s.poll?.cancel();
     }
     _peers.clear();
+    _eagerQueue.clear();
+    for (final t in _deadlines.values) {
+      t.cancel();
+    }
+    _deadlines.clear();
     client.close();
     await _peerChanges.close();
   }

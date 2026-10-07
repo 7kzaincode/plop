@@ -43,7 +43,10 @@ The caller sets `X-Plop-Node: <its node id>`. A node id is a plain token
 under the same rule as an item `id` below; a receiver treats a header that
 breaks it as absent, on every route. A node remembers when each peer last
 reached it; a peer it can reach that never reaches it back is shown as
-one-way (usually a firewall on this side).
+one-way (usually a firewall on this side). A peer that keeps reaching it
+after its own polls of that peer started failing is shown as unreachable
+(usually a firewall on that side); one that went quiet both ways at once
+has simply gone, a phone locking, say, and is not.
 
 ```json
 [
@@ -57,10 +60,16 @@ one-way (usually a firewall on this side).
 - `id` is 1–64 characters from `A-Z a-z 0-9 _ -` (plop sends 16 hex
   digits). Items with any other id are ignored.
 - `size` is 0 to the receiver's cap (100 GB); items outside that are
-  ignored. A `name` longer than 255 characters is cut to that. `mime` is
-  optional and defaults to `application/octet-stream`, as does one that is
-  not a plain `type/subtype` (letters, digits, `.+_-`); of its parameters
-  only a plain `charset` is kept.
+  ignored. A `name` longer than 255 UTF-16 units is cut to the whole
+  characters (grapheme clusters) that fit, never inside an emoji. Control
+  characters, bidi embeddings, overrides and isolates (U+202A–202E,
+  U+2066–2069) and line or paragraph separators in it are shown and saved
+  as `_`, so `fdp.exe` cannot pass for `exe.pdf`, nor `pdf\n.exe` for
+  `pdf`. Other invisible marks (LRM, RLM, ALM, zero-width space, word
+  joiner, BOM) are dropped; ZWJ and ZWNJ are kept. `mime` is optional and
+  defaults to `application/octet-stream`, as does one that is not a plain
+  `type/subtype` (letters, digits, `.+_-`); of its parameters only a plain
+  `charset` is kept.
 - `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
   `name` is a short label (the first line). For `folder`, the bytes are a zip
   of the folder's contents (stored, not compressed) and `name` is the folder
@@ -72,7 +81,9 @@ one-way (usually a firewall on this side).
   segment is sanitised as a single file's name is. It refuses a zip with
   compressed entries, or one that unpacks to more than its own size
   (overlapping entries); either is a bomb, since stored content can do
-  neither. A node that does not know a kind treats it as `file`.
+  neither. It refuses encrypted entries too (general-purpose bit 0 in
+  either header). Each entry's headers are checked before any of its
+  content is read. A node that does not know a kind treats it as `file`.
 - `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:
   clocks on a LAN disagree. The sender picks the lifetime (2 minutes by
   default); it can differ per item. A receiver clamps it to 24 hours, and
@@ -108,7 +119,11 @@ the header the receiver re-fetches all peers. Responds `204`.
 - An item that disappears from its origin's list is dropped.
 - Items at or under 25 MB are downloaded as soon as they are seen ("eager
   copy"), so they survive the sender's app being suspended. Larger items are
-  fetched on tap.
+  fetched on tap. At most 4 eager copies run at once, at most 2 of them
+  from any one sender, smallest first. One still running after 30 s plus
+  a second per 256 KB is dropped (a tap has no such limit). One that fails
+  or is dropped is tried again on later polls, 3 tries in all, after which
+  the item is fetched on tap like a large one.
 - Items over 100 GB are refused, both locally and from peers.
 - A download that has started is allowed to finish after the item expires
   (the origin keeps streaming an open file), so large transfers are not cut
@@ -117,7 +132,8 @@ the header the receiver re-fetches all peers. Responds `204`.
   an item over `/v1`. (The web shelf below hands mirrors to browsers; no
   node ever asks it for one.)
 - Peer gone (mDNS lost event, or 3 failed polls in a row): keep fully copied
-  items until their timers end; drop items that were never copied.
+  items until their timers end; drop items that were never copied, once
+  any transfer of them still running has ended.
 - Downloads are written to `<name>.part` and renamed when complete and the
   byte count matches `size`. On any failure (more or fewer bytes, a stall, a
   full disk) the `.part` file is deleted.

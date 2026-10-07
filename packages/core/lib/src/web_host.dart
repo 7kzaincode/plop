@@ -198,6 +198,13 @@ class WebHost {
     return diff == 0;
   }
 
+  /// [ShelfStore.stillThere] within [NodeServer.statBudget]: a check that
+  /// runs over counts as present, as it does for /v1, and the file's own
+  /// open says otherwise if it is gone.
+  Future<bool> _present(ShelfItem i) => node.store
+      .stillThere(i)
+      .timeout(NodeServer.statBudget, onTimeout: () => true);
+
   static void _noStore(HttpResponse res) =>
       res.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
 
@@ -209,7 +216,7 @@ class WebHost {
     var budget = maxInlineTotal;
     for (final i in node.items) {
       // A snapshot: an item can leave while a stat or a read is in flight.
-      if (!await node.store.stillThere(i) || node.store[i.key] != i) continue;
+      if (!await _present(i) || node.store[i.key] != i) continue;
       final text = i.size <= budget ? await _textOf(i) : null;
       if (text != null) {
         inlined.add(i.key);
@@ -296,7 +303,7 @@ class WebHost {
     // A file shared in place and changed since leaves the shelf instead,
     // as it does for peers.
     final item = node.store[key];
-    if (item == null || !await node.store.stillThere(item)) {
+    if (item == null || !await _present(item)) {
       res.statusCode = HttpStatus.notFound;
       return;
     }
@@ -363,11 +370,9 @@ class WebHost {
     final body = claimBody(req);
     // Shown on every device's shelf: one plain line of at most the length
     // a peer's name is cut to.
-    final name = cleanName(
-      req.uri.queryParameters['name'] ?? '',
-      max: ShelfStore.maxNameLength,
-    );
-    if (name.isEmpty) {
+    final raw = req.uri.queryParameters['name'] ?? '';
+    final name = cleanName(raw, max: ShelfStore.maxNameLength);
+    if (isBlankLabel(raw)) {
       res.statusCode = HttpStatus.badRequest;
       return;
     }
@@ -601,9 +606,10 @@ const asked = new Map(); // key -> when it was tapped before its bytes were here
 let items = [], byKey = new Map(), uploads = [], seq = 0, sig = '', polling = false, again = false, pollTimer, toastTimer, viewing;
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
-// Names as they are: C0/C1 controls and bidi marks go, so a peer's
-// "invoice\u202Efdp.exe" cannot show as "invoiceexe.pdf" (cleanName).
-const clean = s => String(s).replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
+// Names as they are, as safeLabel has them: controls, bidi overrides and
+// isolates and line separators show as _, so a peer's "invoice\u202Efdp.exe"
+// cannot show as "invoiceexe.pdf"; other invisible marks go.
+const clean = s => String(s).replace(/[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g, '_').replace(/[\u061c\u200b\u200e\u200f\u2060-\u2064\u206a-\u206f\ufeff]/g, '');
 const saveMine = () => store.set('plop.mine', JSON.stringify(Object.fromEntries(mine)));
 const url = it => '/web/items/' + it.key;
 const fileName = it => it.kind === 'folder' ? it.name + '.zip' : it.kind === 'text' ? 'text.txt' : it.name;

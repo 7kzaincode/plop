@@ -25,12 +25,13 @@ void main() {
     expect(item('text/html, image/png').mime, 'application/octet-stream');
   });
 
-  test('cleanName takes out controls and bidi marks and keeps the tail', () {
+  test('cleanName is safeLabel on one trimmed line, keeping the tail', () {
     String clean(String s, [int max = 255]) => cleanName(s, max: max);
-    expect(clean('invoice\u202Efdp.exe'), 'invoicefdp.exe');
-    expect(clean('a\u2066b\u2069\u200Fc\u061C'), 'abc');
-    expect(clean(' line\r\nX-Evil: 1\t\u0085 '), 'lineX-Evil: 1');
-    expect(clean('\u202E\r\n'), '');
+    expect(clean('invoice\u202Efdp.exe'), 'invoice_fdp.exe');
+    expect(clean('a\u2066b\u2069\u200Fc\u061C'), 'a_b_c');
+    expect(clean(' line\r\nX-Evil: 1\t\u0085 '), 'line__X-Evil: 1__');
+    expect(isBlankLabel('\u202E \r\n\u200F'), isTrue);
+    expect(isBlankLabel('_'), isFalse);
     expect(clean('Zürich 🏔.bin'), 'Zürich 🏔.bin');
     final long = clean('${'a' * 300}.heic');
     expect(long.length, 255);

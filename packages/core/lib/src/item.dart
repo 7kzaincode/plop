@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:characters/characters.dart';
+
 /// `folder` items travel as a zip of the folder's contents.
 enum ItemKind { file, text, folder }
 
@@ -8,6 +10,10 @@ const defaultTtl = Duration(seconds: 120);
 
 /// Items at or under this size are copied as soon as they appear on a peer.
 const defaultEagerCopyBytes = 25 * 1024 * 1024;
+
+/// Wall-clock time an eager copy gets before it is abandoned, plus a second
+/// per 256 KB of the item.
+const defaultEagerDeadline = Duration(seconds: 30);
 
 /// Hard per-item cap. Large items are only ever downloaded on request, so
 /// this just guards against absurd sizes.
@@ -60,7 +66,8 @@ class ShelfItem {
   double? progress;
 
   /// Ids of the peers that have said they hold a complete copy of this item,
-  /// so the sender can see it arrived. Only ever filled for own items.
+  /// so the sender can see it arrived. Only ever filled for own items, and
+  /// with at most `ShelfStore.maxReceivedBy` of them.
   final receivedBy = <String>{};
 
   String get key => itemKey(originId, id);
@@ -198,40 +205,79 @@ String mimeFor(String name) {
       'application/octet-stream';
 }
 
-/// [name] as one line that reads as what it is: C0 and C1 controls and the
-/// Unicode bidi marks (embeddings, overrides, isolates, LRM, RLM, ALM) are
-/// taken out, so a CR/LF cannot break the line it is shown on and
-/// `invoice<RLO>fdp.exe` cannot pose as `invoiceexe.pdf`; then trimmed,
-/// and cut to [max] UTF-16 units with an ellipsis before the extension,
-/// which stays, as does every character the cut leaves whole.
+/// [name] as one line that reads as what it is ([safeLabel]), trimmed, and
+/// cut to [max] UTF-16 units with an ellipsis before the extension, which
+/// stays. The cut falls between whole characters: no half emoji or flag.
 String cleanName(String name, {required int max}) {
-  final s = name.replaceAll(_unshown, '').trim();
+  final s = safeLabel(name).trim();
   if (s.length <= max) return s;
   final dot = s.lastIndexOf('.');
   final ext = dot > 0 && s.length - dot <= 16 ? s.substring(dot) : '';
-  var cut = max - 1 - ext.length;
-  // Not between the two halves of a surrogate pair.
-  if (cut > 0 && (s.codeUnitAt(cut - 1) & 0xfc00) == 0xd800) cut--;
-  return '${s.substring(0, cut)}…$ext';
+  final room = max - 1 - ext.length;
+  final head = StringBuffer();
+  var used = 0;
+  for (final c in s.characters) {
+    if (used + c.length > room) break;
+    head.write(c);
+    used += c.length;
+  }
+  return '$head…$ext';
 }
 
-final _unshown = RegExp(
-  '[\\x00-\\x1f\\x7f-\\x9f\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]',
+/// Makes a peer-supplied name read as what it is, with no character that
+/// changes how the text around it is shown while unseen itself. A
+/// right-to-left override makes `invoice\u202Efdp.exe` read as "invoice"
+/// then "exe.pdf" on every shelf and in Finder and Explorer, and a double
+/// click runs it; a newline in `invoice.pdf\n.exe` leaves a one-line row
+/// showing `invoice.pdf`. Those, and every C0 and C1 control, the bidi
+/// embeddings, overrides and isolates, and the line and paragraph
+/// separators, become `_`, so the place shows.
+///
+/// The other invisible marks go without a trace: the bidi marks (LRM, RLM,
+/// ALM), zero-width space, word joiner, invisible operators and BOM. They
+/// cannot turn a run of Latin text around, and are everyday in Hebrew and
+/// Arabic names and Thai text, which must not sprout underscores. The
+/// joiners U+200C and U+200D stay: Persian and Hindi words and emoji
+/// sequences need them.
+///
+/// The one helper for this, for a name shown anywhere as well as saved.
+String safeLabel(String name) =>
+    name.replaceAll(_hiding, '_').replaceAll(_invisible, '');
+
+/// Whether [name] has nothing to show once what [safeLabel] replaces or
+/// drops is gone: no name at all, rather than one of underscores.
+bool isBlankLabel(String name) =>
+    name.replaceAll(_hiding, '').replaceAll(_invisible, '').trim().isEmpty;
+
+final _hiding = RegExp(r'[\x00-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]');
+final _invisible = RegExp(
+  r'[\u061c\u200b\u200e\u200f\u2060-\u2064\u206a-\u206f\ufeff]',
 );
 
 /// Makes a peer-supplied name safe to use as a single path segment on every
-/// platform plop runs on. Dotfiles stay dotfiles (`.env` must not arrive as
-/// `env`); with the separators replaced, only the bare `.` and `..` names
-/// need refusing. Windows also drops trailing dots and spaces, so `notes.`
-/// would land on `notes`, and reserves its device names (`CON`, `NUL.txt`,
-/// `com1.log`…), which get a `_` after the stem.
+/// platform plop runs on, and to show: [safeLabel] first, which also
+/// takes out the control characters no file system wants. Dotfiles stay
+/// dotfiles (`.env` must not arrive as `env`); with the separators
+/// replaced, only the bare `.` and `..` names need refusing. Windows also
+/// drops trailing dots and spaces, so `notes.` would land on `notes`, and
+/// reserves its device names (`CON`, `NUL.txt`, `com1.log`…), which get a
+/// `_` after the stem.
 String safeFileName(String name) {
-  var cleaned = name
-      .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
+  var cleaned = safeLabel(name)
+      .replaceAll(RegExp(r'[/\\:*?"<>|]'), '_')
       .trim()
       .replaceAll(RegExp(r'[. ]+$'), '');
   if (cleaned.isEmpty) return 'file';
-  if (cleaned.length > 120) cleaned = cleaned.substring(cleaned.length - 120);
+  if (cleaned.length > 120) {
+    // The whole characters at the end that fit: no half emoji or flag at
+    // the start of the name (see `_head` in shelf_store.dart).
+    var start = cleaned.length;
+    for (final c in cleaned.characters.toList().reversed) {
+      if (cleaned.length - start + c.length > 120) break;
+      start -= c.length;
+    }
+    cleaned = cleaned.substring(start);
+  }
   return cleaned.replaceFirstMapped(_reserved, (m) => '${m[1]}_${m[2]}');
 }
 
