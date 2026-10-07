@@ -29,10 +29,12 @@ each system warns once; the steps below get past it.
    again and allow it.
 
 Closing the window keeps plop running, so the shortcuts and your items stay
-live. Click its Dock icon or ⌘Tab back to it to bring the window back; ⌘Q
-quits. Files dropped on the Dock icon land on the shelf, and when something
-arrives while the window is closed or behind other apps the Dock icon shows
-a count.
+live. Click its Dock icon, ⌘Tab back to it, or pick "open plop" from its
+menu bar icon to bring the window back; ⌘Q or "quit plop" in that menu
+quits. Files dropped on the Dock icon land on the shelf. When something
+arrives while the window is closed or behind other apps, the Dock icon shows
+a count and a notification says who sent what (a shortcut's result is one
+too); click it to open plop. The settings panel can switch them off.
 
 ### Windows (10 or 11)
 
@@ -47,9 +49,14 @@ Firewall asks, tick both Private and Public. If you clicked Cancel, remove the
 plop entries under Windows Security > Firewall & network protection > Allow an
 app through firewall (or run the installer, which clears them).
 
-Unlike on macOS, closing the window quits plop and stops the shortcuts;
-minimize it instead if you want them to stay live. Its taskbar button flashes
-when something arrives while plop is in the background.
+Closing the window keeps plop running in the tray (next to the clock; at
+first Windows may tuck it under the ^ arrow), so the shortcuts and your
+items stay live: click the tray icon to bring the window back, right-click
+it to quit. Its taskbar button flashes when something arrives while plop is
+in the background, and a notification says who sent what (a shortcut's
+result is one too); click it to open plop. The settings panel can switch
+them off. Windows only shows notifications from apps in the Start menu, so
+plop adds itself to yours the first time it runs.
 
 ### Android
 
@@ -66,18 +73,26 @@ tar xzf plop-linux-x64.tar.gz && ./plop/plop
 ```
 
 `avahi-daemon` does discovery and is already running on most desktops; GTK 3
-comes with the desktop and the shortcut library with the tarball. The first
-launch registers plop with your desktop's launcher, so it can be pinned and
-found by search.
+comes with the desktop, the shortcut and notification libraries with the
+tarball. The first launch registers plop with your desktop's launcher, so it
+can be pinned and found by search.
+
+Closing the window keeps plop running in the tray, so the shortcuts and your
+items stay live: click the tray icon and pick "open plop" to bring the window
+back, "quit plop" to quit. The tray needs a panel that shows them: KDE and
+most desktops do, GNOME only with the AppIndicator extension (on by default
+on Ubuntu). Without one, closing the window quits plop as it used to. A
+notification says who sent what while plop is in the background (a
+shortcut's result is one too); click it to open plop. The settings panel can
+switch them off.
 
 The global shortcuts work only in an X11 session. Ubuntu and Debian GNOME log
 in to Wayland by default: pick the "… on Xorg" option from the gear menu at
 the login screen, or just use the in-window drop and paste (on Wayland the
 settings panel says so in place of the shortcut rows). Snipping runs
 `gnome-screenshot`, `spectacle` or `scrot`, whichever is installed (`sudo apt
-install gnome-screenshot` on stock Ubuntu). Unlike on macOS, closing the
-window quits plop and stops the shortcuts; minimize it instead. If you turned
-on ufw or firewalld, allow your LAN subnet in: plop listens on a random port.
+install gnome-screenshot` on stock Ubuntu). If you turned on ufw or
+firewalld, allow your LAN subnet in: plop listens on a random port.
 
 ### iPhone and iPad
 
@@ -112,7 +127,12 @@ to renew it.
   - ⌃⌥V / Ctrl+Shift+Alt+V: plop whatever is on the clipboard.
   - Change either in the settings panel (sliders icon), where you can also
     make plop open at login (macOS 13 or later; if macOS holds the switch for
-    approval, the panel says where).
+    approval, the panel says where) and switch off the notifications.
+- **In the background:** closing the window keeps plop running, with an icon
+  in the menu bar or tray to bring it back or quit it. Items from other
+  devices and the results of the shortcuts are then OS notifications, which
+  open plop when clicked; three or more items from one device within a
+  couple of seconds are one notification.
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
   folders save to Downloads (folders unpacked). Hover for the other option;
   tap a saved row again to show it in Finder or Explorer (its folder, on
@@ -130,7 +150,8 @@ to renew it.
 ## From source
 
 Flutter 3.47.6, the version `.github/workflows/ci.yml` pins. Linux also needs
-`sudo apt install ninja-build libgtk-3-dev libkeybinder-3.0-dev`. `flutter run`
+`sudo apt install ninja-build libgtk-3-dev libkeybinder-3.0-dev libnotify-dev`.
+`flutter run`
 builds run as their own instance, named "… (dev)", so they never wipe the
 installed plop's scratch folders; `PLOP_INSTANCE=x` does the same for a
 release build, to run two copies side by side.
