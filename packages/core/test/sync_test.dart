@@ -1409,6 +1409,59 @@ void main() {
     },
   );
 
+  test('a tap that joins a running eager copy can start it over', () async {
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    final client = StallingClient(gate.future);
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      client: (i) => i == 1 ? client : null,
+    );
+    final [a, b] = c.nodes;
+    // Small enough to be copied on sight; the copy is under way when the
+    // user taps share and then leaves plop for a while.
+    final item = await a.addBytes(List.filled(5000, 7), 'clip.mov');
+    await eventually(() => client.attempts[item.id] == 1);
+    final tap = b.fetch(item.key);
+    gate.complete();
+    final path = await tap;
+    expect(File(path).readAsBytesSync(), List.filled(5000, 7));
+    expect(client.attempts[item.id], 2);
+  });
+
+  test('a start-over goes by the sender as it is now, found afresh', () async {
+    final gate = Completer<void>();
+    addTearDown(() {
+      if (!gate.isCompleted) gate.complete();
+    });
+    final client = StallingClient(gate.future);
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+      client: (i) => i == 1 ? client : null,
+    );
+    final [a, b] = c.nodes;
+    final big = await a.addBytes(List.filled(5000, 8), 'big.bin');
+    await eventually(() => b.items.isNotEmpty);
+    final dest = '${c.root.path}/big.bin';
+    final save = b.saveTo(big.key, dest);
+    await eventually(() => client.attempts[big.id] == 1);
+    // A's mDNS record goes and comes back mid-transfer (iOS re-registering
+    // after a suspend); B polls it again before the transfer breaks off.
+    c.discoveries[1].remove(a.id);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    c.connect(1, 0);
+    await eventually(() => b.peers.isNotEmpty);
+    gate.complete();
+    await save;
+    expect(File(dest).readAsBytesSync(), List.filled(5000, 8));
+    expect(client.attempts[big.id], 2);
+  });
+
   test('a tap whose sender went quiet fails at once', () async {
     final quiet = Completer<void>();
     final client = StallingClient(quiet.future);
