@@ -94,18 +94,22 @@ class PlopNode {
   /// their own screen.
   ///
   /// A peer counts once it has missed [SyncEngine.maxFailures] polls in a
-  /// row (it left [peers] at the first) and has also reached this node
-  /// within [oneWayAfter]. Discovery alone is not enough: a device that
-  /// left without saying so can stay listed for a long while, and would
-  /// read as blocked. Time-based, like [oneWay]: [changes] fires when a
-  /// peer stops answering, not when its last contact here ages out, so a
-  /// screen that shows this checks it again on a timer.
+  /// row (it left [peers] at the first) and has reached this node since
+  /// the first of them failed, within [oneWayAfter]. A device that just
+  /// went quiet (a phone locking, a laptop going to sleep or off the
+  /// Wi-Fi) stops answering and polling at once, so its last contact here
+  /// comes before that and it is never listed; nor is one that discovery
+  /// keeps listing after it left. Time-based, like [oneWay]: [changes]
+  /// fires when a peer stops answering, not when its last contact here
+  /// ages out, so a screen that shows this checks it again on a timer.
   List<Peer> get unreachable {
     final now = DateTime.now();
     return [
       for (final p in engine.unreachablePeers)
-        if (server.seenBy[p.id] case final seen?
-            when now.difference(seen) <= oneWayAfter)
+        if ((server.seenBy[p.id], engine.failingSince(p.id)) case (
+          final seen?,
+          final since?,
+        ) when seen.isAfter(since) && now.difference(seen) <= oneWayAfter)
           p,
     ];
   }

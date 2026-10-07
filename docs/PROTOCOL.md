@@ -34,7 +34,10 @@ The caller sets `X-Plop-Node: <its node id>`. A node id is a plain token
 under the same rule as an item `id` below; a receiver treats a header that
 breaks it as absent, on every route. A node remembers when each peer last
 reached it; a peer it can reach that never reaches it back is shown as
-one-way (usually a firewall on this side).
+one-way (usually a firewall on this side). A peer that keeps reaching it
+after its own polls of that peer started failing is shown as unreachable
+(usually a firewall on that side); one that went quiet both ways at once
+has simply gone, a phone locking, say, and is not.
 
 ```json
 [

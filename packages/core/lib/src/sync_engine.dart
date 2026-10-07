@@ -18,6 +18,9 @@ class _PeerState {
   /// Since when this peer has answered every poll; null while unreachable.
   DateTime? okSince;
 
+  /// When the current run of failed polls began; null while it answers.
+  DateTime? failingSince;
+
   List<Uri> get candidates => [
     ?base,
     for (final u in peer.baseUris)
@@ -108,6 +111,9 @@ class SyncEngine {
   /// Since when [id] has been continuously reachable; null if it is not.
   DateTime? okSince(String id) => _peers[id]?.okSince;
 
+  /// When [id]'s current run of failed polls began; null if it answers.
+  DateTime? failingSince(String id) => _peers[id]?.failingSince;
+
   /// Name of a peer this node knows, reachable or not; null once it is gone.
   String? peerName(String id) => _peers[id]?.peer.name;
 
@@ -176,6 +182,7 @@ class SyncEngine {
         s
           ..base = base
           ..failures = 0
+          ..failingSince = null
           ..okSince ??= DateTime.now();
         if (changed) _peerChanges.add(null);
         _reconcile(s, list);
@@ -184,8 +191,10 @@ class SyncEngine {
         // try the next address
       }
     }
-    s.failures++;
-    s.okSince = null;
+    s
+      ..failures += 1
+      ..okSince = null
+      ..failingSince ??= DateTime.now();
     if (s.failures == maxFailures) {
       _dropUncopied(s.peer.id);
       _peerChanges.add(null);

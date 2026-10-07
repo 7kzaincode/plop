@@ -1680,6 +1680,24 @@ void main() {
     expect(a.unreachable, isEmpty);
   });
 
+  test('a peer that goes quiet is never taken for a blocked one', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    await eventually(() => a.peers.isNotEmpty && b.peers.isNotEmpty);
+    // B's phone locks: it stops polling A and stops answering at once.
+    c.discoveries[1].remove(a.id);
+    await b.server.stop();
+    var flagged = false;
+    final clock = Stopwatch()..start();
+    // Past A's third failed poll, well inside the 12 s of its last contact.
+    while (clock.elapsed < const Duration(seconds: 3)) {
+      flagged |= a.unreachable.isNotEmpty;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(a.engine.unreachablePeers.map((p) => p.id), [b.id]);
+    expect(flagged, isFalse);
+  });
+
   test('the server answers over IPv6 too where the host has it', () async {
     c = await Cluster.start(1, ttl: const Duration(seconds: 30));
     final [a] = c.nodes;
