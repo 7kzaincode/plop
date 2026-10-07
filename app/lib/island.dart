@@ -46,7 +46,22 @@ abstract final class Island {
   static bool get supported => Platform.isMacOS;
 
   /// Whether arrivals and shortcut results go to the island.
-  static bool get active => _node != null;
+  static bool get active => _node != null || _debugActive;
+  static var _debugActive = false;
+
+  /// Tests: the island as if [init] had run, with no node behind it.
+  @visibleForTesting
+  static void debugActivate() => _debugActive = true;
+
+  /// Tests: back to never having been set up.
+  @visibleForTesting
+  static void reset() {
+    _debugActive = false;
+    _node = null;
+    _shown = [];
+    _marks.clear();
+    _saved.clear();
+  }
 
   /// Call after runApp on macOS. [hint] names the shortcut that grabs the
   /// newest arrival, for the copy button's tooltip.
@@ -116,6 +131,9 @@ abstract final class Island {
 
   /// Text shows as "text" and how long it is, its first line only under the
   /// pointer: a copied password or code should not sit on a shared screen.
+  @visibleForTesting
+  static Future<Map<String, Object>> describe(ShelfItem i) => _describe(i);
+
   static Future<Map<String, Object>> _describe(ShelfItem i) async {
     final category = categoryOf(i);
     final icon = _icons[category] ??= await typeIconPng(category);
