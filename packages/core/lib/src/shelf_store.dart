@@ -6,6 +6,7 @@ import 'dart:isolate';
 import 'dart:math';
 
 import 'package:archive/archive_io.dart';
+import 'package:characters/characters.dart';
 
 import 'item.dart';
 
@@ -288,12 +289,19 @@ Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
   await enc.close();
 }
 
-/// The first [n] UTF-16 units of [s], one fewer where the cut would split a
-/// surrogate pair: half an emoji is no character, and UTF-8 turns it into
-/// U+FFFD, a broken glyph on every peer and in a saved file's name.
+/// The whole characters (grapheme clusters) at the start of [s] that fit
+/// in [n] UTF-16 units. A cut inside one leaves a broken glyph on every
+/// peer and in a saved file's name: half a surrogate pair turns into
+/// U+FFFD, half a flag is a boxed letter, and a family emoji cut at a
+/// joiner loses a member.
 String _head(String s, int n) {
   if (s.length <= n) return s;
-  return s.substring(0, s.codeUnitAt(n - 1) & 0xfc00 == 0xd800 ? n - 1 : n);
+  var end = 0;
+  for (final c in s.characters) {
+    if (end + c.length > n) break;
+    end += c.length;
+  }
+  return s.substring(0, end);
 }
 
 class ItemTooLargeException implements Exception {

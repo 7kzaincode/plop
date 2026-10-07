@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:characters/characters.dart';
+
 /// `folder` items travel as a zip of the folder's contents.
 enum ItemKind { file, text, folder }
 
@@ -216,12 +218,14 @@ String safeFileName(String name) {
       .replaceAll(RegExp(r'[. ]+$'), '');
   if (cleaned.isEmpty) return 'file';
   if (cleaned.length > 120) {
-    // Not from the second half of a surrogate pair, which would be
-    // written as U+FFFD.
-    final start = cleaned.length - 120;
-    cleaned = cleaned.substring(
-      cleaned.codeUnitAt(start) & 0xfc00 == 0xdc00 ? start + 1 : start,
-    );
+    // The whole characters at the end that fit: no half emoji or flag at
+    // the start of the name (see `_head` in shelf_store.dart).
+    var start = cleaned.length;
+    for (final c in cleaned.characters.toList().reversed) {
+      if (cleaned.length - start + c.length > 120) break;
+      start -= c.length;
+    }
+    cleaned = cleaned.substring(start);
   }
   return cleaned.replaceFirstMapped(_reserved, (m) => '${m[1]}_${m[2]}');
 }

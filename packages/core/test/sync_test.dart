@@ -881,33 +881,48 @@ void main() {
     expect((await s.addText('hello\r\nworld')).name, 'hello');
   });
 
-  test('a cut name never ends in half an emoji', () async {
+  test('a cut never splits a character', () async {
     c = await Cluster.start(1);
     final s = c.nodes.single.store;
     const grin = '\u{1F600}'; // two UTF-16 units
-    // The 60th unit is the first half of the emoji.
-    final text = await s.addText('${'a' * 59}$grin and more');
-    expect(text.name, '${'a' * 59}…');
-    final whole = await s.addText('${'a' * 58}$grin and more');
-    expect(whole.name, '${'a' * 58}$grin…');
+    const flag = '\u{1F1FA}\u{1F1F8}'; // two regional indicators, four units
+    // A family: three people and two joiners, eight units.
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+    Future<String> label(String text) async => (await s.addText(text)).name;
+    // Each straddles the 60th unit, or ends on it.
+    expect(await label('${'a' * 59}$grin and more'), '${'a' * 59}…');
+    expect(await label('${'a' * 58}$grin and more'), '${'a' * 58}$grin…');
+    expect(await label('${'a' * 58}$flag and more'), '${'a' * 58}…');
+    expect(await label('${'a' * 56}$flag and more'), '${'a' * 56}$flag…');
+    expect(await label('${'a' * 55}$family and more'), '${'a' * 55}…');
+    expect(await label('${'a' * 52}$family and more'), '${'a' * 52}$family…');
 
-    final mirror = s.addRemote(
-      'p',
-      'p',
-      RemoteItem(
-        id: randomId(),
-        name: '${'n' * (ShelfStore.maxNameLength - 1)}$grin.png',
-        size: 1,
-        mime: 'image/png',
-        kind: ItemKind.file,
-        ttlMs: 1000,
-      ),
-    )!;
-    expect(mirror.name, 'n' * (ShelfStore.maxNameLength - 1));
+    String mirrorName(String name) => s
+        .addRemote(
+          'p',
+          'p',
+          RemoteItem(
+            id: randomId(),
+            name: name,
+            size: 1,
+            mime: 'image/png',
+            kind: ItemKind.file,
+            ttlMs: 1000,
+          ),
+        )!
+        .name;
+    const max = ShelfStore.maxNameLength;
+    expect(mirrorName('${'n' * (max - 1)}$grin.png'), 'n' * (max - 1));
+    expect(mirrorName('${'n' * (max - 2)}$flag.png'), 'n' * (max - 2));
+    expect(mirrorName('${'n' * (max - 4)}$family.png'), 'n' * (max - 4));
 
     // safeFileName keeps the last 120 units, the extension's end.
     expect(safeFileName('x$grin${'a' * 119}'), 'a' * 119);
     expect(safeFileName('x$grin${'a' * 118}'), '$grin${'a' * 118}');
+    expect(safeFileName('x$flag${'a' * 117}'), 'a' * 117);
+    expect(safeFileName('x$flag${'a' * 116}'), '$flag${'a' * 116}');
+    expect(safeFileName('x$family${'a' * 115}'), 'a' * 115);
+    expect(safeFileName('x$family${'a' * 112}'), '$family${'a' * 112}');
   });
 
   test('odd remote fields are refused or clamped', () async {
