@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>plop</title>
+<meta name="description" content="A shelf your devices share. Drop a file, a screenshot or some text on it, and every device on the same Wi-Fi can grab it.">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Geist:wght@400;500&family=Geist+Mono&display=swap">
+<style>
+/* One left-aligned column like a letter, in a reading serif, on the black
+   the app itself sits on. Everything else stays out of the way. */
+:root {
+  --bg: #0a0a0a;
+  --text: #ededed;
+  --dim: #8f8f8f;
+  --faint: #5c5c5c;
+  --rule: rgba(255, 255, 255, 0.26);
+  --mark: #2b2b2b;
+  --serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-inline: max(20px, env(safe-area-inset-left, 0px)) max(20px, env(safe-area-inset-right, 0px));
+  padding-block: clamp(28px, 5vw, 44px) 28px;
+  font: 400 clamp(19px, 1.2vw + 13px, 26px)/1.38 var(--serif);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+}
+main, footer { width: 100%; max-width: 760px; }
+main { flex: 1; display: flex; flex-direction: column; gap: 1.35em; }
+.logo { width: 38px; height: auto; margin-bottom: 1.6em; display: block; }
+p { margin: 0; text-wrap: pretty; }
+.lede { font-weight: 500; }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
+a:hover { text-decoration-color: var(--text); }
+a:focus-visible { outline: 1px solid var(--text); outline-offset: 3px; }
+
+/* The one call to action: a soft band under the words, as a pen would. */
+.get { display: flex; flex-direction: column; gap: 0.35em; margin-top: 0.4em; }
+.cta {
+  align-self: flex-start;
+  text-decoration: none;
+  background: linear-gradient(transparent 58%, var(--mark) 58%, var(--mark) 92%, transparent 92%);
+}
+.cta::after { content: "  ›"; color: var(--dim); white-space: pre; }
+.cta:hover { background: linear-gradient(transparent 58%, #3a3a3a 58%, #3a3a3a 92%, transparent 92%); }
+.also { font-size: 0.72em; color: var(--dim); }
+.also a { color: var(--dim); }
+.also a:hover { color: var(--text); }
+
+/* Setup: four short notes, one per kind of device. */
+.setup { margin-top: 2.2em; display: flex; flex-direction: column; gap: 1.6em; }
+.setup h2 { font: 500 1em/1.3 var(--serif); margin: 0; }
+.os { display: grid; grid-template-columns: 7.2em 1fr; gap: 0.2em 1em; font-size: 0.8em; }
+.os h3 { font: 500 1em/1.38 var(--serif); margin: 0; color: var(--text); }
+.os ol, .os p { margin: 0; color: var(--dim); }
+.os ol { padding-left: 1.15em; display: flex; flex-direction: column; gap: 0.3em; }
+.os li::marker { color: var(--faint); font-family: var(--mono); font-size: 0.8em; }
+.os b { font-weight: 500; color: var(--text); }
+.os > div { min-width: 0; }
+code, kbd {
+  font-family: var(--mono);
+  font-size: 0.74em;
+  color: var(--text);
+}
+pre {
+  margin: 0.5em 0 0;
+  padding: 0.8em 1em;
+  border: 1px solid #222;
+  border-radius: 8px;
+  overflow-x: auto;
+  font: 0.74em/1.6 var(--mono);
+  color: var(--text);
+}
+.keys { font-size: 0.8em; color: var(--dim); }
+.keys kbd { color: var(--text); }
+
+footer {
+  margin-top: 4.5em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1.6em;
+  font: 400 13px/1.4 var(--sans);
+  color: var(--dim);
+}
+footer a { color: var(--dim); text-decoration: none; }
+footer a:hover { color: var(--text); }
+
+@media (max-width: 560px) {
+  .os { grid-template-columns: 1fr; }
+  .os h3 { margin-bottom: 0.2em; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cta, a { transition: text-decoration-color 0.15s, background 0.15s, color 0.15s; }
+}
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="logo.png" alt="plop" width="38" height="51">
+
+  <p class="lede">plop is a shelf your devices share. Drop a file, a screenshot or some text on it, and every computer and phone on the same Wi-Fi can grab it until its timer runs out.</p>
+
+  <p>There is nothing to set up: no account, no cloud, no pairing. It works between Macs, Windows and Linux PCs and Android phones, and on any iPhone through the browser.</p>
+
+  <p>Send a photo from your phone to your laptop, move a folder between two PCs, or snip part of your screen straight onto every device in the room.</p>
+
+  <div class="get">
+    <a class="cta" id="cta" href="https://github.com/7kzaincode/plop/releases/latest/download/plop-macos.dmg">Download for Mac</a>
+    <span class="also" id="also">Also for <a href="https://github.com/7kzaincode/plop/releases/latest/download/plop-windows-setup.exe">Windows</a>, <a href="https://github.com/7kzaincode/plop/releases/latest/download/plop-linux-x64.tar.gz">Linux</a> and <a href="https://github.com/7kzaincode/plop/releases/latest/download/plop-android.apk">Android</a>. Free and open source.</span>
+  </div>
+
+  <section class="setup" aria-labelledby="setup">
+    <h2 id="setup">Setup</h2>
+
+    <div class="os" id="mac">
+      <h3>Mac</h3>
+      <div>
+        <ol>
+          <li>Open <code>plop-macos.dmg</code> and drag plop to Applications.</li>
+          <li>The first time, macOS can't verify plop. Click Done, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>.</li>
+          <li>Allow plop to find devices on your local network.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="os" id="windows">
+      <h3>Windows</h3>
+      <div>
+        <ol>
+          <li>Run <code>plop-windows-setup.exe</code>. If Windows protected your PC, click <b>More info › Run anyway</b>.</li>
+          <li>Accept the admin prompt. It lets your other devices reach this PC.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="os" id="linux">
+      <h3>Linux</h3>
+      <div>
+        <p>Ubuntu 24.04, Debian 13 or newer:</p>
+        <pre><code>sudo apt install avahi-daemon
+tar xzf plop-linux-x64.tar.gz &amp;&amp; ./plop/plop</code></pre>
+      </div>
+    </div>
+
+    <div class="os" id="iphone">
+      <h3>iPhone</h3>
+      <div>
+        <ol>
+          <li>On a computer running plop, open settings and point your camera at the code.</li>
+          <li>In Safari, tap <b>Share › Add to Home Screen</b>.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="os" id="android">
+      <h3>Android</h3>
+      <div>
+        <p>Open <code>plop-android.apk</code> on the phone and allow your browser to install it.</p>
+      </div>
+    </div>
+
+    <p class="keys">On a computer, <kbd>⌃⌥P</kbd> snips part of your screen onto plop, <kbd>⌃⌥V</kbd> plops your clipboard and <kbd>⌃⌥G</kbd> copies the newest thing another device sent. On Windows and Linux it's <kbd>Ctrl+Shift+Alt</kbd> with the same letter.</p>
+  </section>
+</main>
+
+<footer>
+  <span>plop · MIT license</span>
+  <a href="https://github.com/7kzaincode/plop">Source</a>
+  <a href="https://github.com/7kzaincode/plop/releases">All releases</a>
+</footer>
+
+<script>
+// Leads with this device's download; the rest stay one line under it.
+(() => {
+  const base = 'https://github.com/7kzaincode/plop/releases/latest/download/';
+  const ua = navigator.userAgent;
+  const touchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  const os = /iPhone|iPad|iPod/.test(ua) || touchMac ? 'iphone'
+    : /Android/.test(ua) ? 'android'
+    : /Windows/.test(ua) ? 'windows'
+    : /Linux|X11|CrOS/.test(ua) ? 'linux'
+    : 'mac';
+  const all = {
+    mac: ['Mac', 'plop-macos.dmg'],
+    windows: ['Windows', 'plop-windows-setup.exe'],
+    linux: ['Linux', 'plop-linux-x64.tar.gz'],
+    android: ['Android', 'plop-android.apk'],
+  };
+  const cta = document.getElementById('cta');
+  const also = document.getElementById('also');
+  if (os === 'iphone') {
+    cta.textContent = 'Use plop on iPhone';
+    cta.href = '#iphone';
+  } else {
+    cta.textContent = 'Download for ' + all[os][0];
+    cta.href = base + all[os][1];
+  }
+  const rest = Object.keys(all).filter(k => k !== os);
+  const link = k => '<a href="' + base + all[k][1] + '">' + all[k][0] + '</a>';
+  also.innerHTML = 'Also for ' + rest.slice(0, -1).map(link).join(', ') +
+    ' and ' + link(rest[rest.length - 1]) + '. Free and open source.';
+})();
+</script>
+</body>
+</html>
