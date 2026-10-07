@@ -188,6 +188,8 @@ class WebHost {
     final inlined = <String>{};
     var budget = maxInlineTotal;
     for (final i in node.items) {
+      // A snapshot: an item can leave while a stat or a read is in flight.
+      if (!await node.store.stillThere(i) || node.store[i.key] != i) continue;
       final text = i.size <= budget ? await _textOf(i) : null;
       if (text != null) {
         inlined.add(i.key);
@@ -257,7 +259,10 @@ class WebHost {
     // Whatever the bytes are, they never run as a page from this origin:
     // a peer's HTML, opened in a tab, would otherwise script the shelf.
     res.headers.set('content-security-policy', 'sandbox');
-    if (node.store[key] == null) {
+    // A file shared in place and changed since leaves the shelf instead,
+    // as it does for peers.
+    final shared = node.store[key];
+    if (shared == null || !await node.store.stillThere(shared)) {
       res.statusCode = HttpStatus.notFound;
       return;
     }

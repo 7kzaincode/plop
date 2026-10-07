@@ -560,6 +560,32 @@ void main() {
     expect((await send('DELETE', p.url('/web/items/${mine.key}'))).status, 404);
   });
 
+  test('a file shared in place and changed since leaves the shelf', () async {
+    p = await Pair.start();
+    final f = File('${p.root.path}/report.txt')..writeAsStringSync('v1');
+    final edited = await p.a.addFile(f.path);
+    final g = File('${p.root.path}/notes.txt')..writeAsStringSync('first');
+    final replaced = await p.a.addFile(g.path);
+    expect(shelfOf(await get(p.url('/web/shelf'))).length, 2);
+    expect(
+      utf8.decode((await get(p.url('/web/items/${edited.key}'))).body),
+      'v1',
+    );
+
+    // A rewrite that changes the size is seen by the listing.
+    f.writeAsStringSync('version two');
+    final list = shelfOf(await get(p.url('/web/shelf')));
+    expect([for (final i in list) i['key']], [replaced.key]);
+    expect(p.a.store[edited.key], isNull);
+    expect((await get(p.url('/web/items/${edited.key}'))).status, 404);
+
+    // One of the same size, by a download straight away, before any list.
+    g.writeAsStringSync('again');
+    g.setLastModifiedSync(DateTime.now().add(const Duration(minutes: 1)));
+    expect((await get(p.url('/web/items/${replaced.key}'))).status, 404);
+    expect(p.a.store[replaced.key], isNull);
+  });
+
   test('what is gone or never was answers 404', () async {
     p = await Pair.start();
     final note = await p.a.addText('soon gone');

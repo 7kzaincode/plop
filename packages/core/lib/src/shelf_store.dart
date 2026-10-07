@@ -584,6 +584,30 @@ class ShelfStore {
     if (_items[key]?.receivedBy.add(peerId) ?? false) _changes.add(null);
   }
 
+  /// Whether an item is still what was put on the shelf. A file served in
+  /// place can be deleted or rewritten after it was dropped; listing it
+  /// then leaves every peer a row it can never fetch, and handing it out
+  /// gives a phone something other than what was shared, so instead it
+  /// leaves the shelf (false), which nudges peers to drop theirs. For /v1
+  /// and the web shelf alike.
+  ///
+  /// Asynchronous because this runs on every poll from every peer, and a
+  /// stat of a file on an unmounted share or a cloud placeholder can hang
+  /// for seconds; a synchronous one would stall the whole isolate with it.
+  Future<bool> stillThere(ShelfItem i) async {
+    if (i.ownsFile || i.path == null) return true;
+    final st = await File(i.path!).stat();
+    // Size alone misses a rewrite that keeps it, so the modification time
+    // counts too; a store that never recorded one only has the size.
+    if (st.type != FileSystemEntityType.notFound &&
+        st.size == i.size &&
+        (i.sourceModified == null || st.modified == i.sourceModified)) {
+      return true;
+    }
+    remove(i.key);
+    return false;
+  }
+
   void remove(String key) {
     _timers.remove(key)?.cancel();
     final item = _items.remove(key);

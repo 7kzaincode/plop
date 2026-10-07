@@ -125,26 +125,6 @@ class NodeServer {
     if (from != null) seenBy[from] = DateTime.now();
   }
 
-  /// A file served in place can be deleted or rewritten after it was
-  /// dropped. Listing it then leaves every peer a row it can never fetch,
-  /// so instead it leaves the shelf, which nudges them to drop theirs.
-  /// Asynchronous because this runs on every poll from every peer, and a
-  /// stat of a file on an unmounted share or a cloud placeholder can hang
-  /// for seconds; a synchronous one would stall the whole isolate with it.
-  Future<bool> _stillThere(ShelfItem i) async {
-    if (i.ownsFile || i.path == null) return true;
-    final st = await File(i.path!).stat();
-    // Size alone misses a rewrite that keeps it, so the modification time
-    // counts too; a store that never recorded one only has the size.
-    if (st.type != FileSystemEntityType.notFound &&
-        st.size == i.size &&
-        (i.sourceModified == null || st.modified == i.sourceModified)) {
-      return true;
-    }
-    store.remove(i.key);
-    return false;
-  }
-
   Future<void> _handle(HttpRequest req) async {
     final res = req.response;
     // Before any route, /v1 included. Two Host headers are refused too:
@@ -163,7 +143,7 @@ class NodeServer {
         for (final i in store.localItems.toList()) {
           // The list is a snapshot: remove() mutates, and an item can
           // expire while another's stat is in flight.
-          if (i.isReady && await _stillThere(i) && store[i.key] == i) {
+          if (i.isReady && await store.stillThere(i) && store[i.key] == i) {
             items.add(i.toJson());
           }
         }
@@ -171,7 +151,7 @@ class NodeServer {
         res.write(jsonEncode(items));
       case ('GET', ['v1', 'items', final id]):
         final item = store.local(id);
-        final file = item?.path != null && await _stillThere(item!)
+        final file = item?.path != null && await store.stillThere(item!)
             ? File(item.path!)
             : null;
         if (file == null || !await file.exists()) {

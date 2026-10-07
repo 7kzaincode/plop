@@ -126,7 +126,10 @@ the header the receiver re-fetches all peers. Responds `204`.
 
 Each node uses one temp directory, wiped on launch. Owned bytes live at
 `<dir>/<originId>/<itemId>/<name>`. A file the user picked on this device is
-served from where it is and is never deleted by the app.
+served from where it is and is never deleted by the app. When such a file is
+gone, or its size or modification time changed since it was added, the item
+leaves the shelf the next time it would be listed or served, over `/v1` or
+the web shelf, rather than hand out something other than what was shared.
 
 ## Web shelf
 
