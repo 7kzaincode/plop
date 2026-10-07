@@ -5,11 +5,13 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   hotkey_manager_linux
+  local_notifier
   pasteboard
   url_launcher_linux
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  cnativeapi
   jni
 )
 
