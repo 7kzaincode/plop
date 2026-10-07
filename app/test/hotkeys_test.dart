@@ -75,6 +75,95 @@ void main() {
     expect(Hotkeys.isFree(Hotkeys.defaultGrab), isTrue);
   }, skip: Platform.isWindows ? false : 'only Windows probes RegisterHotKey');
 
+  // Someone who gave ⌃⌥G to the clipboard before grab existed must not find
+  // both on one combo after an update.
+  test("grab's default steps aside for a combo the user already uses", () {
+    addTearDown(() {
+      Hotkeys.snip = Hotkeys.defaultSnip;
+      Hotkeys.clip = Hotkeys.defaultClip;
+      Hotkeys.grab = Hotkeys.defaultGrab;
+    });
+    HotKey on(PhysicalKeyboardKey key) =>
+        HotKey(key: key, modifiers: Hotkeys.defaultMods);
+    final remembered = <String, HotKey>{};
+    void load(Map<String, HotKey> saved) {
+      remembered.clear();
+      Hotkeys.load(
+        (name) => saved[name],
+        remember: (name, k) => remembered[name] = k,
+      );
+    }
+
+    load({});
+    expect(Hotkeys.same(Hotkeys.grab, Hotkeys.defaultGrab), isTrue);
+    expect(remembered, isEmpty);
+
+    load({'clip': Hotkeys.defaultGrab});
+    expect(Hotkeys.same(Hotkeys.clip, Hotkeys.defaultGrab), isTrue);
+    expect(Hotkeys.keyName(Hotkeys.grab.physicalKey), 'N');
+    expect(Hotkeys.same(remembered['grab']!, Hotkeys.grab), isTrue);
+
+    // Both others on its first two choices: the third.
+    load({'snip': on(PhysicalKeyboardKey.keyN), 'clip': Hotkeys.defaultGrab});
+    expect(Hotkeys.keyName(Hotkeys.grab.physicalKey), 'J');
+
+    // One the user recorded is kept as is, and nothing more is saved.
+    final own = on(PhysicalKeyboardKey.keyY);
+    load({'clip': Hotkeys.defaultGrab, 'grab': own});
+    expect(Hotkeys.same(Hotkeys.grab, own), isTrue);
+    expect(remembered, isEmpty);
+  });
+
+  // A settings file edited by hand can still put two on one combo: only the
+  // first is registered, and the user is told.
+  test('a combo set twice is registered once and said', () async {
+    final messenger =
+        TestWidgetsFlutterBinding.ensureInitialized().defaultBinaryMessenger;
+    const channel = MethodChannel('dev.leanflutter.plugins/hotkey_manager');
+    const events = MethodChannel(
+      'dev.leanflutter.plugins/hotkey_manager_event',
+    );
+    final registered = <Map<Object?, Object?>>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'register') registered.add(call.arguments as Map);
+      if (call.method == 'unregisterAll') registered.clear();
+      return null;
+    });
+    messenger.setMockMethodCallHandler(events, (_) async => null);
+    final root = await Directory.systemTemp.createTemp('plop_keys');
+    final node = await PlopNode.start(
+      dir: Directory('${root.path}/store'),
+      discovery: StaticDiscovery(),
+      name: 'me',
+    );
+    addTearDown(() async {
+      messenger.setMockMethodCallHandler(channel, null);
+      messenger.setMockMethodCallHandler(events, null);
+      Hotkeys.clip = Hotkeys.defaultClip;
+      Hotkeys.grab = Hotkeys.defaultGrab;
+      await node.stop();
+      await root.delete(recursive: true);
+    });
+
+    Hotkeys.clip = Hotkeys.defaultGrab;
+    final said = <(String, bool)>[];
+    await Hotkeys.register(
+      node,
+      (message, {ok = true, action, onTap}) => said.add((message, ok)),
+    );
+    final combo = Hotkeys.label(Hotkeys.defaultGrab);
+    expect(said, [('$combo is set twice · change one in settings', false)]);
+    expect(registered, hasLength(2));
+    expect(registered.map((r) => r['keyCode']).toSet(), hasLength(2));
+
+    // Moved off it, all three are registered and nothing is said.
+    said.clear();
+    Hotkeys.clip = Hotkeys.defaultClip;
+    await Hotkeys.apply();
+    expect(said, isEmpty);
+    expect(registered, hasLength(3));
+  }, skip: Hotkeys.supported ? false : 'no global shortcuts on Wayland');
+
   group('grab newest', () {
     ShelfItem item(
       String id, {

@@ -259,19 +259,8 @@ abstract final class Hotkeys {
     final node = _node, onPlopped = _onPlopped;
     if (!supported || node == null || onPlopped == null) return;
     await hotKeyManager.unregisterAll();
-    // Registering a taken combo reports success and does nothing, so say so;
-    // the other shortcuts still work.
-    for (final k in bindings.values) {
-      if (!isFree(k)) {
-        onPlopped(
-          '${label(k)} is taken by another app · change it in settings',
-          ok: false,
-        );
-      }
-    }
-    await hotKeyManager.register(
-      snip,
-      keyDownHandler: (_) {
+    final pressed = <String, void Function()>{
+      'snip': () {
         Future<void> run() async {
           final item = await _snipInto(node);
           if (item != null) {
@@ -289,34 +278,89 @@ abstract final class Hotkeys {
           _once(run);
         }
       },
-    );
-    await hotKeyManager.register(
-      clip,
-      keyDownHandler: (_) => _isRepeat('clip')
-          ? null
-          : _once(() async {
-              if (await pasteInto(node)) {
-                _feedback(true);
-                onPlopped('plopped clipboard');
-              } else {
-                _fail('nothing to paste');
-              }
-            }),
-    );
-    await hotKeyManager.register(
-      grab,
-      keyDownHandler: (_) => _isRepeat('grab')
-          ? null
-          : _once(lock: 'grab', () async {
-              final (:message, :saved) = await grabNewest(node);
-              _feedback(true);
-              onPlopped(
-                message,
-                action: saved == null ? null : 'show',
-                onTap: saved == null ? null : () => reveal(saved),
-              );
-            }),
-    );
+      'clip': () {
+        if (_isRepeat('clip')) return;
+        _once(() async {
+          if (await pasteInto(node)) {
+            _feedback(true);
+            onPlopped('plopped clipboard');
+          } else {
+            _fail('nothing to paste');
+          }
+        });
+      },
+      'grab': () {
+        if (_isRepeat('grab')) return;
+        _once(lock: 'grab', () async {
+          final (:message, :saved) = await grabNewest(node);
+          _feedback(true);
+          onPlopped(
+            message,
+            action: saved == null ? null : 'show',
+            onTap: saved == null ? null : () => reveal(saved),
+          );
+        });
+      },
+    };
+    // One combo on two bindings fires only the first (and on Windows the
+    // second registration fails outright), so the second is left out and
+    // said. The recorder refuses a combo another binding has; this is for
+    // what comes from elsewhere, a settings file edited by hand, say.
+    final held = <String, HotKey>{};
+    for (final MapEntry(key: name, value: k) in bindings.entries) {
+      if (held.values.any((h) => same(h, k))) {
+        onPlopped(
+          '${label(k)} is set twice · change one in settings',
+          ok: false,
+        );
+      } else {
+        held[name] = k;
+      }
+    }
+    // Registering a taken combo reports success and does nothing, so say so;
+    // the other shortcuts still work.
+    for (final k in held.values) {
+      if (!isFree(k)) {
+        onPlopped(
+          '${label(k)} is taken by another app · change it in settings',
+          ok: false,
+        );
+      }
+    }
+    for (final MapEntry(key: name, value: k) in held.entries) {
+      await hotKeyManager.register(k, keyDownHandler: (_) => pressed[name]!());
+    }
+  }
+
+  /// What grab moves to when its default is a combo the user already gave
+  /// snip or clip: the first of these neither has. G for grab, then N for
+  /// newest; two others can hold at most two of them.
+  static final _grabKeys = [
+    PhysicalKeyboardKey.keyG,
+    PhysicalKeyboardKey.keyN,
+    PhysicalKeyboardKey.keyJ,
+  ];
+
+  /// Sets the bindings at launch from [saved], what the user recorded
+  /// (Settings.hotkey); one never recorded gets its default. Grab came
+  /// after the other two, so a user may already have given its default,
+  /// ⌃⌥G, to snip or clip; rather than land on top of it, grab then takes
+  /// the next of [_grabKeys] neither has, and [remember] is told, so the
+  /// panel shows it and it stays put even if the other moves off ⌃⌥G later.
+  static void load(
+    HotKey? Function(String name) saved, {
+    void Function(String name, HotKey k)? remember,
+  }) {
+    snip = saved('snip') ?? defaultSnip;
+    clip = saved('clip') ?? defaultClip;
+    if (saved('grab') case final k?) {
+      grab = k;
+      return;
+    }
+    grab = [
+      for (final key in _grabKeys) HotKey(key: key, modifiers: defaultMods),
+    ].firstWhere((k) => !same(k, snip) && !same(k, clip));
+    if (!same(grab, defaultGrab)) remember?.call('grab', grab);
   }
 
   /// Runs [f] unless the same [lock] is held, i.e. a press while the last

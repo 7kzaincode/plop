@@ -110,9 +110,10 @@ Future<void> _start() async {
             WidgetsBinding.instance.lifecycleState !=
                 AppLifecycleState.resumed),
   );
-  Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
-  Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;
-  Hotkeys.grab = settings.hotkey('grab') ?? Hotkeys.defaultGrab;
+  Hotkeys.load(
+    settings.hotkey,
+    remember: (name, k) => settings.setHotkey(name, k).ignore(),
+  );
   try {
     await Hotkeys.register(node, say);
   } catch (_) {
