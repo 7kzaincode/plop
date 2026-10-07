@@ -11,7 +11,8 @@ import 'settings.dart';
 import 'shelf_screen.dart' show formatSize;
 import 'window.dart';
 
-/// OS notifications for what happens while plop is in the background, now
+/// OS notifications (on macOS, the island: lib/island.dart) for what
+/// happens while plop is in the background, now
 /// that closing the window no longer quits it: what a global shortcut did,
 /// and things other devices put on the shelf. Nothing is said while the
 /// window is focused, where the toast and the new row are in view anyway,
@@ -112,6 +113,8 @@ abstract final class Notify {
   }
 
   /// The island needs no notification permission, only the same consent.
+  static bool get islandWanted => _islandWanted;
+
   static bool get _islandWanted =>
       (_settings?.notifications ?? true) && !windowFocused;
 

@@ -297,7 +297,7 @@ void main() {
       // The background section sits below the fold at the smallest size:
       // it must scroll into view, not overflow.
       final notifications = find.byWidgetPredicate(
-        (w) => w is Semantics && w.properties.label == 'notifications',
+        (w) => w is Semantics && w.properties.label == 'show arrivals',
       );
       expect(find.text('when plop is in the background'), findsOneWidget);
       await tester.ensureVisible(notifications);

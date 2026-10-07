@@ -39,7 +39,7 @@ app, hover to keep it open, or let it tuck itself away after a few seconds;
 several from one device show as one, opening into their rows on hover. A
 shortcut's result shows there too. It never takes the keyboard from what
 you're typing in. The Dock icon keeps a quiet count, without bouncing. The
-settings panel can switch the island off.
+settings panel can switch the island off ("show arrivals").
 
 ### Windows (10 or 11)
 
@@ -163,8 +163,8 @@ to renew it.
     to Downloads.
   - Change any of them in the settings panel (sliders icon), where you can
     also make plop open at login (macOS 13 or later; if macOS holds the
-    switch for approval, the panel says where) and switch off the
-    notifications.
+    switch for approval, the panel says where) and switch off "show
+    arrivals" (the island on a Mac, notifications elsewhere).
 - **In the background:** closing the window keeps plop running, with an icon
   in the menu bar or tray to bring it back or quit it. Items from other
   devices and the results of the shortcuts then show on the island on a Mac

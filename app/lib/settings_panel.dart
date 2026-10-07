@@ -482,7 +482,8 @@ const _loginLabel = 'open plop at login';
 
 /// What plop does while its window is closed, which it now outlives on
 /// every desktop (in the tray), or while the user is in another app: the
-/// one switch for its OS notifications (lib/notify.dart), the one for
+/// one switch for showing arrivals (the island on macOS, OS notifications
+/// elsewhere: lib/notify.dart), the one for
 /// copying arrivals to the clipboard (lib/auto_copy.dart), off unless
 /// switched on and saying why, and on Windows and Linux a way to quit from
 /// the window, should the tray's menu be out of reach.
@@ -505,7 +506,7 @@ class _BackgroundSection extends StatefulWidget {
 }
 
 class _BackgroundSectionState extends State<_BackgroundSection> {
-  static const _notifyLabel = 'notifications';
+  static const _notifyLabel = 'show arrivals';
   static const _copyLabel = 'copy arrivals automatically';
   late bool _notify = widget.settings.notifications;
   late bool _copy = widget.settings.autoCopy;

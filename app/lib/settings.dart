@@ -61,8 +61,9 @@ class Settings {
     _save().ignore(); // the picker has nowhere to say it failed
   }
 
-  /// OS notifications while plop is in the background (lib/notify.dart).
-  /// On unless switched off.
+  /// Showing arrivals and shortcut results while plop is in the background:
+  /// the island on macOS, OS notifications elsewhere (lib/notify.dart). On
+  /// unless switched off.
   bool get notifications => _data['notifications'] != false;
 
   set notifications(bool on) {

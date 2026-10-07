@@ -95,6 +95,7 @@ abstract final class Island {
   /// A shortcut's result: "plopped clipboard", "nothing to paste".
   static void say(String text, {bool ok = true}) {
     if (!active) return;
+    _seq++; // whatever was on its way is out of date now
     _shown = [];
     _channel.invokeMethod<void>('say', {'text': text, 'ok': ok}).ignore();
   }
@@ -105,14 +106,21 @@ abstract final class Island {
   /// was focused, say), a line of its own says it.
   static void copied(ShelfItem item) {
     if (!active) return;
+    // The clipboard holds one thing: an earlier row's line goes back to
+    // what it said.
+    for (final key in _autoCopied.toList()) {
+      _autoCopied.remove(key);
+      if (_marks[key]?.$1 == _copiedLine) _marks.remove(key);
+      if (_shown.any((i) => i.key == key)) _send().ignore();
+    }
     _autoCopied.add(item.key);
     if (_shown.any((i) => i.key == item.key)) {
-      _mark(item.key, _copiedLine);
+      _mark(item.key, _copiedLine, settled: false).ignore();
       return;
     }
     Timer(burst * 2, () {
       if (_shown.any((i) => i.key == item.key)) return;
-      if (!Notify.windowFocused) {
+      if (Notify.islandWanted) {
         say('copied ${_title(item)} from ${item.originName}');
       }
     });
@@ -125,20 +133,29 @@ abstract final class Island {
 
   static void hide() {
     if (!active) return;
+    _seq++;
     _shown = [];
     _channel.invokeMethod<void>('hide').ignore();
   }
 
+  /// Counts what was sent, so a send still describing its items when a
+  /// newer show, say or hide went out is dropped rather than shown over it.
+  static var _seq = 0;
+
   static Future<void> _send() async {
+    final seq = ++_seq;
+    final sender = _sender, shown = _shown;
     _ready = {
-      for (final i in _shown)
+      for (final i in shown)
         if (i.isReady) i.key,
     };
-    final payload = [for (final i in _shown.take(8)) await _describe(i)];
+    final payload = [for (final i in shown.take(8)) await _describe(i)];
+    if (seq != _seq) return;
     await _channel
         .invokeMethod<void>('show', {
-          'sender': _sender,
+          'sender': sender,
           'items': payload,
+          'count': shown.length,
           'hint': ?_hint?.call(),
         })
         .catchError((_) {});
@@ -189,20 +206,43 @@ abstract final class Island {
   static String _title(ShelfItem i) =>
       i.kind == ItemKind.text ? 'text' : i.name;
 
-  static void _mark(String key, String text, {bool error = false}) {
+  @visibleForTesting
+  static Future<void> debugMark(
+    String key,
+    String text, {
+    bool settled = true,
+  }) => _mark(key, text, settled: settled);
+
+  /// Puts [text] on [key]'s row. A slow save can finish after the island
+  /// tucked away, and macOS has no notification to fall back on now, so
+  /// the result then shows on its own; "copying…" and the like don't.
+  static Future<void> _mark(
+    String key,
+    String text, {
+    bool error = false,
+    bool settled = true,
+  }) async {
     _marks[key] = (text, error);
-    _channel.invokeMethod<void>('mark', {
-      'key': key,
-      'mark': text,
-      'error': error,
-    }).ignore();
+    final shown = await _channel
+        .invokeMethod<bool>('mark', {'key': key, 'mark': text, 'error': error})
+        .catchError((_) => false);
+    if (shown != true && settled) {
+      say(
+        text.replaceFirst('✓ ', '').replaceFirst(' · click to show', ''),
+        ok: !error,
+      );
+    }
   }
 
   /// A row's thumbnail and drag wait for its copy to land; an item that
   /// left the shelf leaves the island.
   static void _sync() {
     final node = _node;
-    if (node == null || _shown.isEmpty) return;
+    if (node == null) return;
+    _autoCopied.removeWhere((k) => node.store[k] == null);
+    _saved.removeWhere((k, _) => node.store[k] == null);
+    _marks.removeWhere((k, _) => node.store[k] == null);
+    if (_shown.isEmpty) return;
     final gone = [
       for (final i in _shown)
         if (node.store[i.key] == null) i.key,
@@ -210,13 +250,15 @@ abstract final class Island {
     for (final key in gone) {
       _channel.invokeMethod<void>('drop', {'key': key}).ignore();
     }
-    _autoCopied.removeWhere((k) => node.store[k] == null);
     _shown = [for (final i in _shown) ?node.store[i.key]];
     final ready = {
       for (final i in _shown)
         if (i.isReady) i.key,
     };
-    if (ready.difference(_ready).isNotEmpty && gone.isEmpty) _send().ignore();
+    // Landed since: its thumbnail and drag can come now.
+    if (_shown.isNotEmpty && ready.difference(_ready).isNotEmpty) {
+      _send().ignore();
+    }
     _ready = ready;
   }
 
@@ -224,6 +266,7 @@ abstract final class Island {
     final node = _node;
     final args = (call.arguments as Map?)?.cast<String, Object?>() ?? {};
     if (call.method == 'hidden') {
+      _seq++;
       _shown = [];
       return;
     }
@@ -233,21 +276,32 @@ abstract final class Island {
     if (item == null) return;
     switch (args['action']) {
       case 'copy':
-        _mark(item.key, item.isReady ? 'copying…' : 'getting it…');
+        _mark(
+          item.key,
+          item.isReady ? 'copying…' : 'getting it…',
+          settled: false,
+        ).ignore();
         try {
           final said = await copyItem(node, item);
-          _mark(item.key, '✓ ${said.split(' · ').first}');
+          await _mark(item.key, '✓ ${said.split(' · ').first}');
         } catch (e) {
-          _mark(item.key, friendlyError(e), error: true);
+          await _mark(item.key, friendlyError(e), error: true);
         }
       case 'save':
-        _mark(item.key, item.isReady ? 'saving…' : 'getting it…');
+        _mark(
+          item.key,
+          item.isReady ? 'saving…' : 'getting it…',
+          settled: false,
+        ).ignore();
         try {
           final path = await saveItem(node, item);
           _saved[item.key] = path;
-          _mark(item.key, '✓ saved to ${savedWhere(path)} · click to show');
+          await _mark(
+            item.key,
+            '✓ saved to ${savedWhere(path)} · click to show',
+          );
         } catch (e) {
-          _mark(item.key, friendlyError(e), error: true);
+          await _mark(item.key, friendlyError(e), error: true);
         }
       case 'open':
         if (_saved[item.key] case final path?) {

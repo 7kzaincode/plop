@@ -79,7 +79,8 @@ Future<void> _start() async {
   LoginItem.installLauncher();
   Arrivals.watch(node);
   // Closing the window keeps plop in the tray once its icon is up; what
-  // happens while the window is away is said with OS notifications.
+  // happens while the window is away is said on the island on macOS and
+  // with OS notifications elsewhere.
   Tray.init(node).ignore();
   Notify.init(settings).ignore();
   Notify.watch(node);

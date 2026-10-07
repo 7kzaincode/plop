@@ -69,7 +69,7 @@ void main() {
   Finder notifications(bool on) => find.byWidgetPredicate(
     (w) =>
         w is Semantics &&
-        w.properties.label == 'notifications' &&
+        w.properties.label == 'show arrivals' &&
         w.properties.toggled == on,
   );
 

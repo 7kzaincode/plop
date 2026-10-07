@@ -9,10 +9,11 @@ class AppDelegate: FlutterAppDelegate {
     return false
   }
 
-  // Clicking the Dock icon brings the window back.
+  // Clicking the Dock icon brings the window back. Whether the window
+  // itself is up, not AppKit's flag, which can count the island's panel.
   override func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-    if !flag {
-      mainFlutterWindow?.makeKeyAndOrderFront(nil)
+    if let w = mainFlutterWindow, !w.isVisible {
+      w.makeKeyAndOrderFront(nil)
     }
     return true
   }

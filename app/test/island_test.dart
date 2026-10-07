@@ -179,7 +179,21 @@ void main() {
     await settle(tester);
     await tester.pump(Island.burst * 2);
     expect(calls.where((c) => c.method == 'say'), isEmpty);
-    expect(calls.where((c) => c.method == 'show'), hasLength(1));
+    final show = calls.singleWhere((c) => c.method == 'show');
+    final rows = ((show.arguments as Map)['items'] as List).cast<Map>();
+    expect(rows.single['mark'], '✓ copied automatically');
+  });
+
+  testWidgets('with arrivals switched off, auto-copy says nothing either', (
+    tester,
+  ) async {
+    await start(tester);
+    final settings = Settings.inMemory()..notifications = false;
+    await Notify.init(settings);
+    await lifecycle(tester, AppLifecycleState.inactive);
+    Island.copied(item('t', name: 'otp 123456', kind: ItemKind.text));
+    await tester.pump(Island.burst * 2);
+    expect(calls, isEmpty);
   });
 
   testWidgets('a copy whose arrival never shows says so on its own', (
@@ -191,5 +205,41 @@ void main() {
     await tester.pump(Island.burst * 2);
     final say = calls.singleWhere((c) => c.method == 'say');
     expect((say.arguments as Map)['text'], "copied text from Zain's iPhone");
+  });
+
+  testWidgets('a send overtaken by a newer one is dropped', (tester) async {
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.inactive);
+    // Both start describing their items; the phone's would land last.
+    Island.arrived('Phone', [
+      item('t', name: 'a', kind: ItemKind.text),
+    ]).ignore();
+    Island.arrived('iPad', [item('p')]).ignore();
+    await settle(tester);
+    final shows = calls.where((c) => c.method == 'show').toList();
+    expect(shows, hasLength(1));
+    final args = (shows.single.arguments as Map).cast<String, Object?>();
+    expect(args['sender'], 'iPad');
+    expect(args['count'], 1);
+  });
+
+  testWidgets('a result for a row no longer showing says it on its own', (
+    tester,
+  ) async {
+    await start(tester);
+    // The native side answers that the row was not there to mark.
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(island, (
+      call,
+    ) async {
+      calls.add(call);
+      return call.method == 'mark' ? false : null;
+    });
+    await Island.debugMark('k', '✓ saved to Downloads · click to show');
+    final say = calls.singleWhere((c) => c.method == 'say');
+    expect((say.arguments as Map)['text'], 'saved to Downloads');
+    // Progress is not worth an island of its own.
+    calls.clear();
+    await Island.debugMark('k', 'copying…', settled: false);
+    expect(calls.where((c) => c.method == 'say'), isEmpty);
   });
 }
