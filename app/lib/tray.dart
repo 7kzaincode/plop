@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:ui' show AppExitResponse, Size;
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/widgets.dart'
     show AppLifecycleListener, visibleForTesting;
@@ -14,105 +14,79 @@ import 'window.dart';
 /// device this is and how many are nearby, "quit plop" ends it. On Windows
 /// a left click opens the window and a right click the menu; on macOS, as
 /// with other menu bar extras, a click opens the menu; on Linux the panel
-/// opens it on any click (clicks never reach the app there).
+/// opens it on any click (AppIndicator never passes clicks to the app).
+///
+/// tray_manager 0.5 is the desktop-only, method-channel version: nothing of
+/// it is built into the Android or iOS app (0.7 compiled a whole native
+/// library for both). Its icon belongs to plop's own window on Windows, so
+/// the window is hidden, never destroyed, while plop runs.
 ///
 /// Closing the window on Windows and Linux reaches Dart first, as Flutter's
-/// request to exit the app; with the icon up it is answered with a hide
-/// (see [onExitRequested]). The runners hide on a close that gets through
-/// to the window itself too, once told the icon is up
-/// ([AppWindow.hideOnClose]). macOS keeps running after a close on its own.
+/// request to exit the app (the window is the process's only top-level
+/// one); with the icon up it is answered with a hide (see
+/// [onExitRequested]). The runners hide on a close that gets through to the
+/// window itself too, once told the icon is up ([AppWindow.hideOnClose]).
+/// macOS keeps running after a close on its own.
 abstract final class Tray {
-  static TrayIcon? _icon;
+  static Future<void>? _init;
+  static Menu? _menu;
   static MenuItem? _status;
-  static String _statusText = '';
+  static bool _up = false;
   static bool _quitting = false;
 
   /// Tests: stands in for an icon being up.
   @visibleForTesting
   static bool? debugActive;
 
-  /// nativeapi wrappers free their handle when garbage collected, and that
-  /// removes the icon or the menu; everything shown is kept here for good.
-  static final _keep = <Object>[];
-
   static bool get supported =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
   /// Whether the icon is up, so the window may close into it.
-  static bool get active => debugActive ?? _icon != null;
+  static bool get active => debugActive ?? _up;
 
   /// Call after runApp. Never throws: without a tray (a Linux desktop with
-  /// no StatusNotifier host, Windows without its shell, a plugin that did
-  /// not load) plop behaves as before and the window's close button quits.
-  static Future<void> init(PlopNode node) async {
-    if (!supported || _icon != null) return;
+  /// no StatusNotifier host, a plugin that did not load) plop behaves as
+  /// before and the window's close button quits.
+  static Future<void> init(PlopNode node) =>
+      _init ??= supported ? _start(node) : Future.value();
+
+  static Future<void> _start(PlopNode node) async {
+    var shown = false;
     try {
-      if (!TrayManager.instance.isSupported()) return;
       if (Platform.isLinux && !await _linuxHasTrayHost()) return;
-      final image = ImageAsset.fromAsset(
+      await trayManager.setIcon(
         Platform.isWindows ? await _windowsIcon() : 'assets/brand/tray.png',
+        // macOS: alpha only, so the mark follows a light or dark menu bar,
+        // drawn at 18 pt from the 36 px image. Ignored elsewhere.
+        isTemplate: true,
+        iconSize: 18,
       );
-      final icon = TrayIcon.create();
-      final menu = Menu.create();
-      final open = _item('open plop');
-      final status = _item(_line(node));
-      final quit = _item('quit plop');
-      if (image == null ||
-          icon == null ||
-          menu == null ||
-          open == null ||
-          status == null ||
-          quit == null) {
-        return; // the finalizers free what was made
-      }
-      _keep.addAll([image, menu, open, status, quit]);
-      open.addListener((e) {
-        if (e is MenuItemClickedEvent) AppWindow.show();
-      });
-      status.isEnabled = false;
-      quit.addListener((e) {
-        if (e is MenuItemClickedEvent) Tray.quit(node);
-      });
-      menu
-        ..addItem(open)
-        ..addSeparator()
-        ..addItem(status)
-        ..addSeparator()
-        ..addItem(quit);
-      icon
-        ..icon = image
-        // macOS: alpha only, so the mark follows a light or dark menu bar.
-        ..isIconTemplate = true
-        ..iconSize = const Size(18, 18)
-        ..setTooltip('plop')
-        ..setContextMenu(menu)
-        // Linux exposes the menu to the panel only for this trigger.
-        ..setContextMenuTrigger(
-          Platform.isWindows
-              ? ContextMenuTrigger.rightClicked
-              : ContextMenuTrigger.clicked,
-        );
-      // nativeapi only wires up clicks once there is a listener.
-      icon.addListener((event) {
-        switch (event) {
-          case TrayIconClickedEvent():
-            if (Platform.isWindows) AppWindow.show();
-          case TrayIconRightClickedEvent():
-            if (Platform.isMacOS) icon.openContextMenu();
-          case TrayIconDoubleClickedEvent():
-            AppWindow.show();
-        }
-      });
-      if (!icon.setVisible(true)) return; // no notification area to show in
-      _icon = icon;
+      shown = true;
+      // Linux has no tooltip (the plugin answers "not implemented").
+      if (!Platform.isLinux) await trayManager.setToolTip('plop');
+      final status = MenuItem(label: _line(node), disabled: true);
+      final menu = Menu(
+        items: [
+          MenuItem(key: 'open', label: 'open plop'),
+          MenuItem.separator(),
+          status,
+          MenuItem.separator(),
+          MenuItem(key: 'quit', label: 'quit plop'),
+        ],
+      );
+      await trayManager.setContextMenu(menu);
+      trayManager.addListener(_Clicks(node));
+      _menu = menu;
       _status = status;
-      _statusText = _line(node);
+      _up = true;
       node.changes.listen((_) => _update(node));
       AppLifecycleListener(onExitRequested: onExitRequested);
       await AppWindow.hideOnClose(true);
     } catch (_) {
-      // The plugin's library is missing or failed: no icon, and closing
-      // the window quits, as before there was one.
+      // The plugin is missing or failed part way: no icon, and closing the
+      // window quits, as before there was one.
+      _up = false;
+      if (shown) trayManager.destroy().catchError((_) {}).ignore();
     }
   }
 
@@ -128,17 +102,15 @@ abstract final class Tray {
     return AppExitResponse.cancel;
   }
 
-  /// Ends plop: the peers get their goodbye (bounded; they would notice
-  /// anyway) and the runner quits.
+  /// Ends plop: the icon goes, the peers get their goodbye (bounded; they
+  /// would notice anyway) and the runner quits.
   static Future<void> quit(PlopNode node) async {
+    if (_quitting) return;
     _quitting = true;
-    _icon?.setVisible(false);
+    if (_up) await trayManager.destroy().catchError((_) {});
     await node.stop().timeout(const Duration(seconds: 2)).catchError((_) {});
     await AppWindow.quit();
   }
-
-  static MenuItem? _item(String label) =>
-      MenuItem.createWithLabelAndType(label, MenuItemType.normal);
 
   /// "Zain's Mac · 2 nearby", counting as the top bar does.
   static String _line(PlopNode node) {
@@ -146,11 +118,28 @@ abstract final class Tray {
     return '${node.store.nodeName} · ${n == 0 ? 'just you' : '$n nearby'}';
   }
 
+  /// The menu is sent whole; only when the line changes, not on every
+  /// download tick. The same items keep their ids, so a click on a menu
+  /// that was open across the change still finds its item.
   static void _update(PlopNode node) {
+    final status = _status, menu = _menu;
     final line = _line(node);
-    if (line == _statusText) return;
-    _statusText = line;
-    _status?.label = line;
+    if (status == null || menu == null || status.label == line) return;
+    status.label = line;
+    trayManager.setContextMenu(menu).catchError((_) {});
+  }
+
+  /// Opens the icon's menu where the pointer is.
+  static void _popUp() {
+    trayManager
+        .popUpContextMenu(
+          // Windows only closes a tray menu on a click elsewhere if its
+          // owner, plop's window (hidden or not), was put in front first;
+          // this flag does that. Ignored elsewhere.
+          // ignore: deprecated_member_use
+          bringAppToFront: Platform.isWindows,
+        )
+        .catchError((_) {});
   }
 
   /// Whether a panel on this desktop shows StatusNotifier icons: KDE and
@@ -175,6 +164,7 @@ abstract final class Tray {
 
   /// Windows draws tray icons as they are, so the light theme's light
   /// taskbar gets the black mark (tool/make_icon.py). Read once, at launch.
+  /// The plugin loads an .ico from the app's assets at the small icon size.
   static Future<String> _windowsIcon() async {
     try {
       final r = await Process.run('reg', [
@@ -188,5 +178,36 @@ abstract final class Tray {
       }
     } catch (_) {}
     return 'assets/brand/tray.ico';
+  }
+}
+
+/// Clicks on the icon and its menu. Linux never reports a click on the
+/// icon itself: the panel opens the menu.
+class _Clicks with TrayListener {
+  _Clicks(this.node);
+  final PlopNode node;
+
+  /// A left click (Windows reports it on release): the window on Windows,
+  /// the menu in the macOS menu bar.
+  @override
+  void onTrayIconMouseDown() {
+    if (Platform.isWindows) {
+      AppWindow.show();
+    } else {
+      Tray._popUp();
+    }
+  }
+
+  @override
+  void onTrayIconRightMouseDown() => Tray._popUp();
+
+  @override
+  void onTrayMenuItemClick(MenuItem item) {
+    switch (item.key) {
+      case 'open':
+        AppWindow.show();
+      case 'quit':
+        Tray.quit(node).ignore();
+    }
   }
 }

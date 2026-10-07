@@ -64,7 +64,8 @@ class Win32Window {
 
   // Closes the window for good, past SetHideOnClose, which ends the message
   // loop (SetQuitOnClose). Posted, so it can be called from a Flutter
-  // callback: the engine is torn down with the window.
+  // callback: the engine is torn down with the window. The engine asks Dart
+  // about this close too; lib/tray.dart lets it through once quitting.
   void Quit();
 
   // Return a RECT representing the bounds of the current client area.

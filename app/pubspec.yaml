@@ -20,7 +20,7 @@ dependencies:
   plop_core:
     path: ../packages/core
   share_plus: ^13.3.1
-  tray_manager: ^0.7.0
+  tray_manager: ^0.5.3
   # The Windows probe must test the exact key code hotkey_manager registers,
   # so this tracks hotkey_manager's own resolution; drop it if that does.
   uni_platform: 0.1.3

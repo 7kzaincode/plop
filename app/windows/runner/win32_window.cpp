@@ -180,10 +180,14 @@ Win32Window::MessageHandler(HWND hwnd,
   switch (message) {
     case WM_CLOSE:
       // With the tray icon up, closing only hides the window: the shelf,
-      // its server and the shortcuts keep running, as on macOS. Flutter
-      // sees the message first and asks Dart whether the app may exit
-      // (lib/tray.dart answers with a hide while the icon is up); it comes
-      // back here on "exit", which is how Quit() ends plop.
+      // its server and the shortcuts keep running, as on macOS. The engine
+      // sees the message first and, this being the process's only
+      // top-level window, asks Dart whether the app may exit (lib/tray.dart
+      // answers with a hide while the icon is up); it sends the close again
+      // on "exit", which is how Quit() ends plop. This hide is for a close
+      // the engine lets through without asking, should another top-level
+      // window ever exist. The window is hidden, never destroyed: the tray
+      // icon belongs to it.
       if (hide_on_close_ && !quitting_) {
         ShowWindow(hwnd, SW_HIDE);
         return 0;
