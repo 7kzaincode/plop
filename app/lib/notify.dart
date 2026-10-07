@@ -62,11 +62,12 @@ abstract final class Notify {
 
   /// Whether the user has the shelf in front of them. On desktop, inactive
   /// means another window has focus and hidden means closed or minimized.
-  /// Null is startup, with no state reported yet: the window just opened.
-  static bool get windowFocused {
-    final s = WidgetsBinding.instance.lifecycleState;
-    return s == null || s == AppLifecycleState.resumed;
-  }
+  /// Null, no state reported yet, is an app that was never brought to the
+  /// front: started at login, its window behind whatever the user is in.
+  /// That is not in view, so arrivals are said then too; at an ordinary
+  /// launch the [grace] keeps the first sync quiet anyway.
+  static bool get windowFocused =>
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
 
   static bool get _wanted =>
       _ready && (_settings?.notifications ?? true) && !windowFocused;
