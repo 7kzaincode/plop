@@ -381,11 +381,20 @@ abstract final class Hotkeys {
 
   /// The newest item another device put on the shelf, by when this device
   /// first saw it, or null if there is none: what the grab shortcut takes.
-  /// Your own are left out; they are here already.
-  static ShelfItem? newestRemote(Iterable<ShelfItem> items, String self) {
+  /// Your own are left out, they are here already, but not what a phone
+  /// put up through the web shelf ([isUpload]): this device's own items to
+  /// the core, but not this user's. Nor one past its expiry, still listed
+  /// only while a transfer of it finishes: grabbing it would start a
+  /// second, unseen download.
+  static ShelfItem? newestRemote(
+    Iterable<ShelfItem> items,
+    String self, {
+    bool Function(String key)? isUpload,
+  }) {
     ShelfItem? newest;
     for (final i in items) {
-      if (i.originId == self) continue;
+      if (i.originId == self && !(isUpload?.call(i.key) ?? false)) continue;
+      if (i.remaining == Duration.zero) continue;
       if (newest == null || i.addedAt.isAfter(newest.addedAt)) newest = i;
     }
     return newest;
@@ -405,7 +414,7 @@ abstract final class Hotkeys {
     Future<String> Function(PlopNode node, ShelfItem item) copy = copyItem,
     Future<String> Function(PlopNode node, ShelfItem item) save = saveItem,
   }) async {
-    final item = newestRemote(node.items, node.id);
+    final item = newestRemote(node.items, node.id, isUpload: node.web.isUpload);
     if (item == null) throw const PlopMessage('nothing new to grab');
     if (item.kind == ItemKind.folder) {
       final path = await save(node, item);

@@ -185,7 +185,7 @@ void main() {
     // Shelf order is when this device first saw an item, which is what
     // "newest" means; your own, however new, are already here.
     test('takes the newest item from another device, never your own', () {
-      final t = DateTime(2026, 10, 7, 12);
+      final t = DateTime.now();
       final old = item('old', added: t);
       final newer = item('newer', from: 'mac', added: t.add(_s));
       final mine = item('mine', from: 'me', added: t.add(_s * 2));
@@ -193,6 +193,37 @@ void main() {
       expect(Hotkeys.newestRemote([mine, old, newer], 'me'), same(newer));
       expect(Hotkeys.newestRemote([mine], 'me'), isNull);
       expect(Hotkeys.newestRemote([], 'me'), isNull);
+    });
+
+    // What a phone without the app put up through the web shelf is this
+    // device's own to the core, but came from elsewhere; one past its
+    // expiry is listed only while a transfer of it finishes.
+    test('a web upload counts as from elsewhere; an expired item not', () {
+      final t = DateTime.now();
+      final old = item('old', added: t.subtract(_s * 30));
+      final upload = item('upload', from: 'me', added: t.subtract(_s * 20));
+      final mine = item('mine', from: 'me', added: t.subtract(_s * 10));
+      bool isUpload(String key) => key == upload.key;
+      expect(
+        Hotkeys.newestRemote([mine, upload, old], 'me', isUpload: isUpload),
+        same(upload),
+      );
+      final held = item('held', added: t.subtract(const Duration(minutes: 3)))
+        ..progress = 0.4; // expired a minute ago, still downloading
+      final late = ShelfItem(
+        id: 'late',
+        originId: 'phone',
+        originName: "Zain's iPhone",
+        name: 'late.mov',
+        size: 1 << 30,
+        mime: 'video/quicktime',
+        kind: ItemKind.file,
+        expiresAt: t.subtract(_s),
+        ttl: const Duration(minutes: 2),
+        addedAt: t,
+      )..progress = 0.9;
+      expect(Hotkeys.newestRemote([late, held, old], 'me'), same(old));
+      expect(Hotkeys.newestRemote([late, held], 'me'), isNull);
     });
 
     late Directory root;
@@ -296,6 +327,29 @@ void main() {
       expect(saved, ['Photos']);
       expect(copied, hasLength(3), reason: 'a folder is not copied');
     });
+
+    test('a text a phone put up through the web shelf is grabbed', () async {
+      node.web.enabled = true;
+      await node.addText('my own');
+      // flutter_test may stub HttpClient once a binding is up; the page's
+      // upload needs a real one.
+      final status = await HttpOverrides.runWithHttpOverrides(() async {
+        final http = HttpClient();
+        try {
+          final req = await http.post('127.0.0.1', node.port, '/web/text');
+          req.headers.set(webHeader, '1');
+          req.write('from a phone');
+          final res = await req.close();
+          await res.drain<void>();
+          return res.statusCode;
+        } finally {
+          http.close();
+        }
+      }, _RealHttp());
+      expect(status, 200);
+      expect((await press()).message, 'copied text');
+      expect(copied, ['from a phone']);
+    });
   });
 
   test('bindings compare by key and modifiers, not label', () {
@@ -325,3 +379,6 @@ void main() {
     );
   });
 }
+
+/// The real HttpClient, wherever flutter_test has put a stub.
+class _RealHttp extends HttpOverrides {}
