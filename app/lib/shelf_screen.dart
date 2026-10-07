@@ -10,6 +10,7 @@ import 'grab.dart';
 import 'hotkeys.dart';
 import 'settings.dart';
 import 'settings_panel.dart';
+import 'share_in.dart';
 import 'theme.dart';
 import 'tray.dart';
 import 'type_icons.dart';
@@ -475,6 +476,16 @@ class ShelfScreenState extends State<ShelfScreen> {
               textAlign: TextAlign.center,
               style: monoStyle(color: Palette.dim),
             ),
+            // The quickest way in on Android, and one an APK's users would
+            // otherwise only learn from the README.
+            if (!isDesktop && ShareIn.shareTarget) ...[
+              const SizedBox(height: 6),
+              Text(
+                'or share to plop from any app',
+                textAlign: TextAlign.center,
+                style: monoStyle(size: 11, color: Palette.faint),
+              ),
+            ],
             const SizedBox(height: 6),
             Text(
               'anyone on this wi-fi with plop open can grab it '

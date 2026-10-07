@@ -14,6 +14,14 @@ import 'grab.dart';
 abstract final class ShareIn {
   static const _channel = MethodChannel('plop/share');
 
+  /// Whether other apps' share sheets list plop: Android's do (the share
+  /// target in its manifest); iOS has no share extension. Tests set
+  /// [debugShareTarget] to lay out a phone that has it.
+  static bool get shareTarget => debugShareTarget ?? Platform.isAndroid;
+
+  @visibleForTesting
+  static bool? debugShareTarget;
+
   /// [onMessage] says how it went; [packing] is told of a folder being
   /// zipped, as a drop on the window is ([addPaths]).
   static Future<void> listen(

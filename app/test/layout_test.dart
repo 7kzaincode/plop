@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/main.dart';
 import 'package:plop/settings.dart';
+import 'package:plop/share_in.dart';
 import 'package:plop/shelf_screen.dart';
 import 'package:plop_core/plop_core.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -218,10 +219,17 @@ void main() {
       // Nobody turns up: the empty state ends with what to check.
       peerGrace = Duration.zero;
       addTearDown(() => peerGrace = const Duration(seconds: 6));
+      // The phone as on Android, whose share sheets list plop.
+      ShareIn.debugShareTarget = true;
+      addTearDown(() => ShareIn.debugShareTarget = null);
       await startNodes(tester, withItems: false);
       for (final size in desktop ? desktopSizes : phoneSizes) {
         final key = await pumpApp(tester, size);
         expect(tester.takeException(), isNull, reason: '$kind $size');
+        expect(
+          find.text('or share to plop from any app'),
+          desktop ? findsNothing : findsOneWidget,
+        );
         await tester.runAsync(
           () => _shot(
             key,
