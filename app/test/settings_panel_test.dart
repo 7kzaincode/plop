@@ -9,10 +9,16 @@ import 'package:plop/hotkeys.dart';
 import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop/settings_panel.dart';
+import 'package:plop/tray.dart';
 
 void main() {
-  /// Opens the panel as on desktop.
-  Future<Settings> openPanel(WidgetTester tester, {Settings? settings}) async {
+  /// Opens the panel as on desktop. With [onQuit], the app has the window's
+  /// quit key as plop's does, and the panel its "quit plop" link.
+  Future<Settings> openPanel(
+    WidgetTester tester, {
+    Settings? settings,
+    VoidCallback? onQuit,
+  }) async {
     debugDesktopOverride = true;
     addTearDown(() => debugDesktopOverride = null);
     // No plugin in the test runner: answer the (un)register calls quietly.
@@ -23,9 +29,12 @@ void main() {
     final s = settings ?? Settings.inMemory();
     await tester.pumpWidget(
       MaterialApp(
+        builder: onQuit == null
+            ? null
+            : (context, child) => QuitKey(onQuit: onQuit, child: child!),
         home: Builder(
           builder: (context) => TextButton(
-            onPressed: () => showSettings(context, s),
+            onPressed: () => showSettings(context, s, onQuit: onQuit),
             child: const Text('open'),
           ),
         ),
@@ -149,6 +158,76 @@ void main() {
     await tester.pumpAndSettle();
     expect(notifications(false), findsOneWidget);
   }, skip: !Notify.supported); // the section is desktop only
+
+  testWidgets('with the tray icon up on Windows and Linux, the panel quits', (
+    tester,
+  ) async {
+    addTearDown(() {
+      Tray.debugActive = null;
+      Tray.debugQuitsInWindow = null;
+    });
+    final link = find.text('quit plop · Ctrl+Q');
+    var quits = 0;
+
+    // No icon: closing the window quits, so there is nothing to add.
+    Tray.debugActive = false;
+    Tray.debugQuitsInWindow = true;
+    await openPanel(tester, onQuit: () => quits++);
+    expect(link, findsNothing);
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+
+    // macOS has ⌘Q.
+    Tray.debugActive = true;
+    Tray.debugQuitsInWindow = false;
+    await openPanel(tester, onQuit: () => quits++);
+    expect(link, findsNothing);
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+
+    Tray.debugQuitsInWindow = true;
+    await openPanel(tester, onQuit: () => quits++);
+    await tester.ensureVisible(link);
+    await tester.tap(link);
+    expect(quits, 1);
+  }, skip: !Notify.supported); // the section is desktop only
+
+  testWidgets('Ctrl+Q quits from the window, not while a shortcut records', (
+    tester,
+  ) async {
+    Tray.debugQuitsInWindow = true;
+    addTearDown(() => Tray.debugQuitsInWindow = null);
+    // The clipboard shortcut on Ctrl+Q, so the recorder refuses it on every
+    // host (Windows and Linux refuse it anyway, as an everyday shortcut).
+    Hotkeys.clip = HotKey(
+      key: PhysicalKeyboardKey.keyQ,
+      modifiers: [HotKeyModifier.control],
+    );
+    addTearDown(() => Hotkeys.clip = Hotkeys.defaultClip);
+    Future<void> ctrlQ() async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyQ);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pump();
+    }
+
+    var quits = 0;
+    await openPanel(tester, onQuit: () => quits++);
+    await ctrlQ();
+    expect(quits, 1, reason: 'the panel open, nothing recording');
+
+    await tester.tap(find.text(Hotkeys.snipLabel));
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget);
+    await ctrlQ();
+    expect(quits, 1, reason: 'a key offered to the recorder');
+    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    await ctrlQ();
+    expect(quits, 2);
+  });
 
   testWidgets('Tab reaches the shortcut keys and reset; Enter presses them', (
     tester,

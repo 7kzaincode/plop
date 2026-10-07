@@ -11,6 +11,7 @@ import 'hotkeys.dart';
 import 'settings.dart';
 import 'settings_panel.dart';
 import 'theme.dart';
+import 'tray.dart';
 import 'type_icons.dart';
 import 'window.dart';
 
@@ -264,7 +265,11 @@ class ShelfScreenState extends State<ShelfScreen> {
               onAddFiles: () => run(() => _add(pickFiles)),
               onAddFolder: () => run(() => _add(pickFolder)),
               onSettings: () async {
-                await showSettings(context, widget.settings);
+                await showSettings(
+                  context,
+                  widget.settings,
+                  onQuit: () => Tray.quit(node).ignore(),
+                );
                 if (mounted) setState(() {}); // shortcut labels may change
               },
             ),

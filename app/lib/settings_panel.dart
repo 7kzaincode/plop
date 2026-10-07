@@ -10,18 +10,25 @@ import 'login_item.dart';
 import 'notify.dart';
 import 'settings.dart';
 import 'theme.dart';
+import 'tray.dart';
 
-/// The one settings surface: global shortcuts and open-at-login.
-Future<void> showSettings(BuildContext context, Settings settings) =>
-    showDialog<void>(
-      context: context,
-      barrierColor: const Color(0x99000000),
-      builder: (_) => _SettingsPanel(settings),
-    );
+/// The one settings surface: global shortcuts, open-at-login, and what
+/// plop does in the background, with [onQuit] behind its "quit plop" link
+/// while the tray icon is up on Windows and Linux ([Tray.quitsInWindow]).
+Future<void> showSettings(
+  BuildContext context,
+  Settings settings, {
+  VoidCallback? onQuit,
+}) => showDialog<void>(
+  context: context,
+  barrierColor: const Color(0x99000000),
+  builder: (_) => _SettingsPanel(settings, onQuit: onQuit),
+);
 
 class _SettingsPanel extends StatefulWidget {
-  const _SettingsPanel(this.settings);
+  const _SettingsPanel(this.settings, {this.onQuit});
   final Settings settings;
+  final VoidCallback? onQuit;
 
   @override
   State<_SettingsPanel> createState() => _SettingsPanelState();
@@ -156,10 +163,26 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     });
   }
 
+  // While a shortcut is recording, Ctrl+Q is a key being offered (and
+  // refused: an everyday shortcut), not the window's quit (QuitKey, above
+  // the panel), so it goes no further up.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Focus(
+    canRequestFocus: false,
+    skipTraversal: true,
+    onKeyEvent: (_, e) {
+      final offered = _recording != null;
+      return offered && Tray.quitKey.accepts(e, HardwareKeyboard.instance)
+          ? KeyEventResult.handled
+          : KeyEventResult.ignored;
+    },
+    child: _panel(),
+  );
+
+  Widget _panel() {
     final label = monoStyle(color: Palette.text);
     final mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
+    final onQuit = widget.onQuit;
     return Dialog(
       backgroundColor: const Color(0xFF111111),
       elevation: 0,
@@ -247,6 +270,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 _BackgroundSection(
                   widget.settings,
                   recording: _recording != null,
+                  onQuit: onQuit != null && Tray.quitsInWindow && Tray.active
+                      ? onQuit
+                      : null,
                 ),
               if (_note != null) ...[
                 const SizedBox(height: 8),
@@ -433,13 +459,21 @@ const _loginLabel = 'open plop at login';
 
 /// What plop does while its window is closed, which it now outlives on
 /// every desktop (in the tray): the one switch for its OS notifications
-/// (lib/notify.dart).
+/// (lib/notify.dart), and on Windows and Linux a way to quit from the
+/// window, should the tray's menu be out of reach.
 class _BackgroundSection extends StatefulWidget {
-  const _BackgroundSection(this.settings, {required this.recording});
+  const _BackgroundSection(
+    this.settings, {
+    required this.recording,
+    required this.onQuit,
+  });
   final Settings settings;
 
   /// See [_Key.recording].
   final bool recording;
+
+  /// Behind "quit plop"; null hides it.
+  final VoidCallback? onQuit;
 
   @override
   State<_BackgroundSection> createState() => _BackgroundSectionState();
@@ -475,6 +509,15 @@ class _BackgroundSectionState extends State<_BackgroundSection> {
           ],
         ),
       ),
+      if (widget.onQuit case final quit?)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _Link(
+            'quit plop · Ctrl+Q',
+            recording: widget.recording,
+            onTap: quit,
+          ),
+        ),
     ],
   );
 }

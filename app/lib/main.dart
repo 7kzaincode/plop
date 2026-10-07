@@ -129,6 +129,8 @@ class PlopApp extends StatelessWidget {
     title: 'plop',
     debugShowCheckedModeBanner: false,
     theme: plopTheme(),
+    builder: (context, child) =>
+        QuitKey(onQuit: () => Tray.quit(node).ignore(), child: child!),
     home: ShelfScreen(key: screenKey, node: node, settings: settings),
   );
 }

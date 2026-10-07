@@ -1,8 +1,17 @@
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter/widgets.dart'
-    show AppLifecycleListener, visibleForTesting;
+    show
+        AppLifecycleListener,
+        BuildContext,
+        CallbackShortcuts,
+        SingleActivator,
+        StatelessWidget,
+        VoidCallback,
+        Widget,
+        visibleForTesting;
 import 'package:plop_core/plop_core.dart';
 import 'package:tray_manager/tray_manager.dart';
 
@@ -43,6 +52,25 @@ abstract final class Tray {
 
   /// Whether the icon is up, so the window may close into it.
   static bool get active => debugActive ?? _up;
+
+  /// Tests: stands in for Windows or Linux, or not, for [quitsInWindow].
+  @visibleForTesting
+  static bool? debugQuitsInWindow;
+
+  /// Windows and Linux, where closing the window no longer quits: plop can
+  /// be quit from the window too, with [quitKey] ([QuitKey]) and a link in
+  /// the settings panel, not only from the tray's menu, which may be out of
+  /// reach (Windows 11's overflow, switched off; a Linux panel that stopped
+  /// hosting icons). macOS has ⌘Q.
+  static bool get quitsInWindow =>
+      debugQuitsInWindow ?? (Platform.isWindows || Platform.isLinux);
+
+  /// Ctrl+Q, the window's quit on Windows and Linux.
+  static const quitKey = SingleActivator(
+    LogicalKeyboardKey.keyQ,
+    control: true,
+    includeRepeats: false,
+  );
 
   /// Call after runApp. Never throws: without a tray (a Linux desktop with
   /// no StatusNotifier host, a plugin that did not load) plop behaves as
@@ -227,4 +255,18 @@ class _Clicks with TrayListener {
         Tray.quit(node).ignore();
     }
   }
+}
+
+/// [Tray.quitKey] anywhere in the window calls [onQuit], where
+/// [Tray.quitsInWindow]. Wraps the app's routes (MaterialApp.builder), so
+/// it works with the settings panel open too.
+class QuitKey extends StatelessWidget {
+  const QuitKey({super.key, required this.onQuit, required this.child});
+  final VoidCallback onQuit;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Tray.quitsInWindow
+      ? CallbackShortcuts(bindings: {Tray.quitKey: onQuit}, child: child)
+      : child;
 }
