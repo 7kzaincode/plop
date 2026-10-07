@@ -1,5 +1,6 @@
 // The gate and the coalescing behind lib/notify.dart, with the plugin's
 // channel standing in for the OS and the lifecycle channel for the window.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -133,6 +134,76 @@ void main() {
     Notify.arrived([]); // expired
     await tester.pump(Notify.burst);
     expect(shown, hasLength(1));
+  });
+
+  testWidgets(
+    'an item that drops off with its peer and comes back is not new',
+    (tester) async {
+      // The core drops a peer's uncopied items on a missed poll and brings
+      // them back a moment later, as when a phone sleeps and wakes.
+      await start(tester);
+      await lifecycle(tester, AppLifecycleState.hidden);
+      Notify.arrived([item('a')]);
+      await tester.pump(Notify.burst);
+      Notify.arrived([]);
+      await tester.pump(const Duration(seconds: 5));
+      Notify.arrived([item('a')]);
+      await tester.pump(Notify.burst);
+      expect(shown, hasLength(1));
+    },
+  );
+
+  testWidgets('what has expired and left is forgotten, not before', (
+    tester,
+  ) async {
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.hidden);
+    final old = ShelfItem(
+      id: 'old',
+      originId: 'phone',
+      originName: "Zain's iPhone",
+      name: 'big.mov',
+      size: 1 << 30,
+      mime: 'video/quicktime',
+      kind: ItemKind.file,
+      // Past its expiry, still on the shelf while a transfer holds it.
+      expiresAt: DateTime.now().subtract(const Duration(seconds: 1)),
+      ttl: const Duration(minutes: 2),
+    );
+    Notify.arrived([old, item('b')]);
+    await tester.pump(Notify.burst);
+    Notify.arrived([old, item('b')]);
+    await tester.pump(Notify.burst);
+    expect(shown, hasLength(2), reason: 'each once');
+    expect(Notify.debugSeen, unorderedEquals([old.key, item('b').key]));
+
+    Notify.arrived([item('b')]); // the transfer is done and it is gone
+    expect(Notify.debugSeen, [item('b').key]);
+  });
+
+  testWidgets('what the first sync after launch brings is not announced', (
+    tester,
+  ) async {
+    // A launch at login, window not focused: the other devices' shelves
+    // fill in over the first seconds, and none of it is news.
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.hidden);
+    final changes = StreamController<void>.broadcast();
+    addTearDown(changes.close);
+    var remote = [item('a')];
+    Notify.watchItems(changes.stream, () => remote);
+    await tester.pump(Notify.burst);
+    remote = [item('a'), item('b', from: 'mac', sender: 'Studio')];
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect(shown, isEmpty);
+
+    await tester.pump(Notify.grace);
+    remote = [...remote, item('c', name: 'IMG_4823.png')];
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect(shown, hasLength(1));
+    expect(shown.single['body'], 'IMG_4823.png · 1.5 KB');
   });
 
   testWidgets('focusing the window before the burst ends cancels it', (
