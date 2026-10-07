@@ -134,6 +134,11 @@ the header the receiver re-fetches all peers. Responds `204`.
 - A download that has started is allowed to finish after the item expires
   (the origin keeps streaming an open file), so large transfers are not cut
   off. A new `GET` after expiry still gets `404`.
+- A download someone asked for (a tap, not an eager copy) that stalls or
+  loses its connection while its origin still answers polls starts over
+  once, from the first byte: what stopped was the receiver, a phone that
+  put the app in the background, say. One whose origin has missed a poll
+  meanwhile fails at once.
 - Mirrored copies are never re-served to other nodes. Only the origin serves
   an item over `/v1`. (The web shelf below hands mirrors to browsers; no
   node ever asks it for one.)

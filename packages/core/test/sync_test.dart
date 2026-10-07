@@ -185,6 +185,42 @@ class Trickler {
   }
 }
 
+/// A [NodeClient] whose first download of each item stalls: once [stall]
+/// completes, it fails as the stall timeout fails one whose bytes stopped.
+/// Later downloads go through.
+class StallingClient extends NodeClient {
+  StallingClient([Future<void>? stall]) : stall = stall ?? Future.value();
+
+  final Future<void> stall;
+
+  /// Download attempts by item id.
+  final attempts = <String, int>{};
+
+  @override
+  Future<void> download(
+    Uri base,
+    String id,
+    String destPath, {
+    required int expectedSize,
+    void Function(int received)? onProgress,
+    Future<void>? cutOff,
+  }) async {
+    final n = attempts[id] = (attempts[id] ?? 0) + 1;
+    if (n == 1) {
+      await stall;
+      throw TimeoutException('no bytes for 15 s');
+    }
+    await super.download(
+      base,
+      id,
+      destPath,
+      expectedSize: expectedSize,
+      onProgress: onProgress,
+      cutOff: cutOff,
+    );
+  }
+}
+
 /// A [NodeClient] whose downloads wait for [gate] before they start.
 class GatedClient extends NodeClient {
   GatedClient(this.gate);
@@ -1215,6 +1251,54 @@ void main() {
       throwsA(isA<FileSystemException>()),
     );
     expect(b.store[key]!.progress, isNull);
+  });
+
+  test(
+    'a tap that stalls while its sender still answers starts over',
+    () async {
+      final client = StallingClient();
+      c = await Cluster.start(
+        2,
+        ttl: const Duration(seconds: 30),
+        eagerCopyBytes: 1024,
+        client: (i) => i == 1 ? client : null,
+      );
+      final [a, b] = c.nodes;
+      // The phone went to the background mid-download and came back after
+      // the stall timeout; the sender never stopped answering.
+      final big = await a.addBytes(List.filled(5000, 6), 'big.bin');
+      await eventually(() => b.items.isNotEmpty);
+      final dest = '${c.root.path}/big.bin';
+      await b.saveTo(big.key, dest);
+      expect(File(dest).readAsBytesSync(), List.filled(5000, 6));
+      expect(client.attempts[big.id], 2);
+      expect(b.store[big.key]!.progress, isNull);
+    },
+  );
+
+  test('a tap whose sender went quiet fails at once', () async {
+    final quiet = Completer<void>();
+    final client = StallingClient(quiet.future);
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+      client: (i) => i == 1 ? client : null,
+    );
+    final [a, b] = c.nodes;
+    final big = await a.addBytes(List.filled(5000, 6), 'big.bin');
+    await eventually(() => b.items.isNotEmpty);
+    final save = expectLater(
+      b.saveTo(big.key, '${c.root.path}/big.bin'),
+      throwsA(isA<TimeoutException>()),
+    );
+    // The sender stops answering, and a poll misses before the stall
+    // timeout fires: starting over would only wait on it again.
+    await a.server.stop();
+    await eventually(() => b.peers.isEmpty);
+    quiet.complete();
+    await save;
+    expect(client.attempts[big.id], 1);
   });
 
   test('a failed download leaves no .part behind', () async {

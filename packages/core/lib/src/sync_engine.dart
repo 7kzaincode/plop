@@ -361,6 +361,14 @@ class SyncEngine {
     return dest;
   }
 
+  /// Copies [item] from its sender to [dest]. A tap's transfer (one with
+  /// no [cutOff]) that stalls or loses its connection while the sender
+  /// still answers this node's polls starts over once: what stopped was
+  /// this end, as a phone does when plop goes to the background for longer
+  /// than the 15 s stall timeout, and a second tap would have worked. A
+  /// sender that went quiet itself has missed a poll by then (one every
+  /// 3 s, 5 s to answer), so its error comes at once. Eager copies are
+  /// tried again by later polls instead.
   Future<void> _transfer(
     ShelfItem item,
     String dest, {
@@ -368,6 +376,26 @@ class SyncEngine {
   }) async {
     final s = _peers[item.originId];
     if (s == null) throw StateError('sender is gone');
+    var again = cutOff == null;
+    while (true) {
+      try {
+        return await _transferOnce(s, item, dest, cutOff: cutOff);
+      } catch (e) {
+        final stalled = e is TimeoutException || e is SocketException;
+        if (!again || !stalled || _peers[s.peer.id] != s || s.failures > 0) {
+          rethrow;
+        }
+        again = false;
+      }
+    }
+  }
+
+  Future<void> _transferOnce(
+    _PeerState s,
+    ShelfItem item,
+    String dest, {
+    Future<void>? cutOff,
+  }) async {
     store.setProgress(item.key, 0);
     var lastStep = 0;
     Object? lastError;
