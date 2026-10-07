@@ -56,9 +56,11 @@ class Settings {
     return ms is int ? Duration(milliseconds: ms) : const Duration(minutes: 2);
   }
 
-  set ttl(Duration d) {
+  /// Completes once the file is written, or fails if it could not be: the
+  /// lifetime still holds until plop quits, and the shelf says so.
+  Future<void> setTtl(Duration d) {
     _data['ttlMs'] = d.inMilliseconds;
-    _save().ignore(); // the picker has nowhere to say it failed
+    return _save();
   }
 
   /// Showing arrivals and shortcut results while plop is in the background:

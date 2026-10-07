@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plop/grab.dart';
 import 'package:plop_core/plop_core.dart';
@@ -37,6 +37,61 @@ void main() {
     }
   });
 
+  // A drop on the window and one on the Dock icon both go through this;
+  // a path that fails must not keep the rest off the shelf.
+  test('adding paths carries on past one that fails, and says so', () async {
+    final root = await Directory.systemTemp.createTemp('plop_paths');
+    final node = await PlopNode.start(
+      dir: Directory('${root.path}/store'),
+      discovery: StaticDiscovery(),
+      name: 'me',
+    );
+    try {
+      final a = File('${root.path}/a.txt')..writeAsStringSync('a');
+      final folder = Directory('${root.path}/Photos')..createSync();
+      File('${folder.path}/b.txt').writeAsStringSync('b');
+      final told = <String?>[];
+      final (failed, first) = await addPaths(node, [
+        '${root.path}/gone.txt',
+        a.path,
+        folder.path,
+      ], packing: told.add);
+      expect(failed, 1);
+      expect(first, isA<FileSystemException>());
+      expect(
+        node.items.map((i) => i.name),
+        unorderedEquals(['a.txt', 'Photos']),
+      );
+      expect(told, ['Photos', null], reason: 'a folder is packed, then done');
+
+      // The startup disk among them, after a folder: it fails on its own,
+      // without a look inside, the rest still land, and "packing" ends.
+      for (final i in [...node.items]) {
+        node.remove(i.key);
+      }
+      told.clear();
+      final (rootFailed, why) = await addPaths(node, [
+        folder.path,
+        '/',
+        a.path,
+      ], packing: told.add);
+      expect(rootFailed, 1);
+      expect(friendlyError(why!), contains('whole disk'));
+      expect(
+        node.items.map((i) => i.name),
+        unorderedEquals(['a.txt', 'Photos']),
+      );
+      expect(told, ['Photos', null]);
+
+      expect(addedMessage(0, null), isNull);
+      expect(addedMessage(1, first), "can't access gone.txt");
+      expect(addedMessage(3, first), "can't access gone.txt · 2 more failed");
+    } finally {
+      await node.stop();
+      await root.delete(recursive: true);
+    }
+  });
+
   // The messages are the whole UI for a failed grab; the core's exceptions
   // must each land on their own line, not the catch-all.
   test('errors are told apart by type and message', () {
@@ -51,6 +106,10 @@ void main() {
       'the sender is no longer reachable',
     );
     expect(friendlyError(const SocketException('refused')), contains('sender'));
+    expect(
+      friendlyError(const TransferInterrupted(HttpException('closed'))),
+      contains('sender'),
+    );
     expect(
       friendlyError(const FileSystemException('x', '/tmp/a/report.pdf.part')),
       "can't access report.pdf",
@@ -94,6 +153,57 @@ void main() {
     debugClipboardOs = 'android';
     expect(copiesAsImage(pic('big.png', 26 << 20)), isFalse);
     expect(copiesAsImage(pic('notes.pdf')), isFalse);
+  });
+
+  // On a Mac, pasteboard writes a blank picture for bytes ImageIO can't
+  // read and reports success; the copy must find out first. (Bytes that
+  // are no picture at all: the check reads the header, not every frame.)
+  testWidgets('a picture that does not decode is never copied as one', (
+    tester,
+  ) async {
+    debugClipboardOs = 'macos';
+    addTearDown(() => debugClipboardOs = null);
+    final images = <Object?>[], files = <Object?>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    const pasteboard = MethodChannel('pasteboard');
+    messenger.setMockMethodCallHandler(pasteboard, (call) async {
+      if (call.method == 'writeImage') images.add(call.arguments);
+      if (call.method == 'writeFiles') files.add(call.arguments);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(pasteboard, null));
+
+    await tester.runAsync(() async {
+      final root = await Directory.systemTemp.createTemp('plop_copy');
+      outDir = Directory('${root.path}/out')..createSync();
+      final node = await PlopNode.start(
+        dir: Directory('${root.path}/store'),
+        discovery: StaticDiscovery(),
+        name: 'me',
+      );
+      try {
+        final logo = await rootBundle.load('assets/brand/logo.png');
+        final good = await node.addBytes(logo.buffer.asUint8List(), 'a.png');
+        expect(await copyItem(node, good), 'image copied');
+
+        images.clear();
+        final bad = await node.addBytes(List.filled(64, 7), 'b.png');
+        expect(await copyItem(node, bad), 'copied · paste it anywhere');
+        expect(images, isEmpty, reason: 'no blank picture on the clipboard');
+        expect(files, hasLength(1), reason: 'the file instead');
+
+        // Copying arrivals puts no file on the clipboard: it fails.
+        await expectLater(
+          copyItem(node, bad, orFile: false),
+          throwsA(isA<PlopMessage>()),
+        );
+        expect(images, isEmpty);
+        expect(files, hasLength(1));
+      } finally {
+        await node.stop();
+        await root.delete(recursive: true);
+      }
+    });
   });
 
   // Android's clipboard hands over whatever the source app wrote; a wrong

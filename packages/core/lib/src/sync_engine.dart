@@ -89,6 +89,16 @@ class SyncEngine {
   /// Deadlines of running eager copies, by key.
   final _deadlines = <String, Timer>{};
 
+  /// Transfers running now. [stop] waits for each to let go of its files:
+  /// one still opening or deleting its `.part` after a stop would write
+  /// into a directory its node is about to wipe.
+  final _transfers = <Future<void>>{};
+
+  /// Keys of mirror downloads someone asked for ([fetch]) while they run:
+  /// a tap that finds an eager copy running joins it, and from then on it
+  /// may start over as the tap's own would ([_transfer]).
+  final _tapped = <String>{};
+
   /// Eager copies started per mirror. Kept beside the item, not by key, so
   /// the count goes with it; a mirror that leaves and comes back is a new
   /// item, with a fresh count.
@@ -306,6 +316,7 @@ class SyncEngine {
   /// copy of the item running lifts that copy's deadline.
   Future<String> fetch(String key) {
     _deadlines.remove(key)?.cancel();
+    if (store[key] case final item? when !item.isReady) _tapped.add(key);
     return _fetch(key);
   }
 
@@ -317,6 +328,7 @@ class SyncEngine {
     // wait on it, and it is the future being completed.
     return _downloads[key] ??= _mirror(item, cutOff).whenComplete(() {
       _downloads.remove(key);
+      _tapped.remove(key);
       _dropUncopiedIfGone(item.originId);
     });
   }
@@ -361,13 +373,57 @@ class SyncEngine {
     return dest;
   }
 
-  Future<void> _transfer(
+  /// Copies [item] from its sender to [dest]. A tap's transfer (one with
+  /// no [cutOff], or an eager copy a tap has joined) that breaks off part
+  /// way ([TransferInterrupted]: 15 s without a byte, or the connection
+  /// dropped) starts over once, from the first byte, if the sender
+  /// answered this node's latest poll of it: what stopped was most likely
+  /// this end, a phone that put plop in the background, and a second tap
+  /// would have worked. A sender that went quiet itself fails its polls
+  /// well inside those 15 s (one every 3 s, 5 s to answer), so its error
+  /// comes at once. Eager copies no tap joined are tried again by later
+  /// polls instead. Both are decided when it breaks off, not when it
+  /// started: a tap may have joined since, and the sender may have been
+  /// found afresh meanwhile.
+  Future<void> _transfer(ShelfItem item, String dest, {Future<void>? cutOff}) {
+    final run = _startOver(item, dest, cutOff: cutOff);
+    _transfers.add(run);
+    run.whenComplete(() => _transfers.remove(run)).ignore();
+    return run;
+  }
+
+  Future<void> _startOver(
     ShelfItem item,
     String dest, {
     Future<void>? cutOff,
   }) async {
-    final s = _peers[item.originId];
-    if (s == null) throw StateError('sender is gone');
+    var again = true;
+    while (true) {
+      final s = _peers[item.originId];
+      if (s == null) throw StateError('sender is gone');
+      try {
+        return await _transferOnce(s, item, dest, cutOff: cutOff);
+      } on TransferInterrupted {
+        final tap = cutOff == null || _tapped.contains(item.key);
+        if (!again || !tap || !_answers(item.originId)) rethrow;
+        again = false;
+      }
+    }
+  }
+
+  /// Whether [id] answered this node's latest poll of it, as each of
+  /// [reachablePeers] has.
+  bool _answers(String id) {
+    final s = _peers[id];
+    return s != null && s.base != null && s.failures == 0;
+  }
+
+  Future<void> _transferOnce(
+    _PeerState s,
+    ShelfItem item,
+    String dest, {
+    Future<void>? cutOff,
+  }) async {
     store.setProgress(item.key, 0);
     var lastStep = 0;
     Object? lastError;
@@ -392,7 +448,10 @@ class SyncEngine {
       } on FileSystemException {
         rethrow; // e.g. a full disk: another address will not help
       } catch (e) {
-        lastError = e;
+        // A body that broke off on the address that answers polls says
+        // more than a stale one refusing afterwards: it is what may start
+        // over ([_transfer]).
+        if (lastError is! TransferInterrupted) lastError = e;
       }
     }
     throw lastError ?? StateError('no address for sender');
@@ -418,7 +477,13 @@ class SyncEngine {
       t.cancel();
     }
     _deadlines.clear();
+    // Fails every transfer still running; none can start over, with no
+    // peers left. Each deletes its `.part` on the way out, and stop
+    // returns only once they all have.
     client.close();
+    await Future.wait([
+      for (final t in [..._transfers]) t.then((_) {}, onError: (_) {}),
+    ]);
     await _peerChanges.close();
   }
 }

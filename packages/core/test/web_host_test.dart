@@ -556,6 +556,9 @@ void main() {
     expect(c.status, 200);
     final ckey = (jsonDecode(utf8.decode(c.body)) as Map)['key'] as String;
     expect(p.a.store[ckey]!.size, 100000);
+    // The peer copies it on sight; let that land, so no copy is still
+    // writing into the test's folder as it is deleted.
+    await eventually(() => p.b.store[ckey]?.isReady ?? false);
 
     expect((await send('POST', p.url('/web/items'), body: [1])).status, 400);
   });

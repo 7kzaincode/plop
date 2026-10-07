@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -18,8 +19,14 @@ void main() {
   late StaticDiscovery dMe, dOther;
 
   /// Starts [me] seeing [other], which has one text item [me] has mirrored.
-  /// [other] does not see [me] back until a test adds it to [dOther].
-  Future<void> startNodes(WidgetTester tester) => tester.runAsync(
+  /// [other] does not see [me] back until a test adds it to [dOther]. With
+  /// [connect] false neither knows of the other, and [me] is alone. [poll]
+  /// is how often each node polls its peers.
+  Future<void> startNodes(
+    WidgetTester tester, {
+    bool connect = true,
+    Duration poll = const Duration(seconds: 3),
+  }) => tester.runAsync(
     // flutter_test stubs HttpClient to answer 400; the nodes need the real one.
     () => HttpOverrides.runWithHttpOverrides(() async {
       root = await Directory.systemTemp.createTemp('plop_shelf');
@@ -30,12 +37,15 @@ void main() {
         dir: Directory('${root.path}/me'),
         discovery: dMe,
         name: 'me',
+        pollInterval: poll,
       );
       other = await PlopNode.start(
         dir: Directory('${root.path}/other'),
         discovery: dOther,
         name: 'other',
+        pollInterval: poll,
       );
+      if (!connect) return;
       dMe.add(
         Peer(
           id: other.id,
@@ -65,9 +75,14 @@ void main() {
   Future<void> pumpApp(
     WidgetTester tester, {
     GlobalKey<ShelfScreenState>? screenKey,
+    Settings? settings,
   }) async {
     await tester.pumpWidget(
-      PlopApp(node: me, settings: Settings.inMemory(), screenKey: screenKey),
+      PlopApp(
+        node: me,
+        settings: settings ?? Settings.inMemory(),
+        screenKey: screenKey,
+      ),
     );
     await tester.pump(); // autofocus
     // Rows fade in from nothing, and a row that is not painted cannot
@@ -104,6 +119,20 @@ void main() {
       reason: 'the tail starts on a whole character',
     );
     return (head, tail);
+  }
+
+  /// What the tooltip on the bar's count of devices says, by its [label].
+  String barTip(WidgetTester tester, String label) => tester
+      .widget<Tooltip>(
+        find.ancestor(of: find.text(label), matching: find.byType(Tooltip)),
+      )
+      .message!;
+
+  /// Search's over at once, so a test sees what the shelf says once nobody
+  /// has turned up.
+  void noGrace() {
+    peerGrace = Duration.zero;
+    addTearDown(() => peerGrace = const Duration(seconds: 6));
   }
 
   Future<void> pressEnter(WidgetTester tester, {int repeats = 0}) async {
@@ -411,6 +440,65 @@ void main() {
     await stopNodes(tester);
   });
 
+  testWidgets('a failure said while plop was away fades once the user looks', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    final screen = GlobalKey<ShelfScreenState>();
+    await pumpApp(tester, screenKey: screen);
+    bool shown(String msg) =>
+        tester
+            .widget<AnimatedOpacity>(
+              find.ancestor(
+                of: find.textContaining(msg, findRichText: true),
+                matching: find.byType(AnimatedOpacity),
+              ),
+            )
+            .opacity >
+        0;
+    void look(AppLifecycleState s) =>
+        tester.binding.handleAppLifecycleStateChanged(s);
+    addTearDown(() => look(AppLifecycleState.resumed));
+
+    // ⌃⌥V pressed in another app with nothing to paste: still there when
+    // the user comes back, however long that takes; gone soon after.
+    look(AppLifecycleState.inactive);
+    screen.currentState!.toast('nothing to paste', untilSeen: true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+    expect(shown('nothing to paste'), isTrue);
+    look(AppLifecycleState.resumed);
+    await tester.pump(const Duration(milliseconds: 1700));
+    expect(shown('nothing to paste'), isTrue, reason: 'its reading time');
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(shown('nothing to paste'), isFalse);
+
+    // Said while the user is here, it fades as any message does.
+    screen.currentState!.toast('nothing to paste', untilSeen: true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(shown('nothing to paste'), isFalse);
+
+    // One with something to tap waits for the tap, back or not.
+    look(AppLifecycleState.inactive);
+    screen.currentState!.toast(
+      'allow plop for Screen Recording',
+      action: 'open settings',
+      onTap: () {},
+      sticky: true,
+      untilSeen: true,
+    );
+    await tester.pump();
+    look(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 30));
+    expect(shown('allow plop for Screen Recording'), isTrue);
+
+    screen.currentState!.toast(null);
+    await stopNodes(tester);
+  });
+
   testWidgets('a long toast gives up its message, never its action word', (
     tester,
   ) async {
@@ -559,6 +647,212 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(third.stop);
+    await stopNodes(tester);
+  });
+
+  testWidgets('with nobody nearby, the help is there with rows or without', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    noGrace();
+    await startNodes(tester, connect: false);
+    await pumpApp(tester);
+    const what = 'other device not showing up?';
+    expect(find.text('just you'), findsOneWidget);
+    expect(find.textContaining('$what\n'), findsOneWidget, reason: 'empty');
+    expect(barTip(tester, 'just you'), contains(what));
+
+    // Something on the shelf takes the empty state away; the help moves to
+    // a line under the bar rather than going with it.
+    await tester.runAsync(() => me.addText('mine'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('mine'), findsOneWidget);
+    expect(find.textContaining('$what · '), findsOneWidget);
+    expect(barTip(tester, 'just you'), contains(what));
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('a device that went quiet sends nobody to their settings', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    noGrace();
+    await startNodes(tester);
+    await pumpApp(tester);
+    expect(find.text('1 nearby'), findsOneWidget);
+
+    // Its phone locks: gone from discovery, its copied text stays.
+    await tester.runAsync(() async {
+      dMe.remove(other.id);
+      await _until(() => me.peers.isEmpty, 'peer down');
+    });
+    // The news reaches the shelf as a microtask of the test's zone, which
+    // the first pump runs; the second draws it.
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('just you'), findsOneWidget);
+    expect(find.text('hello'), findsOneWidget);
+    // No line under the bar that comes and goes with every lock, and no
+    // Local Network or firewall steps; the tooltip has the likely reason.
+    expect(find.textContaining('not showing up'), findsNothing);
+    expect(find.textContaining('asleep'), findsNothing);
+    expect(barTip(tester, 'just you'), contains('the other device asleep?'));
+
+    await stopNodes(tester);
+  });
+
+  testWidgets("a device that reaches this one but can't be reached is named", (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    noGrace();
+    await startNodes(
+      tester,
+      connect: false,
+      poll: const Duration(milliseconds: 100),
+    );
+    // A port nothing listens on stands in for other's firewall: other
+    // reaches me, but me never reaches other.
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        final closed = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final port = closed.port;
+        await closed.close();
+        dOther.add(
+          Peer(id: me.id, name: 'me', hosts: ['127.0.0.1'], port: me.port),
+        );
+        dMe.add(
+          Peer(id: other.id, name: 'other', hosts: ['127.0.0.1'], port: port),
+        );
+        await _until(() => me.unreachable.isNotEmpty, 'unreachable');
+      }, _RealHttp()),
+    );
+    await pumpApp(tester);
+    const what = "can't reach other · its firewall is blocking plop";
+    const fix = 'plop there says how to let it through';
+    expect(find.text('1 unreachable'), findsOneWidget);
+    expect(find.text('$what\n$fix'), findsOneWidget, reason: 'empty state');
+    expect(find.textContaining('not showing up'), findsNothing);
+    expect(barTip(tester, '1 unreachable'), contains('$what\n$fix'));
+
+    // Other goes to sleep: it stops reaching me too, and once its last
+    // visit is old it is no longer called blocked. Nothing announces that;
+    // the once-a-second check redraws the empty shelf.
+    await tester.runAsync(() async {
+      dOther.remove(me.id);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      me.server.seenBy[other.id] = DateTime.now().subtract(
+        PlopNode.oneWayAfter * 2,
+      );
+    });
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('just you'), findsOneWidget);
+    expect(find.textContaining("can't reach"), findsNothing);
+
+    // Back, and still behind its firewall; then something on the shelf:
+    // the same words, on a line under the bar.
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        dOther.add(
+          Peer(id: me.id, name: 'me', hosts: ['127.0.0.1'], port: me.port),
+        );
+        await _until(() => me.unreachable.isNotEmpty, 'unreachable again');
+      }, _RealHttp()),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('1 unreachable'), findsOneWidget);
+    await tester.runAsync(() => me.addText('mine'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('$what · $fix'), findsOneWidget);
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('a saved row offers to show the file, not another save', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    await addFile(tester, 'report.pdf');
+    // Downloads, in the test's own folder.
+    final downloads = '${root.path}/Downloads';
+    debugDownloads = Directory(downloads);
+    addTearDown(() => debugDownloads = null);
+    await pumpApp(tester);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(find.text('report.pdf')));
+    await tester.pump();
+    String tipOf(IconData icon) => tester
+        .widget<Tooltip>(
+          find.ancestor(of: find.byIcon(icon), matching: find.byType(Tooltip)),
+        )
+        .message!;
+    expect(tipOf(Icons.arrow_downward_rounded), 'save');
+    expect(find.byIcon(Icons.folder_open_rounded), findsNothing);
+
+    // A tap saves it; the row says so, and its icon now shows the file.
+    await tester.runAsync(() async {
+      await tester.tap(find.text('report.pdf'));
+      await _until(
+        () => File('$downloads/report.pdf').existsSync(),
+        'the save',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    });
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.text('${formatSize(1024)}  ·  other  ·  saved'),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.arrow_downward_rounded), findsNothing);
+    expect(tipOf(Icons.folder_open_rounded), 'show');
+
+    await tester.pump(const Duration(seconds: 5)); // the toast fades
+    await stopNodes(tester);
+  });
+
+  testWidgets('a lifetime that cannot be saved says so, and holds', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    // A settings path under a plain file: creating its directory fails.
+    final blocker = File('${root.path}/blocker')..writeAsStringSync('');
+    await pumpApp(
+      tester,
+      settings: Settings.at(File('${blocker.path}/settings.json')),
+    );
+    await tester.tap(find.text('2m'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5m').last);
+    await tester.pumpAndSettle(); // the menu closes; the save starts
+    // The save started in the test's fake zone: each of its disk steps
+    // needs real time to finish and a pump to be heard.
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(me.ttl, const Duration(minutes: 5));
+    expect(
+      find.text("couldn't save that lifetime · it holds until plop quits"),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(seconds: 5)); // the toast fades
     await stopNodes(tester);
   });
 

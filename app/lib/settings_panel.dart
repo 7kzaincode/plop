@@ -153,11 +153,23 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     Hotkeys.snip = Hotkeys.defaultSnip;
     Hotkeys.clip = Hotkeys.defaultClip;
     Hotkeys.grab = Hotkeys.defaultGrab;
-    for (final which in Hotkeys.bindings.keys) {
-      widget.settings.setHotkey(which, null).ignore();
-    }
     Hotkeys.apply();
     setState(() => _note = null);
+    // A file that can't be written would bring the old bindings back at
+    // the next launch, unannounced; say so now instead.
+    Future.wait([
+      for (final which in Hotkeys.bindings.keys)
+        widget.settings.setHotkey(which, null),
+    ]).then<void>(
+      (_) {},
+      onError: (Object _) {
+        if (mounted) {
+          setState(() {
+            _note = "couldn't save that · the defaults hold until plop quits";
+          });
+        }
+      },
+    );
   }
 
   Future<void> _toggleLogin(bool on) async {

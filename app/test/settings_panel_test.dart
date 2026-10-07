@@ -6,10 +6,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/hotkeys.dart';
+import 'package:plop/login_item.dart';
 import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop/settings_panel.dart';
 import 'package:plop/tray.dart';
+import 'package:uni_platform/uni_platform.dart';
 
 void main() {
   /// Opens the panel as on desktop. With [onQuit], the app has the window's
@@ -66,6 +68,13 @@ void main() {
         w.properties.toggled == on,
   );
 
+  /// The note that refuses a bare Enter: it would block typing it, or on
+  /// Linux, where keybinder can't bind Enter at all, no shortcut can use it
+  /// (Hotkeys.bindable, which goes by uni_platform's idea of the OS).
+  Finder refusedEnter() => find.textContaining(
+    UniPlatform.isLinux ? "can't be a system-wide" : 'everywhere',
+  );
+
   Finder notifications(bool on) => find.byWidgetPredicate(
     (w) =>
         w is Semantics &&
@@ -115,6 +124,17 @@ void main() {
     expect(toggled(true), findsOneWidget);
     expect(on, isTrue);
   }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
+
+  // macOS 12 has no SMAppService; the switch is not offered there.
+  test('open at login is offered from macOS 13', () {
+    expect(
+      LoginItem.macHasLoginItems('Version 12.7.6 (Build 21H1320)'),
+      isFalse,
+    );
+    expect(LoginItem.macHasLoginItems('Version 13.4 (Build 22F66)'), isTrue);
+    expect(LoginItem.macHasLoginItems('Version 26.0 (Build 25A354)'), isTrue);
+    expect(LoginItem.macHasLoginItems('something new'), isTrue);
+  });
 
   testWidgets('a login item macOS holds for approval says where to go', (
     tester,
@@ -285,7 +305,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(find.text('…'), findsOneWidget);
-    expect(find.textContaining('everywhere'), findsOneWidget);
+    expect(refusedEnter(), findsOneWidget);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
@@ -340,7 +360,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pump();
     expect(find.text('…'), findsOneWidget, reason: 'still recording');
-    expect(find.textContaining('everywhere'), findsOneWidget);
+    expect(refusedEnter(), findsOneWidget);
     expect(Hotkeys.same(Hotkeys.clip, own), isTrue);
     expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
 
@@ -515,6 +535,33 @@ void main() {
     expect(Hotkeys.same(Hotkeys.grab, Hotkeys.defaultGrab), isTrue);
     expect(settings.hotkey('grab'), isNull);
     expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
+  });
+
+  testWidgets('a reset that cannot be saved says so', (tester) async {
+    addTearDown(() => Hotkeys.snip = Hotkeys.defaultSnip);
+    final dir = Directory.systemTemp.createTempSync('plop_settings');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final blocker = File('${dir.path}/blocker')..writeAsStringSync('');
+    Hotkeys.snip = HotKey(
+      key: PhysicalKeyboardKey.keyS,
+      modifiers: Hotkeys.defaultMods,
+    );
+    await openPanel(
+      tester,
+      settings: Settings.at(File('${blocker.path}/settings.json')),
+    );
+
+    // Tapped in real time, so the disk writes run and fail.
+    await tester.runAsync(() async {
+      await tester.tap(find.text('reset to defaults'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+    expect(
+      find.text("couldn't save that · the defaults hold until plop quits"),
+      findsOneWidget,
+    );
+    expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
   });
 
   testWidgets('a shortcut that cannot be saved says so and still works', (

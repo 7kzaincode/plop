@@ -15,7 +15,21 @@ abstract final class LoginItem {
   static const _runKey = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run';
 
   static bool get supported =>
-      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+      Platform.isWindows ||
+      Platform.isLinux ||
+      Platform.isMacOS && macHasLoginItems(Platform.operatingSystemVersion);
+
+  /// Whether a Mac whose version reads [version] (as
+  /// Platform.operatingSystemVersion gives it, "Version 13.4 (Build
+  /// 22F66)") has SMAppService, which open at login needs: macOS 13 and
+  /// later. On 12 the switch could only ever say "couldn't change that
+  /// here", which reads like a bug; it isn't offered there. A version that
+  /// can't be read counts as new enough.
+  @visibleForTesting
+  static bool macHasLoginItems(String version) {
+    final major = RegExp(r'\d+').firstMatch(version)?.group(0);
+    return (int.tryParse(major ?? '') ?? 13) >= 13;
+  }
 
   static String get _home => Platform.environment['HOME'] ?? '';
   static String get _xdgConfig =>

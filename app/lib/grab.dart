@@ -88,6 +88,52 @@ Future<ShelfItem> addCopy(PlopNode node, String path) async {
 final _copies = <String, String>{};
 StreamSubscription<void>? _copyWatch;
 
+/// Puts each of [paths] on the shelf, carrying on past any that fail (a
+/// folder over the cap, a file moved meanwhile): how many failed, and the
+/// first error. Desktop paths are the user's own files, served in place;
+/// a phone's are plop's copies ([addCopy]). [packing] is told the name of
+/// a folder before it is zipped, which takes a while before its row
+/// appears, and null once all are done, however they went. A disk's root
+/// ("/", the startup disk dropped from the Finder sidebar) fails on its
+/// own, unzipped: zipping a whole disk would run for hours before the cap
+/// turned it away.
+Future<(int failed, Object? first)> addPaths(
+  PlopNode node,
+  List<String> paths, {
+  void Function(String? folder)? packing,
+}) async {
+  Object? first;
+  var failed = 0;
+  try {
+    for (final p in paths) {
+      final name = p
+          .split(RegExp(r'[/\\]'))
+          .lastWhere((s) => s.isNotEmpty, orElse: () => '');
+      try {
+        if (name.isEmpty) {
+          throw const PlopMessage("that's a whole disk · plop a folder on it");
+        }
+        if (await FileSystemEntity.isDirectory(p)) packing?.call(name);
+        await (isDesktop ? node.addPath(p) : addCopy(node, p));
+      } catch (e) {
+        failed++;
+        first ??= e;
+      }
+    }
+  } finally {
+    packing?.call(null);
+  }
+  return (failed, first);
+}
+
+/// What to say after [addPaths]: nothing if all went on the shelf, else
+/// the first error, and how many more failed.
+String? addedMessage(int failed, Object? first) {
+  if (first == null) return null;
+  final why = friendlyError(first);
+  return failed > 1 ? '$why · ${failed - 1} more failed' : why;
+}
+
 void _deleteCopy(String path) {
   final f = File(path);
   // The copy sits in a per-pick directory; a non-recursive delete leaves
@@ -224,8 +270,12 @@ bool isCopyableImage(ShelfItem item) =>
 /// Whether this OS's clipboard can take the item as a picture. Windows goes
 /// through GDI+ and Android through BitmapFactory, which can't read HEIC,
 /// WebP or RAW; a failed attempt on Windows also empties the clipboard. Any
-/// other picture is copied as a file, as a file is. Copying arrivals
-/// (lib/auto_copy.dart) takes only what this says yes to.
+/// other picture is copied as a file, as a file is. macOS and iOS read
+/// pictures through ImageIO, which takes most kinds but not all (AVIF
+/// before macOS 13 and iOS 16, some cameras' RAW, a file that is no
+/// picture whatever its name says): no list here, [copyItem] checks each
+/// one's header as it copies. Copying arrivals (lib/auto_copy.dart) takes
+/// only what this says yes to.
 bool copiesAsImage(ShelfItem item) {
   final os = debugClipboardOs ?? Platform.operatingSystem;
   if (!isCopyableImage(item) || os == 'linux') return false;
@@ -289,7 +339,14 @@ Directory? _lastCopy;
 
 /// Puts [item] on the clipboard as the row's copy does: text as text, a
 /// picture as a picture, anything else as the file. Returns what to say.
-Future<String> copyItem(PlopNode node, ShelfItem item) async {
+/// A picture the clipboard turns out not to take goes as the file too on
+/// desktop, unless [orFile] is false: copying arrivals never puts a file
+/// on the clipboard, and fails instead.
+Future<String> copyItem(
+  PlopNode node,
+  ShelfItem item, {
+  bool orFile = true,
+}) async {
   if (item.kind == ItemKind.text) {
     final text = await File(await node.fetch(item.key)).readAsString();
     await Clipboard.setData(ClipboardData(text: text));
@@ -298,10 +355,20 @@ Future<String> copyItem(PlopNode node, ShelfItem item) async {
   if (copiesAsImage(item)) {
     final bytes = await File(await node.fetch(item.key)).readAsBytes();
     try {
+      // pasteboard never says a picture failed to decode on macOS or iOS:
+      // it empties the clipboard and writes a blank NSImage, or a nil
+      // UIImage. Flutter's codec falls back to the same ImageIO there for
+      // what it can't read itself, so ask it first whether it knows the
+      // kind. It reads the header only, no frame: a picture cut short
+      // still passes, as NSImage would take it too. A codec that says no
+      // throws an Exception, as a PlatformException from the write does.
+      (await ui.instantiateImageCodec(bytes)).dispose();
       await Pasteboard.writeImage(bytes);
       return 'image copied';
-    } on PlatformException {
-      if (!isDesktop) throw const PlopMessage("couldn't copy that · try share");
+    } on Exception {
+      if (!isDesktop || !orFile) {
+        throw const PlopMessage("couldn't copy that · try share");
+      }
       // Fall back to copying it as a file below.
     }
   }
@@ -320,7 +387,10 @@ Future<String> copyItem(PlopNode node, ShelfItem item) async {
 
 /// Saves an item to Downloads (folders unpacked) and returns where it went.
 Future<String> saveItem(PlopNode node, ShelfItem item) async {
-  final dir = await getDownloadsDirectory() ?? await getTemporaryDirectory();
+  final dir =
+      debugDownloads ??
+      await getDownloadsDirectory() ??
+      await getTemporaryDirectory();
   await dir.create(recursive: true);
   if (item.kind == ItemKind.folder) {
     final zip = '${outDir.path}$_sep${randomId()}.zip';
@@ -337,6 +407,11 @@ Future<String> saveItem(PlopNode node, ShelfItem item) async {
   await node.saveTo(item.key, dest);
   return dest;
 }
+
+/// Tests set this to save into a folder of their own rather than the real
+/// Downloads, which path_provider finds on its own on some hosts (Linux).
+@visibleForTesting
+Directory? debugDownloads;
 
 /// Shows a saved file in Finder, Explorer or the file manager.
 Future<void> reveal(String path) async {
@@ -377,6 +452,7 @@ String friendlyError(Object e) => switch (e) {
   SocketException() ||
   HttpException() ||
   TimeoutException() ||
+  TransferInterrupted() ||
   StateError() => "couldn't get it · is the sender still here?",
   FileSystemException(:final path?) =>
     "can't access ${path.split(RegExp(r'[/\\]')).last.replaceAll(RegExp(r'\.part$'), '')}",

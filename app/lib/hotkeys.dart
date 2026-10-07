@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
@@ -88,19 +89,19 @@ abstract final class Hotkeys {
       {...?a.modifiers}.containsAll({...?b.modifiers}) &&
       {...?b.modifiers}.containsAll({...?a.modifiers});
 
-  /// Why [k] must not become a system-wide shortcut, or null if it may. The
-  /// usual recorder rule: at least one of ⌃ ⌥ ⌘ (Shift alone would swallow a
-  /// typed character everywhere), function keys exempt, and ⌘/Ctrl plus a
-  /// letter is some app's everyday shortcut (⌘C, ⌘V, Ctrl+Z…).
+  /// Why [k] must not become a system-wide shortcut, or null if it may. A
+  /// key this OS can't bind ([bindable]) never may, function keys included;
+  /// otherwise the usual recorder rule: at least one of ⌃ ⌥ ⌘ (Shift alone
+  /// would swallow a typed character everywhere), function keys exempt, and
+  /// ⌘/Ctrl plus a letter is some app's everyday shortcut (⌘C, ⌘V, Ctrl+Z…).
   static String? reject(HotKey k) {
     final key = k.physicalKey;
     final mods = k.modifiers ?? const <HotKeyModifier>[];
-    if (isFunctionKey(key)) return null;
-    // A key Flutter has no Windows virtual-key code for cannot be registered.
-    if (Platform.isWindows && key.keyCode == null) {
+    if (!bindable(key)) {
       return "${keyName(key)} can't be a system-wide shortcut here · "
           'try another key';
     }
+    if (isFunctionKey(key)) return null;
     if (!mods.any((m) => m != HotKeyModifier.shift)) {
       final add = Platform.isMacOS ? 'add ⌃ ⌥ or ⌘' : 'add Ctrl, Alt or Win';
       return '$add · ${label(k)} on its own would block typing '
@@ -114,6 +115,47 @@ abstract final class Hotkeys {
           'add another modifier';
     }
     return null;
+  }
+
+  /// Whether hotkey_manager can register [key] on this OS, by the code it
+  /// sends for it (uni_platform's keyCode, which goes by uni_platform's idea
+  /// of the OS; tests set that). Saving a binding it can't would show it as
+  /// set, and it would never fire.
+  ///
+  /// Windows: a key Flutter has no virtual-key code for.
+  ///
+  /// Linux: keyCode is the first GDK keyval in Flutter's GTK table that
+  /// stands for the key, or else its 64-bit logical key id, which the
+  /// plugin narrows to a 32-bit guint: ⌃⇧⌥< (the key left of Z on European
+  /// keyboards) would bind ⌃⇧⌥Space, media keys nothing. And the first
+  /// keyval is sometimes an alias that no key on the keyboard carries, so
+  /// keybinder binds nothing and says nothing: the 3270 terminal's
+  /// 0xfd00–0xfdff (Enter, Print Screen, Copy, Media Play) and the
+  /// keypad's 0xff80–0xffbd (Space as KP_Space, Period as KP_Decimal, F1–F4
+  /// as KP_F1–KP_F4), which only the keypad's own keys may have. Letters,
+  /// digits and punctuation take the logical id, but theirs are Latin-1
+  /// code points, which their keyvals equal.
+  static bool bindable(PhysicalKeyboardKey key) {
+    final code = key.keyCode;
+    return switch (UniPlatform.operatingSystem) {
+      'windows' => code != null,
+      'linux' =>
+        code != null &&
+            code <= 0xffffffff &&
+            !(code >= 0xfd00 && code <= 0xfdff) &&
+            !(code >= 0xff80 && code <= 0xffbd && !_isKeypad(key)),
+      _ => true,
+    };
+  }
+
+  /// The numeric keypad's keys, by USB HID usage: / * - + Enter 1–9 0 . =,
+  /// and the rarer ones from the comma on.
+  static bool _isKeypad(PhysicalKeyboardKey k) {
+    final u = k.usbHidUsage;
+    return u >= 0x00070054 && u <= 0x00070063 ||
+        u == 0x00070067 ||
+        u == 0x00070085 ||
+        u >= 0x000700b0 && u <= 0x000700dd;
   }
 
   /// Whether no other app has [k]. Only Windows can tell: Win32 hot keys are
@@ -280,6 +322,9 @@ abstract final class Hotkeys {
       },
       'clip': () {
         if (_isRepeat('clip')) return;
+        // A Windows snip still waiting on the clipboard would plop this
+        // picture a second time, as a screenshot.
+        _snipGen++;
         _once(() async {
           if (await pasteInto(node)) {
             _feedback(true);
@@ -521,7 +566,13 @@ abstract final class Hotkeys {
 
   /// The Snipping Tool overlay puts its result on the clipboard. Watch the
   /// clipboard's sequence number rather than its contents, so nothing is read
-  /// until it changes; a newer press cancels this wait.
+  /// until it changes; a newer press, of this or the clipboard shortcut,
+  /// cancels this wait. Esc in the overlay says nothing, so the first
+  /// change is taken as the snip unless it is plainly a copy: the overlay
+  /// writes a picture and nothing else, while a browser, Office or a text
+  /// field adds text or HTML. A picture copied on its own (Paint, Photos,
+  /// some chat apps) still can't be told from a snip, which is why the
+  /// wait is short: nobody takes 45 s to drag out a rectangle.
   static Future<ShelfItem?> _snipWindows(PlopNode node, String name) async {
     final seqOf = _user32.lookupFunction<Uint32 Function(), int Function()>(
       'GetClipboardSequenceNumber',
@@ -529,10 +580,13 @@ abstract final class Hotkeys {
     final gen = ++_snipGen;
     final start = seqOf();
     await Process.start('explorer.exe', ['ms-screenclip:']);
-    final end = DateTime.now().add(const Duration(minutes: 2));
+    final end = DateTime.now().add(const Duration(seconds: 45));
     while (DateTime.now().isBefore(end) && gen == _snipGen) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       if (seqOf() == start) continue;
+      // Asked without opening the clipboard, so another process holding it
+      // doesn't matter here.
+      if (_copyFormats.any((f) => f != 0 && _hasFormat(f) != 0)) return null;
       // Another process may still hold the clipboard for a moment.
       for (var tries = 0; tries < 10; tries++) {
         try {
@@ -547,6 +601,28 @@ abstract final class Hotkeys {
     }
     return null;
   }
+
+  static final _hasFormat = _user32
+      .lookupFunction<Int32 Function(Uint32), int Function(int)>(
+        'IsClipboardFormatAvailable',
+      );
+
+  /// What a copy puts on the clipboard and a snip does not: CF_UNICODETEXT,
+  /// and the "HTML Format" browsers and Office add, whose id each session
+  /// hands out on first use (0 if it could not).
+  static final _copyFormats = () {
+    final register = _user32
+        .lookupFunction<
+          Uint32 Function(Pointer<Utf16>),
+          int Function(Pointer<Utf16>)
+        >('RegisterClipboardFormatW');
+    final html = 'HTML Format'.toNativeUtf16();
+    try {
+      return [13, register(html)];
+    } finally {
+      malloc.free(html);
+    }
+  }();
 
   /// A sound either way: the shortcuts are pressed from other apps, where
   /// the toast in plop's window can't be seen. Fire and forget.

@@ -11,10 +11,10 @@
 7. Packaging: done, unsigned (`.github/workflows/release.yml`; signing only
    when asked)
 
-## Status (2026-10-06)
+## Status (2026-10-07)
 
-- Done: core (`dart test` in `packages/core`, 83 tests), the macOS, iOS,
-  Android, Windows and Linux apps (`flutter test` in `app`, 104 tests, the
+- Done: core (`dart test` in `packages/core`, 90 tests), the macOS, iOS,
+  Android, Windows and Linux apps (`flutter test` in `app`, 126 tests, the
   shelf and layout ones driving a real pair of nodes over loopback), and
   release builds for all but iOS via release.yml (Windows and Linux
   unsigned, macOS ad-hoc or self-signed, Android debug signed; the README
@@ -30,7 +30,7 @@
   the window on Windows and Linux), the macOS island (arrivals drop out of
   the notch with copy / save / drag-out, in place of the Dock bounce) and OS
   notifications elsewhere for arrivals and shortcut results while the window
-  is away (texts by length only), one-way
+  is away (texts by length only), one-way and unreachable
   (firewall) peer detection, networking revival after resume, a Windows
   installer that opens the firewall and closes a running plop to upgrade, the frosted macOS window, a Linux launcher entry, receipts
   (a sender's rows say which devices have the item), middle-truncated names

@@ -10,13 +10,16 @@ import 'grab.dart';
 import 'hotkeys.dart';
 import 'settings.dart';
 import 'settings_panel.dart';
+import 'share_in.dart';
 import 'theme.dart';
 import 'tray.dart';
 import 'type_icons.dart';
 import 'window.dart';
 
-/// How long to wait for a peer before saying none were found.
-const _peerGrace = Duration(seconds: 6);
+/// How long to wait for a peer before saying none were found. Tests
+/// shorten it.
+@visibleForTesting
+Duration peerGrace = const Duration(seconds: 6);
 
 const _second = Duration(seconds: 1);
 
@@ -62,12 +65,22 @@ class ShelfScreenState extends State<ShelfScreen> {
   final _started = DateTime.now();
   bool _dragging = false;
   bool _oneWay = false; // as last drawn
+  String _blocked = ''; // ids of the unreachable peers, as last drawn
+
+  /// Whether another device has been nearby since launch. Once one has,
+  /// nobody nearby most likely means it locked or slept, which no setting
+  /// here fixes.
+  bool _sawPeer = false;
 
   String? _toast; // null when hidden
   String _toastText = ''; // kept so the pill fades out with its text
   String? _toastAction; // the tappable word after the message
   VoidCallback? _toastTap;
   Timer? _toastTimer;
+
+  /// The toast was said while the window was away and waits for the user
+  /// to come back before its reading time starts.
+  bool _toastUnseen = false;
 
   /// Where each grabbed item was saved, so a second tap shows the file
   /// instead of saving another copy.
@@ -88,14 +101,17 @@ class ShelfScreenState extends State<ShelfScreen> {
     super.initState();
     _changes = node.changes.listen((_) => setState(() {}));
     // Redraw once a second only while there is a countdown to show, the
-    // "looking for devices" grace period is running, or the one-way flag
-    // (purely time-based in the core, so nothing announces it) has flipped;
-    // an empty shelf idles.
+    // "looking for devices" grace period is running, or the one-way flag or
+    // the unreachable peers (both purely time-based in the core, so nothing
+    // announces them) have changed; an empty shelf idles.
     _tick = Timer.periodic(_second, (_) {
       final looking =
-          DateTime.now().difference(_started) <= _peerGrace + _second;
+          DateTime.now().difference(_started) <= peerGrace + _second;
       final oneWay = node.oneWay.isNotEmpty;
-      if (node.items.isNotEmpty || looking || oneWay != _oneWay) {
+      if (node.items.isNotEmpty ||
+          looking ||
+          oneWay != _oneWay ||
+          _idsOf(node.unreachable) != _blocked) {
         setState(() {});
       }
     });
@@ -108,6 +124,11 @@ class ShelfScreenState extends State<ShelfScreen> {
     _lifecycle = AppLifecycleListener(
       onRestart: () =>
           node.revive(rebroadcast: Platform.isIOS).catchError((_) {}),
+      onResume: () {
+        if (!_toastUnseen || _toast == null) return;
+        _toastUnseen = false;
+        _fadeLater(_toastText, _toastTap);
+      },
     );
   }
 
@@ -123,12 +144,15 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   /// Shows a short message. [onTap] makes it clickable and keeps it up
   /// longer, with [action] naming what the tap does; [sticky] keeps it until
-  /// the next message.
+  /// the next message. [untilSeen] is for one said while the window is
+  /// away (a shortcut pressed in another app): it stays until the user is
+  /// back in plop, and only then gets its reading time.
   void toast(
     String? msg, {
     String? action,
     VoidCallback? onTap,
     bool sticky = false,
+    bool untilSeen = false,
   }) {
     _toastTimer?.cancel();
     setState(() {
@@ -139,9 +163,19 @@ class ShelfScreenState extends State<ShelfScreen> {
       }
       _toastTap = msg == null ? null : onTap;
     });
-    if (msg == null || sticky) return;
-    // Reading time: 1.8 s plus 40 ms per character past the first 20, so
-    // "plopped clipboard" is brief and the Screen Recording steps get ~5 s.
+    _toastUnseen =
+        msg != null &&
+        !sticky &&
+        untilSeen &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed;
+    if (msg == null || sticky || _toastUnseen) return;
+    _fadeLater(msg, onTap);
+  }
+
+  /// Hides the toast once [msg] has had its reading time: 1.8 s plus 40 ms
+  /// per character past the first 20, so "plopped clipboard" is brief and
+  /// the Screen Recording steps get ~5 s; longer with something to tap.
+  void _fadeLater(String msg, VoidCallback? onTap) {
     final ms = min(6000, 1800 + 40 * (msg.length - 20));
     _toastTimer = Timer(
       Duration(milliseconds: max(onTap == null ? 1800 : 4000, ms)),
@@ -188,27 +222,22 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   /// Adds picked or dropped paths, carrying on past failures.
   Future<String?> _add(Future<List<String>> Function() pick) async {
-    final paths = await pick();
-    Object? first;
-    var failed = 0;
-    for (final p in paths) {
-      final name = p.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
-      // Zipping a big folder takes a while before its row appears.
-      if (await FileSystemEntity.isDirectory(p)) {
-        toast('packing $name…', sticky: true);
-      }
-      try {
-        // Phones' pickers hand over a copy in the app cache, not the file.
-        await (isDesktop ? node.addPath(p) : addCopy(node, p));
-      } catch (e) {
-        failed++;
-        first ??= e;
-      }
+    final (failed, first) = await addPaths(
+      node,
+      await pick(),
+      packing: packing,
+    );
+    return addedMessage(failed, first);
+  }
+
+  /// Says a folder called [name] is being zipped, which takes a while
+  /// before its row appears; null once that is over.
+  void packing(String? name) {
+    if (name != null) {
+      toast('packing $name…', sticky: true);
+    } else if (_toast?.startsWith('packing') ?? false) {
+      toast(null);
     }
-    if (_toast?.startsWith('packing') ?? false) toast(null);
-    if (first == null) return null;
-    final why = friendlyError(first);
-    return failed > 1 ? '$why · ${failed - 1} more failed' : why;
   }
 
   Future<String?> paste() async =>
@@ -223,7 +252,11 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   void _setTtl(Duration d) {
     setState(() => node.ttl = d);
-    widget.settings.ttl = d;
+    widget.settings.setTtl(d).catchError((_) {
+      if (mounted) {
+        toast("couldn't save that lifetime · it holds until plop quits");
+      }
+    });
   }
 
   /// Who has a copy of one of your own items: 'on Zain's iPhone', 'on a and
@@ -239,6 +272,47 @@ class ShelfScreenState extends State<ShelfScreen> {
     return ids.length == 1 ? 'on 1 device' : 'on ${ids.length} devices';
   }
 
+  static String _idsOf(List<Peer> peers) => peers.map((p) => p.id).join(',');
+
+  /// What the shelf says about who is around, when that needs help: a
+  /// device that reaches this one but that this one cannot reach (its
+  /// firewall, as a rule), or, once the search is over, nobody at all.
+  /// The fix for a blocked device is on that device, whose system plop
+  /// cannot tell from here; plop there spells it out under its own bar
+  /// ("others can't reach this device", with that system's steps).
+  _Help? _help(List<Peer> peers, List<Peer> blocked, bool searching) {
+    if (blocked.isNotEmpty) {
+      final names = blocked.length <= 2
+          ? blocked.map((p) => p.name).join(' and ')
+          : '${blocked.length} devices';
+      final whose = blocked.length == 1
+          ? 'its firewall is'
+          : 'their firewalls are';
+      return (
+        what: "can't reach $names · $whose blocking plop",
+        fix: 'plop there says how to let it through',
+        color: Palette.warn,
+        quiet: false,
+      );
+    }
+    if (peers.isNotEmpty || searching) return null;
+    // A device that was here and went quiet comes back on its own; the
+    // settings that keep one from ever showing up are beside the point.
+    return _sawPeer
+        ? (
+            what: 'the other device asleep?',
+            fix: 'a phone only sees the shelf while plop is in front',
+            color: Palette.dim,
+            quiet: true,
+          )
+        : (
+            what: 'other device not showing up?',
+            fix: _fixHint(),
+            color: Palette.dim,
+            quiet: false,
+          );
+  }
+
   /// Whether every device nearby holds one of your own items, and at least
   /// one does. Mirrors are never re-served, so until then a big item still
   /// needs this device around for the rest to fetch it from.
@@ -249,17 +323,35 @@ class ShelfScreenState extends State<ShelfScreen> {
   @override
   Widget build(BuildContext context) {
     final items = node.items;
+    final peers = node.peers, blocked = node.unreachable;
     final oneWay = _oneWay = node.oneWay.isNotEmpty;
+    _blocked = _idsOf(blocked);
+    _sawPeer |= peers.isNotEmpty;
+    final searching = DateTime.now().difference(_started) < peerGrace;
+    final help = _help(peers, blocked, searching);
+    // Help about who is around: the empty state says it while the shelf is
+    // empty, a line under the bar once it is not, and the tooltip on the
+    // bar's count of devices always. The asleep note never takes that line: it
+    // comes and goes each time a phone locks, and would shove the rows
+    // about.
+    final lines = [
+      if (oneWay)
+        ("others can't reach this device · ${_inboundHint()}", Palette.warn),
+      if (help != null && items.isNotEmpty && !help.quiet)
+        ('${help.what} · ${help.fix}', help.color),
+    ];
     final body = Stack(
       children: [
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _TopBar(
-              peers: [for (final p in node.peers) p.name],
+              peers: [for (final p in peers) p.name],
               oneWay: oneWay,
+              blocked: blocked.length,
+              help: help == null ? null : '${help.what}\n${help.fix}',
               self: node.store.nodeName,
-              searching: DateTime.now().difference(_started) < _peerGrace,
+              searching: searching,
               ttl: node.ttl,
               onTtl: _setTtl,
               onAddFiles: () => run(() => _add(pickFiles)),
@@ -275,17 +367,14 @@ class ShelfScreenState extends State<ShelfScreen> {
               },
             ),
             const Divider(height: 1, thickness: 1, color: Palette.line),
-            if (oneWay)
+            for (final (line, color) in lines)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                child: Text(
-                  "others can't reach this device · ${_inboundHint()}",
-                  style: monoStyle(size: 11, color: Palette.warn),
-                ),
+                child: Text(line, style: monoStyle(size: 11, color: color)),
               ),
             Expanded(
               child: items.isEmpty
-                  ? _empty()
+                  ? _empty(help)
                   // Not lazy: the shelf is short, and keyed rows keep their
                   // state, so entrance animations don't replay on scroll.
                   : SingleChildScrollView(
@@ -368,9 +457,7 @@ class ShelfScreenState extends State<ShelfScreen> {
     );
   }
 
-  Widget _empty() {
-    final alone =
-        node.peers.isEmpty && DateTime.now().difference(_started) >= _peerGrace;
+  Widget _empty(_Help? help) {
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
@@ -389,6 +476,16 @@ class ShelfScreenState extends State<ShelfScreen> {
               textAlign: TextAlign.center,
               style: monoStyle(color: Palette.dim),
             ),
+            // The quickest way in on Android, and one an APK's users would
+            // otherwise only learn from the README.
+            if (!isDesktop && ShareIn.shareTarget) ...[
+              const SizedBox(height: 6),
+              Text(
+                'or share to plop from any app',
+                textAlign: TextAlign.center,
+                style: monoStyle(size: 11, color: Palette.faint),
+              ),
+            ],
             const SizedBox(height: 6),
             Text(
               'anyone on this wi-fi with plop open can grab it '
@@ -414,12 +511,12 @@ class ShelfScreenState extends State<ShelfScreen> {
                 style: monoStyle(size: 11, color: Palette.faint),
               ),
             ],
-            if (alone) ...[
+            if (help != null) ...[
               const SizedBox(height: 18),
               Text(
-                'other device not showing up?\n${_fixHint()}',
+                '${help.what}\n${help.fix}',
                 textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.dim),
+                style: monoStyle(size: 11, color: help.color),
               ),
             ],
           ],
@@ -471,6 +568,11 @@ String _inboundHint() => Platform.isWindows
     ? 'check the other device · a Mac needs Local Network permission for plop'
     : 'a firewall here is blocking incoming connections';
 
+/// Something the shelf says about who is around ([ShelfScreenState._help]):
+/// what is going on, what to do about it, and in what colour. A [quiet]
+/// one is never a line under the bar.
+typedef _Help = ({String what, String fix, Color color, bool quiet});
+
 /// What to check when no other device shows up.
 String _fixHint() => Platform.isIOS
     ? 'allow Settings › plop › Local Network'
@@ -484,6 +586,8 @@ class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.peers,
     required this.oneWay,
+    required this.blocked,
+    required this.help,
     required this.self,
     required this.searching,
     required this.ttl,
@@ -497,6 +601,12 @@ class _TopBar extends StatelessWidget {
 
   /// Peers can be reached but cannot reach us back.
   final bool oneWay;
+
+  /// How many peers reach us but cannot be reached.
+  final int blocked;
+
+  /// What to do about who is, or is not, around; for the tooltip.
+  final String? help;
   final String self;
   final bool searching;
   final Duration ttl;
@@ -508,7 +618,12 @@ class _TopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (dot, label) = peers.isNotEmpty
-        ? (oneWay ? Palette.warn : Palette.live, '${peers.length} nearby')
+        ? (
+            oneWay || blocked > 0 ? Palette.warn : Palette.live,
+            '${peers.length} nearby',
+          )
+        : blocked > 0
+        ? (Palette.warn, '$blocked unreachable')
         : searching
         ? (Palette.faint, 'looking…')
         : (Palette.faint, 'just you');
@@ -542,6 +657,7 @@ class _TopBar extends StatelessWidget {
                 'you · $self',
                 ...peers,
                 if (oneWay) "they can't open your plops",
+                ?help,
               ].join('\n'),
               triggerMode: isDesktop ? null : TooltipTriggerMode.tap,
               child: Row(
@@ -726,15 +842,23 @@ class _RowState extends State<_Row> {
 
     final icons = [
       for (final a in actions)
-        _IconAction(
-          icon: switch (a) {
-            GrabAction.copy => Icons.copy_rounded,
-            GrabAction.save => Icons.arrow_downward_rounded,
-            GrabAction.share => Icons.ios_share_rounded,
-          },
-          tip: a.name,
-          onTap: () => _act(a),
-        ),
+        if (a == GrabAction.save && widget.saved)
+          // Saved already: a tap shows the file, as the save's toast did.
+          _IconAction(
+            icon: Icons.folder_open_rounded,
+            tip: 'show',
+            onTap: () => _act(a),
+          )
+        else
+          _IconAction(
+            icon: switch (a) {
+              GrabAction.copy => Icons.copy_rounded,
+              GrabAction.save => Icons.arrow_downward_rounded,
+              GrabAction.share => Icons.ios_share_rounded,
+            },
+            tip: a.name,
+            onTap: () => _act(a),
+          ),
       if (widget.mine)
         _IconAction(
           icon: Icons.close_rounded,
