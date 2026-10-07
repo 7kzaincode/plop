@@ -40,13 +40,13 @@ class _SettingsPanel extends StatefulWidget {
 }
 
 class _SettingsPanelState extends State<_SettingsPanel> {
-  String? _recording; // 'snip' or 'clip'
+  String? _recording; // 'snip', 'clip' or 'grab'
   String? _note;
   bool? _login;
 
-  /// The two key chips, so recording can put focus on the one recording.
+  /// The key chips, so recording can put focus on the one recording.
   final _keyFocus = {
-    for (final which in ['snip', 'clip'])
+    for (final which in Hotkeys.bindings.keys)
       which: FocusNode(debugLabel: '$which key'),
   };
 
@@ -115,8 +115,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _note = why);
       return true;
     }
-    final other = _recording == 'snip' ? Hotkeys.clip : Hotkeys.snip;
-    if (Hotkeys.same(k, other)) {
+    final which = _recording!;
+    final others = {...Hotkeys.bindings}..remove(which);
+    if (others.values.any((o) => Hotkeys.same(k, o))) {
       setState(() => _note = 'that one is already taken');
       return true;
     }
@@ -124,11 +125,13 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _note = 'another app already uses ${Hotkeys.label(k)}');
       return true;
     }
-    final which = _recording!;
-    if (which == 'snip') {
-      Hotkeys.snip = k;
-    } else {
-      Hotkeys.clip = k;
+    switch (which) {
+      case 'snip':
+        Hotkeys.snip = k;
+      case 'clip':
+        Hotkeys.clip = k;
+      default:
+        Hotkeys.grab = k;
     }
     // Leave recording mode and re-register first, so a failure while saving
     // can never strand the panel on "…" with the shortcuts paused.
@@ -149,8 +152,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _stopRecording(apply: false);
     Hotkeys.snip = Hotkeys.defaultSnip;
     Hotkeys.clip = Hotkeys.defaultClip;
-    widget.settings.setHotkey('snip', null).ignore();
-    widget.settings.setHotkey('clip', null).ignore();
+    Hotkeys.grab = Hotkeys.defaultGrab;
+    for (final which in Hotkeys.bindings.keys) {
+      widget.settings.setHotkey(which, null).ignore();
+    }
     Hotkeys.apply();
     setState(() => _note = null);
   }
@@ -231,6 +236,17 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                     recording: _recording != null,
                     focusNode: _keyFocus['clip']!,
                     onTap: () => _record('clip'),
+                  ),
+                  label,
+                ),
+                _row(
+                  'grab newest',
+                  _Key(
+                    text: _recording == 'grab' ? '…' : Hotkeys.grabLabel,
+                    active: _recording == 'grab',
+                    recording: _recording != null,
+                    focusNode: _keyFocus['grab']!,
+                    onTap: () => _record('grab'),
                   ),
                   label,
                 ),
