@@ -1,7 +1,8 @@
 # Installable builds, attached to a GitHub Release:
 #   macOS    plop-macos.dmg, plop-macos.zip (universal, ad-hoc signed)
 #   Windows  plop-windows-setup.exe, plop-windows-x64.zip (VC++ runtime included)
-#   Linux    plop-linux-x64.tar.gz (libkeybinder, libnotify and a launcher icon included)
+#   Linux    plop-linux-x64.tar.gz (libkeybinder, libnotify, libayatana-appindicator and a
+#            launcher icon included)
 #   Android  plop-android.apk (debug-signed, for sideloading)
 # Push a tag for a release: git tag v0.2.0 && git push origin v0.2.0.
 # Running it by hand from a branch replaces the "dev" prerelease instead.
@@ -46,7 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - if: matrix.target == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libkeybinder-3.0-dev libnotify-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libgtk-3-dev libkeybinder-3.0-dev libnotify-dev libayatana-appindicator3-dev patchelf
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -104,15 +105,18 @@ jobs:
           Compress-Archive "$out\*" ..\dist\plop-windows-x64.zip
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" ..\packaging\windows\plop.iss
 
-      # libkeybinder-3.0 (shortcuts) and libnotify (notifications) are not
-      # default packages on every desktop; ship them so the tarball starts
-      # without an apt install, like the VC++ runtime on Windows. Each plugin
-      # .so needs its own $ORIGIN rpath: plop's RUNPATH does not apply to a
-      # plugin's dependencies. The checks make a plugin bump that drops or
-      # renames a library fail the build rather than ship a tarball that dies
-      # on launch. The tray icon (tray_manager) talks D-Bus through GLib and
-      # needs nothing beyond GTK. plop.png is the launcher icon the app
-      # registers on first run (lib/login_item.dart).
+      # libkeybinder-3.0 (shortcuts), libnotify (notifications) and
+      # libayatana-appindicator3 (the tray icon) are not default packages on
+      # every desktop; ship them so the tarball starts without an apt
+      # install, like the VC++ runtime on Windows. Each plugin .so needs its
+      # own $ORIGIN rpath: plop's RUNPATH does not apply to a plugin's
+      # dependencies. The appindicator brings four more a stock GTK desktop
+      # may lack (its indicator and ido widgets, and the two dbusmenu
+      # libraries that hand its menu to the panel); they ship too, each with
+      # an $ORIGIN rpath so they find one another in bundle/lib. The checks
+      # make a plugin bump that drops or renames a library fail the build
+      # rather than ship a tarball that dies on launch. plop.png is the
+      # launcher icon the app registers on first run (lib/login_item.dart).
       - if: matrix.target == 'linux'
         run: |
           bundle=build/linux/x64/release/bundle
@@ -125,6 +129,21 @@ jobs:
           }
           ship "$bundle/lib/libhotkey_manager_linux_plugin.so" libkeybinder-3.0.so
           ship "$bundle/lib/liblocal_notifier_plugin.so" libnotify.so
+          tray="$bundle/lib/libtray_manager_plugin.so"
+          ldd "$tray"
+          ship "$tray" libayatana-appindicator3.so
+          for so in libayatana-indicator3.so libayatana-ido3- libdbusmenu-glib.so libdbusmenu-gtk3.so; do
+            lib=$(ldd "$tray" | awk -v so="$so" 'index($1, so) == 1 {print $3}')
+            test -f "$lib" || { echo "$so is no longer linked: check what the tray plugin needs"; exit 1; }
+            cp "$lib" "$bundle/lib/"
+          done
+          for lib in "$bundle"/lib/lib{ayatana,dbusmenu}*; do
+            patchelf --set-rpath '$ORIGIN' "$lib"
+          done
+          deps=$(ldd "$tray")
+          for so in libayatana-appindicator3.so libayatana-indicator3.so libayatana-ido3- libdbusmenu-glib.so libdbusmenu-gtk3.so; do
+            grep -q "$PWD/$bundle/lib/$so" <<< "$deps" || { echo "$so not resolved from bundle/lib"; exit 1; }
+          done
           cp assets/icon/icon_macos.png "$bundle/plop.png"
           tar -czf ../dist/plop-linux-x64.tar.gz -C build/linux/x64/release --transform 's,^bundle,plop,' bundle
 
