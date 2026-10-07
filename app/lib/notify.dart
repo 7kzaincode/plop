@@ -57,19 +57,34 @@ abstract final class Notify {
     _settings = settings;
     if (!supported) return;
     try {
-      // Windows toasts from an unpackaged app need a Start Menu shortcut
-      // carrying its AppUserModelID; local_notifier creates plop.lnk in the
-      // user's own Start Menu when it is missing (the installer's is in the
-      // all-users one and carries no ID).
       await localNotifier.setup(
         appName: 'plop',
-        shortcutPolicy: ShortcutPolicy.requireCreate,
+        shortcutPolicy: shortcutPolicy(Platform.resolvedExecutable),
       );
       _ready = true;
     } catch (_) {
       // No plugin (a test runner), or Windows had nowhere to put the
       // shortcut; the in-window toasts still say everything.
     }
+  }
+
+  /// Windows shows notifications from an unpackaged app only for an
+  /// AppUserModelID a Start menu shortcut carries: "plop", which main.cpp
+  /// gives the process. The installer's shortcut (all users) carries it, so
+  /// an installed plop leaves shortcuts alone; local_notifier's other
+  /// "require" policy would look only in the user's own Start menu, not
+  /// find it there, and give up. A portable copy, from the zip, has none:
+  /// it makes plop.lnk in the user's Start menu, pointing at itself.
+  /// Ignored off Windows.
+  @visibleForTesting
+  static ShortcutPolicy shortcutPolicy(String exe) {
+    // Inno Setup leaves its uninstaller next to the copy it installed.
+    final uninstaller = File(
+      '${File(exe).parent.path}${Platform.pathSeparator}unins000.exe',
+    );
+    return uninstaller.existsSync()
+        ? ShortcutPolicy.ignore
+        : ShortcutPolicy.requireCreate;
   }
 
   /// What a global shortcut did, as the in-window toast says it.

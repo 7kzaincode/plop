@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:local_notifier/local_notifier.dart' show ShortcutPolicy;
 import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop_core/plop_core.dart';
@@ -67,6 +68,18 @@ void main() {
     expiresAt: DateTime.now().add(const Duration(minutes: 2)),
     ttl: const Duration(minutes: 2),
   );
+
+  test('only a portable copy makes its own Start menu shortcut', () {
+    final dir = Directory.systemTemp.createTempSync('plop_notify');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final exe = '${dir.path}${Platform.pathSeparator}plop.exe';
+    File(exe).writeAsStringSync('');
+    expect(Notify.shortcutPolicy(exe), ShortcutPolicy.requireCreate);
+    // The installer's copy: its shortcut carries plop's ID already.
+    File('${dir.path}${Platform.pathSeparator}unins000.exe')
+        .writeAsStringSync('');
+    expect(Notify.shortcutPolicy(exe), ShortcutPolicy.ignore);
+  });
 
   testWidgets('nothing is said while the window is focused', (tester) async {
     await start(tester);

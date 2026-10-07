@@ -2,11 +2,19 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include <shobjidl.h>
+
 #include "flutter_window.h"
 #include "utils.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // plop's AppUserModelID, the one its Start menu shortcut carries
+  // (packaging/windows/plop.iss), set before any window as Windows requires:
+  // the running window groups with a pinned plop on the taskbar, and
+  // notifications (lib/notify.dart) are shown as plop's.
+  ::SetCurrentProcessExplicitAppUserModelID(L"plop");
+
   // One plop per session: launching it again (Start menu, the installer's
   // "Open plop") brings the running window forward instead of starting a
   // second node. PLOP_INSTANCE (see lib/main.dart) opts out, so dev copies

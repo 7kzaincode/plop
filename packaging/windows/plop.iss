@@ -31,7 +31,11 @@ OutputBaseFilename=plop-windows-setup
 Source: "..\..\app\build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\plop"; Filename: "{app}\plop.exe"
+; The AppUserModelID plop.exe gives itself before its window
+; (app/windows/runner/main.cpp): a pinned shortcut groups with the running
+; window, and Windows shows plop's notifications, which an unpackaged app
+; only gets for an ID a Start menu shortcut carries (app/lib/notify.dart).
+Name: "{autoprograms}\plop"; Filename: "{app}\plop.exe"; AppUserModelID: "plop"
 
 [Registry]
 ; plop's "open at login" toggle writes this value (app/lib/login_item.dart).
@@ -49,6 +53,13 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=plop"; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=plop dir=in action=allow program=""{app}\plop.exe"" enable=yes profile=any remoteip=localsubnet"; Flags: runhidden
 Filename: "{app}\plop.exe"; Description: "Open plop"; Flags: nowait postinstall skipifsilent runasoriginaluser
+
+[UninstallDelete]
+; The Start menu shortcut plop makes in the user's own folder when it runs
+; from anywhere but here (the portable zip) so its notifications show:
+; removing plop takes that second "plop" in Start with it. Like the Run
+; value, this is the elevating account's folder.
+Type: files; Name: "{userprograms}\plop.lnk"
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im plop.exe"; Flags: runhidden; RunOnceId: "StopPlop"
