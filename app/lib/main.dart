@@ -102,6 +102,7 @@ Future<void> _start() async {
   );
   Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
   Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;
+  Hotkeys.grab = settings.hotkey('grab') ?? Hotkeys.defaultGrab;
   try {
     await Hotkeys.register(node, say);
   } catch (_) {

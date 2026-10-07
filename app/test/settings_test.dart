@@ -1,6 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:plop/hotkeys.dart';
 import 'package:plop/settings.dart';
 
@@ -41,5 +43,29 @@ void main() {
     final file = File('${dir.path}/deeper/settings.json');
     await Settings.at(file).setHotkey('clip', Hotkeys.defaultClip);
     expect(file.existsSync(), isTrue);
+  });
+
+  // main.dart reads 'grab' at launch beside 'snip' and 'clip'; each name
+  // keeps its own binding, and a reset one reads back as none (the default).
+  test('the grab shortcut is saved under its own name', () async {
+    final dir = Directory.systemTemp.createTempSync('plop_settings');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/settings.json');
+    final own = HotKey(
+      key: PhysicalKeyboardKey.keyY,
+      modifiers: [HotKeyModifier.control, HotKeyModifier.meta],
+    );
+    final settings = await Settings.loadFrom(file);
+    expect(settings.hotkey('grab'), isNull, reason: 'nothing saved yet');
+    await settings.setHotkey('clip', Hotkeys.defaultClip);
+    await settings.setHotkey('grab', own);
+
+    final reread = await Settings.loadFrom(file);
+    expect(Hotkeys.same(reread.hotkey('grab')!, own), isTrue);
+    expect(Hotkeys.same(reread.hotkey('clip')!, Hotkeys.defaultClip), isTrue);
+    expect(reread.hotkey('snip'), isNull);
+
+    await reread.setHotkey('grab', null);
+    expect((await Settings.loadFrom(file)).hotkey('grab'), isNull);
   });
 }

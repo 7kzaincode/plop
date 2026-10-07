@@ -36,7 +36,12 @@ class Settings {
 
   static Future<Settings> load() async {
     final dir = await getApplicationSupportDirectory();
-    final file = File('${dir.path}${Platform.pathSeparator}settings.json');
+    return loadFrom(File('${dir.path}${Platform.pathSeparator}settings.json'));
+  }
+
+  /// What [file] holds, backed by it from now on; [load] with the file
+  /// named, so tests can read back what was written.
+  static Future<Settings> loadFrom(File file) async {
     var data = <String, Object?>{};
     try {
       data = (jsonDecode(await file.readAsString()) as Map).cast();
