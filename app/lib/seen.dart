@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:plop_core/plop_core.dart';
 
 /// Items from other devices already seen (announced, or in view on the
@@ -32,4 +34,54 @@ class SeenItems {
   }
 
   void clear() => _until.clear();
+}
+
+/// Which devices are still in their first moments, so what they bring is
+/// what they already had rather than news: at a launch at login the other
+/// devices' shelves fill in over the first seconds, as each first syncs.
+/// A device gets [grace] from when plop first hears from it, so long as
+/// that is within [settle] of [start]: at login, Wi-Fi and mDNS can take a
+/// while. One first heard from later is new to this device, and so are its
+/// items. Copying arrivals (lib/auto_copy.dart) keeps time with this; the
+/// notifications (lib/notify.dart) keep the same time with their own.
+class Settling {
+  Settling({required this.grace, required this.settle});
+
+  final Duration grace;
+  final Duration settle;
+
+  /// Running for [settle] after [start].
+  Timer? _settling;
+
+  /// Devices heard from since [start], and those still in their [grace].
+  final _heard = <String>{};
+  final _quiet = <String, Timer>{};
+
+  /// Plop starts watching: devices heard from in the next [settle] are
+  /// turning up, not arriving.
+  void start() {
+    _settling?.cancel();
+    _settling = Timer(settle, () => _settling = null);
+  }
+
+  /// Starts [peer]'s [grace] the first time it is heard from while plop is
+  /// settling in.
+  void hear(String peer) {
+    if (_settling == null || !_heard.add(peer)) return;
+    _quiet[peer] = Timer(grace, () => _quiet.remove(peer));
+  }
+
+  /// Whether what [peer] brings now is what it already had.
+  bool isQuiet(String peer) => _quiet.containsKey(peer);
+
+  /// Forgets every device and stops the clock, as before [start].
+  void clear() {
+    _settling?.cancel();
+    _settling = null;
+    for (final t in _quiet.values) {
+      t.cancel();
+    }
+    _quiet.clear();
+    _heard.clear();
+  }
 }

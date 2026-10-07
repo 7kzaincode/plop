@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'auto_copy.dart';
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
@@ -81,6 +82,8 @@ Future<void> _start() async {
   Tray.init(node).ignore();
   Notify.init(settings).ignore();
   Notify.watch(node);
+  // Desktop only, and only once switched on in the settings panel.
+  AutoCopy.watch(node, settings);
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
   // the Screen Recording steps, waits until they look instead of fading out;
