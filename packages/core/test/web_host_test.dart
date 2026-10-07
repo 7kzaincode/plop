@@ -9,10 +9,13 @@ import 'package:test/test.dart';
 /// Two nodes on loopback that know each other. The web shelf is tested on
 /// [a]; [b] is the peer whose items it mirrors and that mirrors its uploads.
 class Pair {
-  Pair._(this.a, this.b, this.root);
+  Pair._(this.a, this.b, this.root, this.da);
 
   final PlopNode a, b;
   final Directory root;
+
+  /// [a]'s peer list, for adding a [fakePeer] to.
+  final StaticDiscovery da;
 
   static Future<Pair> start({
     int eagerCopyBytes = defaultEagerCopyBytes,
@@ -34,7 +37,7 @@ class Pair {
     da.add(Peer(id: b.id, name: 'phone', hosts: ['127.0.0.1'], port: b.port));
     db.add(Peer(id: a.id, name: 'mac', hosts: ['127.0.0.1'], port: a.port));
     a.web.enabled = true;
-    return Pair._(a, b, root);
+    return Pair._(a, b, root, da);
   }
 
   Uri url(String path) => Uri.parse('http://127.0.0.1:${a.port}$path');
@@ -104,6 +107,39 @@ Future<String> rawStatus(int port, String head, [List<int>? body]) async {
   final line = await utf8.decoder.bind(s).transform(const LineSplitter()).first;
   s.destroy();
   return line;
+}
+
+/// A whole response as raw text, head and body, for checking what went
+/// over the wire rather than what dart:io makes of it.
+Future<String> rawResponse(int port, String head) async {
+  final s = await Socket.connect('127.0.0.1', port);
+  s.add(utf8.encode(head));
+  final out = await utf8.decoder.bind(s).join();
+  s.destroy();
+  return out;
+}
+
+/// A peer that lists [items] and serves [bytes] by id, saying whatever a
+/// hostile one might.
+Future<HttpServer> fakePeer(
+  List<Map<String, Object>> items,
+  Map<String, List<int>> bytes,
+) async {
+  final s = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  s.listen((req) async {
+    final res = req.response;
+    switch (req.uri.pathSegments) {
+      case ['v1', 'items']:
+        res.write(jsonEncode(items));
+      case ['v1', 'items', final id] when bytes.containsKey(id):
+        res.contentLength = bytes[id]!.length;
+        res.add(bytes[id]!);
+      default:
+        res.statusCode = 404;
+    }
+    await res.close();
+  });
+  return s;
 }
 
 List<int> chunkedBody(int total, int chunk) {
@@ -195,6 +231,54 @@ void main() {
     expect(list[1].containsKey('text'), isFalse);
   });
 
+  test('a peer cannot write headers through its mime', () async {
+    p = await Pair.start();
+    const evil =
+        'text/html\r\nContent-Length: 45\r\n\r\n<script>alert(1)</script>';
+    final html = utf8.encode('<script>alert(document.domain)</script>');
+    final peer = await fakePeer(
+      [
+        {
+          'id': 'evil1',
+          'name': 'evil.html',
+          'size': html.length,
+          'mime': evil,
+          'kind': 'file',
+          'ttlMs': 30000,
+        },
+        {
+          'id': 'ok1',
+          'name': 'notes.txt',
+          'size': 2,
+          'mime': 'Text/Plain; Charset=UTF-8; x=y',
+          'kind': 'file',
+          'ttlMs': 30000,
+        },
+      ],
+      {'evil1': html, 'ok1': utf8.encode('hi')},
+    );
+    addTearDown(() => peer.close(force: true));
+    p.da.add(
+      Peer(id: 'peer0', name: 'evil', hosts: ['127.0.0.1'], port: peer.port),
+    );
+    await eventually(() => p.a.store['peer0/evil1']?.isReady ?? false);
+    expect(p.a.store['peer0/evil1']!.mime, 'application/octet-stream');
+    expect(p.a.store['peer0/ok1']!.mime, 'text/plain; charset=utf-8');
+
+    final raw = await rawResponse(
+      p.a.port,
+      'GET /web/items/peer0/evil1 HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+      'Connection: close\r\n\r\n',
+    );
+    final head = raw.substring(0, raw.indexOf('\r\n\r\n')).toLowerCase();
+    expect(head, startsWith('http/1.1 200'));
+    expect(head, contains('content-type: application/octet-stream'));
+    expect(head, contains('content-security-policy: sandbox'));
+    expect(head, isNot(contains('text/html')));
+    expect('content-length:'.allMatches(head).length, 1);
+    expect(raw.substring(raw.indexOf('\r\n\r\n') + 4), utf8.decode(html));
+  });
+
   test('downloading a mirror not copied yet fetches it first', () async {
     p = await Pair.start(eagerCopyBytes: 1024);
     final bytes = List.generate(50 * 1024, (i) => i % 251);
@@ -222,6 +306,7 @@ void main() {
     await eventually(() => p.a.store[folder.key]?.isReady ?? false);
     final z = await get(p.url('/web/items/${folder.key}'));
     expect(z.headers.contentType?.mimeType, 'application/zip');
+    expect(z.headers.value('content-security-policy'), 'sandbox');
     expect(
       z.headers.value('content-disposition'),
       contains('Design%20notes.zip'),

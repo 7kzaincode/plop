@@ -51,7 +51,9 @@ one-way (usually a firewall on this side).
   digits). Items with any other id are ignored.
 - `size` is 0 to the receiver's cap (100 GB); items outside that are
   ignored. A `name` longer than 255 characters is cut to that. `mime` is
-  optional and defaults to `application/octet-stream`.
+  optional and defaults to `application/octet-stream`, as does one that is
+  not a plain `type/subtype` (letters, digits, `.+_-`); of its parameters
+  only a plain `charset` is kept.
 - `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
   `name` is a short label (the first line). For `folder`, the bytes are a zip
   of the folder's contents (stored, not compressed) and `name` is the folder
@@ -147,7 +149,7 @@ becomes this node's own item and travels to peers over `/v1` like any other.
 | `GET /manifest.webmanifest` | Web app manifest: `plop`, standalone, `#0A0A0A`, icons at `/icon.png`, `start_url` `/`. |
 | `GET /icon.png` | The app icon (a 1x1 black PNG on a node that was given none). |
 | `GET /web/shelf` | Every item the node knows, own and mirrored, newest first (see below). |
-| `GET /web/items/{originId}/{id}` | The bytes, with `Content-Type`, `Content-Length` and `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…` (a folder's zip as `<name>.zip`, text as `text.txt`). A mirror not copied yet is fetched from its origin first. `404` once gone; `502` if the origin cannot be reached. |
+| `GET /web/items/{originId}/{id}` | The bytes, with `Content-Type`, `Content-Length`, `Content-Security-Policy: sandbox` (nothing served here runs as a page of this origin) and `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…` (a folder's zip as `<name>.zip`, text as `text.txt`). A mirror not copied yet is fetched from its origin first. `404` once gone; `502` if the origin cannot be reached. |
 | `POST /web/items?name=<name>` | Raw file body, streamed to disk as this node's own item. `200 {"key": "<originId>/<id>"}`. `400` without a name or for a body that ends short of its `Content-Length`; `413` past the node's item cap (100 GB), before any of the body is read when `Content-Length` says so, else where the body crosses it, and the connection is closed. |
 | `POST /web/text` | UTF-8 body, up to 1 MB, as a text item. `200 {"key": …}`; `400` if blank; `413` if longer. |
 | `DELETE /web/items/{originId}/{id}` | Removes one of this node's own items (`204`); `403` for a mirror, `404` if unknown. |

@@ -154,6 +154,9 @@ class WebHost {
   Future<void> _download(HttpRequest req, String key) async {
     final res = req.response;
     _noStore(res);
+    // Whatever the bytes are, they never run as a page from this origin:
+    // a peer's HTML, opened in a tab, would otherwise script the shelf.
+    res.headers.set('content-security-policy', 'sandbox');
     if (node.store[key] == null) {
       res.statusCode = HttpStatus.notFound;
       return;
@@ -175,7 +178,9 @@ class WebHost {
       return;
     }
     res.headers
-      ..contentType = ContentType.parse(item.mime)
+      // Checked again here, not only where a peer's list is read: this is
+      // where a bad one would do harm.
+      ..set(HttpHeaders.contentTypeHeader, safeMime(item.mime))
       ..set('content-disposition', _attachment(transferName(item)));
     res.contentLength = await file.length();
     await file.openRead().pipe(res);
