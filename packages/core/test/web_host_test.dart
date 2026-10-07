@@ -145,6 +145,10 @@ void main() {
     expect(html, isNot(contains('{{name}}')));
     // Nothing is fetched from outside the LAN.
     expect(html, isNot(contains('https://')));
+    final head = await send('HEAD', p.url('/'));
+    expect(head.status, 200);
+    expect(head.headers.contentType?.mimeType, 'text/html');
+    expect(head.body, isEmpty);
 
     final manifest = await get(p.url('/manifest.webmanifest'));
     expect(manifest.headers.contentType?.mimeType, 'application/manifest+json');

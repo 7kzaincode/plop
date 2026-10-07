@@ -61,7 +61,9 @@ class WebHost {
 
   Future<void> _route(HttpRequest req) async {
     final res = req.response;
-    switch ((req.method, req.uri.pathSegments)) {
+    // HEAD answers as GET would; dart:io leaves the body out.
+    final method = req.method == 'HEAD' ? 'GET' : req.method;
+    switch ((method, req.uri.pathSegments)) {
       case ('GET', []):
         res.headers
           ..contentType = ContentType.html
