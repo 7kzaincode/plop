@@ -26,8 +26,13 @@ bool isLanHost(String? host) {
     if (end < 0) return false;
     final rest = h.substring(end + 1);
     if (rest.isNotEmpty && !_portSuffix.hasMatch(rest)) return false;
-    return InternetAddress.tryParse(h.substring(1, end))?.type ==
-        InternetAddressType.IPv6;
+    // A zone id (`%en0`, or `%25en0` as URLs write it) only says which
+    // interface a link-local address is on, and never makes an address
+    // more local than it is. It is dropped before parsing, all of it:
+    // tryParse refuses one that names an interface this machine lacks, so
+    // what passed would depend on the machine.
+    final ip = h.substring(1, end).replaceFirst(_zoneId, '');
+    return InternetAddress.tryParse(ip)?.type == InternetAddressType.IPv6;
   }
   final colon = h.lastIndexOf(':');
   if (colon >= 0) {
@@ -42,6 +47,7 @@ bool isLanHost(String? host) {
 }
 
 final _portSuffix = RegExp(r'^:[0-9]{1,5}$');
+final _zoneId = RegExp(r'%.*$');
 
 /// [req]'s body, for a reader that may stop early or never start. It is
 /// claimed at once and paused: dart:io reads a body nobody has claimed to

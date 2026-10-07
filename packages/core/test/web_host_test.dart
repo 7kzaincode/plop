@@ -236,7 +236,9 @@ void main() {
       '127.0.0.1:$port',
       '192.168.1.20:$port',
       '[::1]:$port',
-      '[fe80::1%25en0]:$port',
+      // A zone id naming an interface no machine has: it is dropped, not
+      // looked up.
+      '[fe80::1%25nosuchif9]:$port',
       'localhost:$port',
       'plop.localhost',
       'zains-macbook.local:$port',
@@ -325,6 +327,13 @@ void main() {
     expect(isLanHost('[2001:db8::1]:7567'), isTrue);
     expect(isLanHost('[2001:db8::1]'), isTrue);
     expect(isLanHost('2001:db8::1'), isFalse, reason: 'brackets required');
+    expect(isLanHost('[fe80::1%en0]'), isTrue);
+    expect(isLanHost('[fe80::1%25nosuchif9]:7567'), isTrue);
+    expect(isLanHost('[2001:db8::1%25x]'), isTrue);
+    expect(isLanHost('[fe80::1%]'), isTrue);
+    expect(isLanHost('[fe80::1%25]'), isTrue);
+    expect(isLanHost('[evil.example%25en0]'), isFalse);
+    expect(isLanHost('[10.0.0.5%25en0]'), isFalse);
     expect(isLanHost('[10.0.0.5]'), isFalse);
     expect(isLanHost('[::1]x'), isFalse);
     expect(isLanHost('localhost'), isTrue);
