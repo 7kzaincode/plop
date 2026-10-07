@@ -97,8 +97,7 @@ abstract final class Hotkeys {
     final key = k.physicalKey;
     final mods = k.modifiers ?? const <HotKeyModifier>[];
     if (isFunctionKey(key)) return null;
-    // A key Flutter has no Windows virtual-key code for cannot be registered.
-    if (Platform.isWindows && key.keyCode == null) {
+    if (!bindable(key)) {
       return "${keyName(key)} can't be a system-wide shortcut here · "
           'try another key';
     }
@@ -115,6 +114,26 @@ abstract final class Hotkeys {
           'add another modifier';
     }
     return null;
+  }
+
+  /// Whether hotkey_manager can register [key] on this OS, by the code it
+  /// sends for it (uni_platform's keyCode, which goes by uni_platform's idea
+  /// of the OS; tests set that). Windows: a key Flutter has no virtual-key
+  /// code for. Linux: keyCode is a GDK keyval for keys in Flutter's GTK
+  /// table and otherwise the 64-bit logical key id, which the plugin
+  /// narrows to a 32-bit guint, so ⌃⇧⌥< (the key left of Z on European
+  /// keyboards) would quietly bind ⌃⇧⌥Space, and media keys nothing; only
+  /// a code that fits is a keyval. Letters, digits and punctuation take
+  /// that fallback too, but their ids are Latin-1 code points, which their
+  /// keyvals equal. Saving such a binding would show it as set and never
+  /// fire.
+  static bool bindable(PhysicalKeyboardKey key) {
+    final code = key.keyCode;
+    return switch (UniPlatform.operatingSystem) {
+      'windows' => code != null,
+      'linux' => code != null && code <= 0xffffffff,
+      _ => true,
+    };
   }
 
   /// Whether no other app has [k]. Only Windows can tell: Win32 hot keys are

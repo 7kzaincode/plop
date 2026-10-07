@@ -6,6 +6,7 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/hotkeys.dart';
 import 'package:plop_core/plop_core.dart';
+import 'package:uni_platform/uni_platform.dart';
 
 const _s = Duration(seconds: 1);
 
@@ -53,6 +54,44 @@ void main() {
     ]) {
       expect(Hotkeys.reject(ok), isNull, reason: Hotkeys.label(ok));
     }
+  });
+
+  // What hotkey_manager sends for a key is a code per OS; one it has no
+  // code for, or one that would arrive as another key, is refused rather
+  // than saved as a shortcut that never fires.
+  test('the recorder refuses keys this OS cannot bind', () {
+    addTearDown(() => UniPlatform.operatingSystem = Platform.operatingSystem);
+    HotKey k(PhysicalKeyboardKey key) => HotKey(
+      key: key,
+      modifiers: [HotKeyModifier.control, HotKeyModifier.alt],
+    );
+    final iso = k(PhysicalKeyboardKey.intlBackslash); // < > left of Z
+
+    UniPlatform.operatingSystem = 'linux';
+    for (final bad in [iso, k(PhysicalKeyboardKey.mediaPlayPause)]) {
+      expect(Hotkeys.reject(bad), contains("can't be a system-wide"));
+    }
+    for (final ok in [
+      k(PhysicalKeyboardKey.keyS),
+      k(PhysicalKeyboardKey.digit1),
+      k(PhysicalKeyboardKey.backquote),
+      k(PhysicalKeyboardKey.insert),
+      k(PhysicalKeyboardKey.numpad1),
+      k(PhysicalKeyboardKey.printScreen),
+      k(PhysicalKeyboardKey.f13),
+      Hotkeys.defaultSnip,
+      Hotkeys.defaultClip,
+      Hotkeys.defaultGrab,
+    ]) {
+      expect(Hotkeys.reject(ok), isNull, reason: Hotkeys.label(ok));
+    }
+
+    UniPlatform.operatingSystem = 'windows';
+    expect(Hotkeys.reject(iso), contains("can't be a system-wide"));
+    expect(Hotkeys.reject(k(PhysicalKeyboardKey.mediaPlayPause)), isNull);
+
+    UniPlatform.operatingSystem = 'macos';
+    expect(Hotkeys.reject(iso), isNull);
   });
 
   test('the three defaults are three different keys', () {
