@@ -18,7 +18,8 @@
   shelf and layout ones driving a real pair of nodes over loopback), and
   release builds for all but iOS via release.yml (ad-hoc or debug signed;
   the README covers the first open on each system). CI runs the core tests,
-  the app's widget tests and the Linux and Windows builds.
+  the app's widget tests and the Linux build, and the Windows build when
+  the Dart, its runner or the plugins change.
 - Added beyond the brief: folders, per-item lifetime picker, copy vs save,
   100 GB cap with transfers that outlive expiry, rebindable snip/clipboard/
   grab-newest shortcuts, copying arrivals to the clipboard (opt-in), open
