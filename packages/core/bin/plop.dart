@@ -3,7 +3,8 @@
 //   dart run plop_core:plop --peer 192.168.1.20:50725 --text hello --file a.png
 //
 // It polls the given peers directly. On macOS it also advertises itself with
-// `dns-sd`, so apps on the network find it and mirror its items.
+// `dns-sd`, so apps on the network find it and mirror its items. `--web`
+// serves the web shelf too, on port 7567 when that is free.
 import 'dart:async';
 import 'dart:io';
 
@@ -21,14 +22,20 @@ Future<void> main(List<String> args) async {
   ];
 
   final name = opt('name') ?? 'plop-cli';
+  final web = args.contains('--web');
   final discovery = StaticDiscovery();
   final node = await PlopNode.start(
     dir: Directory('${Directory.systemTemp.path}/plop-cli-$pid'),
     discovery: discovery,
     name: name,
     ttl: Duration(seconds: int.parse(opt('ttl') ?? '120')),
+    ports: [if (web) defaultWebPort],
   );
   print('node ${node.id} listening on ${node.port}');
+  if (web) {
+    node.web.enabled = true;
+    print('web shelf at ${(await node.webUrls).join(' or ')}');
+  }
 
   for (final (i, p) in all('peer').indexed) {
     final [host, port] = p.split(':');

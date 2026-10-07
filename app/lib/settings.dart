@@ -74,6 +74,20 @@ class Settings {
     _save().ignore(); // at worst it is said once more
   }
 
+  /// The port the web shelf was first served on, asked for first on every
+  /// launch so its address on a phone's home screen keeps working; null
+  /// before the first launch, and for anything that is not a port (a file
+  /// edited by hand, say), which binding would refuse with an error.
+  int? get webPort => switch (_data['webPort']) {
+    final int p when p >= 1 && p <= 65535 => p,
+    _ => null,
+  };
+
+  set webPort(int? port) {
+    _data['webPort'] = port;
+    _save().ignore();
+  }
+
   /// A custom global shortcut, or null for the default.
   HotKey? hotkey(String name) {
     final j = _data['hotkey.$name'];

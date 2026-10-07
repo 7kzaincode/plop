@@ -104,22 +104,23 @@ String transferName(ShelfItem item) => switch (item.kind) {
   ItemKind.file => item.name,
 };
 
-/// An entry from a peer's `GET /v1/items` list.
+/// An entry from a peer's `GET /v1/items` list. [mime] goes through
+/// [safeMime] here, so no peer-supplied type reaches anything unchecked.
 class RemoteItem {
   RemoteItem({
     required this.id,
     required this.name,
     required this.size,
-    required this.mime,
+    required String mime,
     required this.kind,
     required this.ttlMs,
-  });
+  }) : mime = safeMime(mime);
 
   factory RemoteItem.fromJson(Map<String, dynamic> j) => RemoteItem(
     id: j['id'] as String,
     name: j['name'] as String,
     size: (j['size'] as num).toInt(),
-    mime: j['mime'] as String? ?? 'application/octet-stream',
+    mime: j['mime'] is String ? j['mime'] as String : '',
     // Unknown kinds from newer peers degrade to plain files.
     kind: ItemKind.values.asNameMap()[j['kind']] ?? ItemKind.file,
     ttlMs: (j['ttlMs'] as num).toInt(),
@@ -164,12 +165,59 @@ const _mimes = {
   'wav': 'audio/wav',
 };
 
+/// [raw] as a media type that is safe to put in a header: `type/subtype`
+/// of token characters, lower-cased, with a `charset` parameter kept when
+/// it is a plain token too and every other parameter dropped. Anything
+/// else is `application/octet-stream`. A peer's `mime` ends up in the web
+/// shelf's Content-Type, and dart:io's ContentType.parse lets CR and LF
+/// through, so an unchecked one could add headers, or a whole second
+/// response, to what a phone receives.
+String safeMime(String raw) {
+  final [type, ...params] = raw.split(';');
+  final t = type.trim().toLowerCase();
+  if (!_mimeType.hasMatch(t)) return 'application/octet-stream';
+  for (final p in params) {
+    final m = _charset.firstMatch(p.trim());
+    if (m != null) return '$t; charset=${m[1]!.toLowerCase()}';
+  }
+  return t;
+}
+
+final _mimeType = RegExp(
+  r'^[a-z0-9][a-z0-9.+_-]{0,63}/[a-z0-9][a-z0-9.+_-]{0,127}$',
+);
+final _charset = RegExp(
+  r'^charset=([A-Za-z0-9._:-]{1,40})$',
+  caseSensitive: false,
+);
+
 String mimeFor(String name) {
   final dot = name.lastIndexOf('.');
   if (dot < 0) return 'application/octet-stream';
   return _mimes[name.substring(dot + 1).toLowerCase()] ??
       'application/octet-stream';
 }
+
+/// [name] as one line that reads as what it is: C0 and C1 controls and the
+/// Unicode bidi marks (embeddings, overrides, isolates, LRM, RLM, ALM) are
+/// taken out, so a CR/LF cannot break the line it is shown on and
+/// `invoice<RLO>fdp.exe` cannot pose as `invoiceexe.pdf`; then trimmed,
+/// and cut to [max] UTF-16 units with an ellipsis before the extension,
+/// which stays, as does every character the cut leaves whole.
+String cleanName(String name, {required int max}) {
+  final s = name.replaceAll(_unshown, '').trim();
+  if (s.length <= max) return s;
+  final dot = s.lastIndexOf('.');
+  final ext = dot > 0 && s.length - dot <= 16 ? s.substring(dot) : '';
+  var cut = max - 1 - ext.length;
+  // Not between the two halves of a surrogate pair.
+  if (cut > 0 && (s.codeUnitAt(cut - 1) & 0xfc00) == 0xd800) cut--;
+  return '${s.substring(0, cut)}…$ext';
+}
+
+final _unshown = RegExp(
+  '[\\x00-\\x1f\\x7f-\\x9f\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]',
+);
 
 /// Makes a peer-supplied name safe to use as a single path segment on every
 /// platform plop runs on. Dotfiles stay dotfiles (`.env` must not arrive as

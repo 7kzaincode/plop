@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'discovery.dart';
 import 'item.dart';
@@ -7,23 +8,33 @@ import 'node_client.dart';
 import 'node_server.dart';
 import 'shelf_store.dart';
 import 'sync_engine.dart';
+import 'web_host.dart';
 
 /// One running node: store, HTTP server, sync engine and discovery, wired
 /// together.
 class PlopNode {
-  PlopNode._(this.store, this.server, this.engine, this.discovery);
+  PlopNode._(this.store, this.server, this.engine, this.discovery) {
+    web = WebHost(this);
+    server.web = web;
+  }
 
   final ShelfStore store;
   final NodeServer server;
   final SyncEngine engine;
   final PeerDiscovery discovery;
 
+  /// The web shelf for browsers, on the same port; off until enabled.
+  late final WebHost web;
+
   /// [dir] is wiped on start; give each node on one machine its own.
+  /// [ports] are preferences, tried in order; when each is taken, or is not
+  /// a port at all (a corrupt setting must not keep the app from starting),
+  /// any free port is used, so a second node on the machine still comes up.
   static Future<PlopNode> start({
     required Directory dir,
     required PeerDiscovery discovery,
     required String name,
-    int port = 0,
+    List<int> ports = const [],
     Duration ttl = defaultTtl,
     int eagerCopyBytes = defaultEagerCopyBytes,
     int maxItemBytes = defaultMaxItemBytes,
@@ -44,7 +55,18 @@ class PlopNode {
       pollInterval: pollInterval,
     );
     final server = NodeServer(store, onNudge: engine.onNudge);
-    await server.start(port: port);
+    var bound = false;
+    for (final port in ports) {
+      if (port < 1 || port > 65535) continue; // bind would throw ArgumentError
+      try {
+        await server.start(port: port);
+        bound = true;
+        break;
+      } on SocketException {
+        // Taken: the next one, or any.
+      }
+    }
+    if (!bound) await server.start();
     engine.start();
     await discovery.start(
       LocalNode(
@@ -61,6 +83,24 @@ class PlopNode {
   int get port => server.port;
   List<ShelfItem> get items => store.items;
   List<Peer> get peers => engine.reachablePeers;
+
+  /// Where a browser on this network opens the web shelf, best first; see
+  /// [webUrlsFor] for where the mDNS name (see [localHostName]) goes. The
+  /// lookup that decides it is skipped on macOS, which does not need it.
+  Future<List<String>> get webUrls async {
+    final (ips, host) = await (localIPv4s(), localHostName()).wait;
+    final local = host.isNotEmpty && host != 'localhost' ? '$host.local' : null;
+    return webUrlsFor(
+      port: port,
+      ips: ips,
+      local: local,
+      os: Platform.operatingSystem,
+      resolves:
+          local != null &&
+          !Platform.isMacOS &&
+          await resolvesToSelf(local, ips),
+    );
+  }
 
   /// Name of a peer by id, for showing who an item's [ShelfItem.receivedBy]
   /// lists; null once that peer has left the network.
@@ -168,4 +208,31 @@ class PlopNode {
     await server.stop();
     await store.dispose();
   }
+}
+
+/// The web shelf's addresses on [port] for a machine running [os] (as
+/// Platform.operatingSystem names it): each of [ips] in order, and the
+/// mDNS name [local] where other devices can count on it resolving. It
+/// outlives a DHCP lease, so it leads where it can: on macOS, where
+/// Bonjour always answers for it, and elsewhere once [resolves], a lookup
+/// of it from this machine, found one of its addresses (on Linux: avahi
+/// is answering). On Windows it never leads, even then: Windows resolves
+/// its own name either way, while a Public network profile can keep
+/// everyone else's queries out. It comes second there instead.
+List<String> webUrlsFor({
+  required int port,
+  required List<String> ips,
+  required String os,
+  String? local,
+  bool resolves = false,
+}) {
+  final hosts = [...ips];
+  if (local != null) {
+    if (os == 'macos' || resolves && os != 'windows') {
+      hosts.insert(0, local);
+    } else if (resolves) {
+      hosts.insert(min(1, hosts.length), local);
+    }
+  }
+  return [for (final h in hosts) 'http://$h:$port/'];
 }

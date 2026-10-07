@@ -397,6 +397,56 @@ class ShelfStore {
   Future<ShelfItem> addBytes(List<int> bytes, String name) =>
       _addOwned(bytes, name, ItemKind.file, name);
 
+  /// Streams [body] to disk as an owned file named [name], so an upload
+  /// never has to fit in memory. The cap is [maxItemBytes], or [maxBytes]
+  /// when that is lower. An [expectedSize] over it is refused before a
+  /// byte is read, a body that grows past it is cut off where it does
+  /// (both [ItemTooLargeException]), and one that ends short of
+  /// [expectedSize] is dropped with a [FormatException]: a connection that
+  /// broke mid-upload must not leave half a file on the shelf. An error
+  /// from [body] (a timeout, say) drops it as well.
+  Future<ShelfItem> addStream(
+    Stream<List<int>> body,
+    String name, {
+    int? expectedSize,
+    int? maxBytes,
+  }) async {
+    final cap = min(maxBytes ?? maxItemBytes, maxItemBytes);
+    if (expectedSize != null && expectedSize > cap) {
+      throw ItemTooLargeException(expectedSize, cap);
+    }
+    final id = randomId();
+    final file = File(_itemPath(nodeId, id, name));
+    await file.parent.create(recursive: true);
+    final out = await file.open(mode: FileMode.write);
+    var size = 0;
+    try {
+      // Throwing out of `await for` cancels the body's subscription, which
+      // is how the sender gets cut off.
+      await for (final chunk in body) {
+        size += chunk.length;
+        if (size > cap) throw ItemTooLargeException(size, cap);
+        await out.writeFrom(chunk);
+      }
+      if (expectedSize != null && size != expectedSize) {
+        throw FormatException('upload ended at $size of $expectedSize bytes');
+      }
+    } catch (_) {
+      await out.close().catchError((_) {});
+      _deleteItemDir(nodeId, id);
+      rethrow;
+    }
+    await out.close();
+    return _addLocal(
+      id: id,
+      name: name,
+      size: size,
+      kind: ItemKind.file,
+      path: file.path,
+      ownsFile: true,
+    );
+  }
+
   Future<ShelfItem> addText(String text) {
     final firstLine = text.trim().split('\n').first;
     final label = firstLine.length > 60
@@ -532,6 +582,30 @@ class ShelfStore {
   /// change only when that is news.
   void markReceived(String key, String peerId) {
     if (_items[key]?.receivedBy.add(peerId) ?? false) _changes.add(null);
+  }
+
+  /// Whether an item is still what was put on the shelf. A file served in
+  /// place can be deleted or rewritten after it was dropped; listing it
+  /// then leaves every peer a row it can never fetch, and handing it out
+  /// gives a phone something other than what was shared, so instead it
+  /// leaves the shelf (false), which nudges peers to drop theirs. For /v1
+  /// and the web shelf alike.
+  ///
+  /// Asynchronous because this runs on every poll from every peer, and a
+  /// stat of a file on an unmounted share or a cloud placeholder can hang
+  /// for seconds; a synchronous one would stall the whole isolate with it.
+  Future<bool> stillThere(ShelfItem i) async {
+    if (i.ownsFile || i.path == null) return true;
+    final st = await File(i.path!).stat();
+    // Size alone misses a rewrite that keeps it, so the modification time
+    // counts too; a store that never recorded one only has the size.
+    if (st.type != FileSystemEntityType.notFound &&
+        st.size == i.size &&
+        (i.sourceModified == null || st.modified == i.sourceModified)) {
+      return true;
+    }
+    remove(i.key);
+    return false;
   }
 
   void remove(String key) {

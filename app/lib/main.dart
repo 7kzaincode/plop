@@ -16,6 +16,7 @@ import 'share_in.dart';
 import 'shelf_screen.dart';
 import 'theme.dart';
 import 'tray.dart';
+import 'web_shelf.dart';
 import 'window.dart';
 
 Future<void> main() async {
@@ -63,7 +64,13 @@ Future<void> _start() async {
     discovery: BonsoirPeerDiscovery(),
     name: name,
     ttl: settings.ttl,
+    // Desktop serves the web shelf too, so its address should stay put:
+    // the port phones were given, else the memorable one, else any.
+    ports: [
+      if (isDesktop) ...[?settings.webPort, defaultWebPort],
+    ],
   );
+  if (isDesktop) await startWebShelf(node, settings, remember: suffix == '');
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));

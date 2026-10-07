@@ -19,6 +19,7 @@ dependencies:
   path_provider: ^2.1.6
   plop_core:
     path: ../packages/core
+  qr_flutter: ^4.1.0
   share_plus: ^13.3.1
   tray_manager: ^0.5.3
   # The Windows probe must test the exact key code hotkey_manager registers,
@@ -40,6 +41,7 @@ flutter:
     - assets/brand/tray.png
     - assets/brand/tray.ico
     - assets/brand/tray_light.ico
+    - assets/icon/icon.png
   fonts:
     - family: Geist
       fonts:

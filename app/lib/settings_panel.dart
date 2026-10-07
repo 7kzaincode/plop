@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:plop_core/plop_core.dart';
 
 import 'hotkeys.dart';
 import 'login_item.dart';
@@ -11,23 +12,27 @@ import 'notify.dart';
 import 'settings.dart';
 import 'theme.dart';
 import 'tray.dart';
+import 'web_shelf.dart';
 
-/// The one settings surface: global shortcuts, open-at-login, and what
-/// plop does in the background, with [onQuit] behind its "quit plop" link
-/// while the tray icon is up on Windows and Linux ([Tray.quitsInWindow]).
+/// The one settings surface: global shortcuts, open-at-login, the web
+/// shelf's address when [node] serves one, and what plop does in the
+/// background, with [onQuit] behind its "quit plop" link while the tray
+/// icon is up on Windows and Linux ([Tray.quitsInWindow]).
 Future<void> showSettings(
   BuildContext context,
   Settings settings, {
+  PlopNode? node,
   VoidCallback? onQuit,
 }) => showDialog<void>(
   context: context,
   barrierColor: const Color(0x99000000),
-  builder: (_) => _SettingsPanel(settings, onQuit: onQuit),
+  builder: (_) => _SettingsPanel(settings, node: node, onQuit: onQuit),
 );
 
 class _SettingsPanel extends StatefulWidget {
-  const _SettingsPanel(this.settings, {this.onQuit});
+  const _SettingsPanel(this.settings, {this.node, this.onQuit});
   final Settings settings;
+  final PlopNode? node;
   final VoidCallback? onQuit;
 
   @override
@@ -266,6 +271,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   ),
                   label,
                 ),
+              if (widget.node case final node? when node.web.enabled)
+                PhoneLink(node, recording: _recording != null),
               if (Notify.supported)
                 _BackgroundSection(
                   widget.settings,
