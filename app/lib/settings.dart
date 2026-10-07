@@ -56,6 +56,15 @@ class Settings {
     _save().ignore(); // the picker has nowhere to say it failed
   }
 
+  /// OS notifications while plop is in the background (lib/notify.dart).
+  /// On unless switched off.
+  bool get notifications => _data['notifications'] != false;
+
+  set notifications(bool on) {
+    _data['notifications'] = on;
+    _save().ignore(); // the toggle has nowhere to say it failed
+  }
+
   /// A custom global shortcut, or null for the default.
   HotKey? hotkey(String name) {
     final j = _data['hotkey.$name'];

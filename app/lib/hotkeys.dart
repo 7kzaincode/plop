@@ -9,6 +9,7 @@ import 'package:plop_core/plop_core.dart';
 import 'package:uni_platform/uni_platform.dart';
 
 import 'grab.dart';
+import 'notify.dart';
 import 'window.dart';
 
 /// System-wide shortcuts on desktop, so things can go on the shelf without
@@ -214,10 +215,15 @@ abstract final class Hotkeys {
   }
 
   /// [onPlopped] gets a short message after something lands, or with
-  /// `ok: false` when it failed and the user needs to act.
+  /// `ok: false` when it failed and the user needs to act. The shortcuts are
+  /// pressed from other apps, so while plop's window is away the message is
+  /// an OS notification too (lib/notify.dart).
   static Future<void> register(PlopNode node, Plopped onPlopped) async {
     _node = node;
-    _onPlopped = onPlopped;
+    _onPlopped = (message, {ok = true, action, onTap}) {
+      Notify.say(message);
+      onPlopped(message, ok: ok, action: action, onTap: onTap);
+    };
     await apply();
   }
 

@@ -10,6 +10,7 @@ import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
 import 'login_item.dart';
+import 'notify.dart';
 import 'settings.dart';
 import 'share_in.dart';
 import 'shelf_screen.dart';
@@ -68,8 +69,11 @@ Future<void> _start() async {
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
   LoginItem.installLauncher();
   Arrivals.watch(node);
-  // Closing the window keeps plop in the tray once its icon is up.
+  // Closing the window keeps plop in the tray once its icon is up; what
+  // happens while the window is away is said with OS notifications.
   Tray.init(node).ignore();
+  Notify.init(settings).ignore();
+  Notify.watch(node);
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
   // the Screen Recording steps, waits until they look instead of fading out;
