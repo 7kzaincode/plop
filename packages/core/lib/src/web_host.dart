@@ -472,8 +472,8 @@ const _manifest = {
   'display': 'standalone',
   'background_color': '#0A0A0A',
   'theme_color': '#0A0A0A',
+  // The app's icon, which is 1024 px; browsers scale it to what they need.
   'icons': [
-    {'src': '/icon.png', 'sizes': '512x512', 'type': 'image/png'},
     {'src': '/icon.png', 'sizes': '1024x1024', 'type': 'image/png'},
   ],
 };
@@ -522,7 +522,8 @@ h1 span{color:var(--dim);font-weight:400}
 .off h1 span{color:var(--warn)}
 .btn{padding:6px 12px;border:1px solid var(--border);border-radius:6px;line-height:1.2;white-space:nowrap}
 .btn:active{background:var(--pressed)}
-#list{flex:1;display:flex;flex-direction:column}
+#list{flex:1;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
+#list:has(+ #hint.on){padding-bottom:0}
 .row{flex:none;display:flex;align-items:center;gap:12px;padding:14px 12px 14px 16px;position:relative;cursor:pointer;user-select:none;-webkit-user-select:none}
 .row:active{background:var(--pressed)}
 .main{flex:1;min-width:0}

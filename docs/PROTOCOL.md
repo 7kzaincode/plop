@@ -170,7 +170,7 @@ or computer on the LAN visits cannot write here.
 | route | answer |
 |---|---|
 | `GET /` | The page: inline HTML, CSS and JS, nothing fetched from elsewhere. `Cache-Control: max-age=60`. |
-| `GET /manifest.webmanifest` | Web app manifest: `plop`, standalone, `#0A0A0A`, icons at `/icon.png`, `start_url` `/`. |
+| `GET /manifest.webmanifest` | Web app manifest: `plop`, standalone, `#0A0A0A`, one icon at `/icon.png` (1024x1024), `start_url` `/`. |
 | `GET /icon.png` | The app icon (a 1x1 black PNG on a node that was given none). |
 | `GET /web/shelf` | Every item the node knows, own and mirrored, newest first (see below). |
 | `GET /web/items/{originId}/{id}` | The bytes, with `Content-Type`, `Content-Length`, `Content-Security-Policy: sandbox` (nothing served here runs as a page of this origin) and `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…` (a folder's zip as `<name>.zip`, text as `text.txt`). A mirror not copied yet is fetched from its origin first. `404` once gone; `502` if the origin cannot be reached. `HEAD` gives the same headers from what the shelf knows, `Content-Length` being the item's size, and fetches nothing. |

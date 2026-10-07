@@ -349,6 +349,16 @@ void main() {
     expect(html, isNot(contains('{{name}}')));
     // Nothing is fetched from outside the LAN.
     expect(html, isNot(contains('https://')));
+    // Home-screen mode: the last row clears the home indicator, unless the
+    // hint under the list already does.
+    expect(
+      html,
+      contains(
+        '#list{flex:1;display:flex;flex-direction:column;'
+        'padding-bottom:env(safe-area-inset-bottom)}',
+      ),
+    );
+    expect(html, contains('#list:has(+ #hint.on){padding-bottom:0}'));
     final head = await send('HEAD', p.url('/'));
     expect(head.status, 200);
     expect(head.headers.contentType?.mimeType, 'text/html');
@@ -361,7 +371,9 @@ void main() {
     expect(m['display'], 'standalone');
     expect(m['start_url'], '/');
     expect(m['background_color'], '#0A0A0A');
-    expect((m['icons'] as List).first['src'], '/icon.png');
+    expect(m['icons'], [
+      {'src': '/icon.png', 'sizes': '1024x1024', 'type': 'image/png'},
+    ], reason: 'the one size the icon is');
 
     // A black pixel until the app hands over its icon.
     final icon = await get(p.url('/icon.png'));
