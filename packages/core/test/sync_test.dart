@@ -710,6 +710,35 @@ void main() {
     expect(mirror.name, 'invoice_fdp.exe');
   });
 
+  test('a cut name never ends in half an emoji', () async {
+    c = await Cluster.start(1);
+    final s = c.nodes.single.store;
+    const grin = '\u{1F600}'; // two UTF-16 units
+    // The 60th unit is the first half of the emoji.
+    final text = await s.addText('${'a' * 59}$grin and more');
+    expect(text.name, '${'a' * 59}…');
+    final whole = await s.addText('${'a' * 58}$grin and more');
+    expect(whole.name, '${'a' * 58}$grin…');
+
+    final mirror = s.addRemote(
+      'p',
+      'p',
+      RemoteItem(
+        id: randomId(),
+        name: '${'n' * (ShelfStore.maxNameLength - 1)}$grin.png',
+        size: 1,
+        mime: 'image/png',
+        kind: ItemKind.file,
+        ttlMs: 1000,
+      ),
+    )!;
+    expect(mirror.name, 'n' * (ShelfStore.maxNameLength - 1));
+
+    // safeFileName keeps the last 120 units, the extension's end.
+    expect(safeFileName('x$grin${'a' * 119}'), 'a' * 119);
+    expect(safeFileName('x$grin${'a' * 118}'), '$grin${'a' * 118}');
+  });
+
   test('odd remote fields are refused or clamped', () async {
     c = await Cluster.start(1);
     final s = c.nodes.single.store;

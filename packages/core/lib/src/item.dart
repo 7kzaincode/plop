@@ -200,7 +200,14 @@ String safeFileName(String name) {
       .trim()
       .replaceAll(RegExp(r'[. ]+$'), '');
   if (cleaned.isEmpty) return 'file';
-  if (cleaned.length > 120) cleaned = cleaned.substring(cleaned.length - 120);
+  if (cleaned.length > 120) {
+    // Not from the second half of a surrogate pair, which would be
+    // written as U+FFFD.
+    final start = cleaned.length - 120;
+    cleaned = cleaned.substring(
+      cleaned.codeUnitAt(start) & 0xfc00 == 0xdc00 ? start + 1 : start,
+    );
+  }
   return cleaned.replaceFirstMapped(_reserved, (m) => '${m[1]}_${m[2]}');
 }
 

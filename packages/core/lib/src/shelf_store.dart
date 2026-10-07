@@ -281,6 +281,14 @@ Future<void> _zipFolder(String dir, String zip, int maxBytes) async {
   await enc.close();
 }
 
+/// The first [n] UTF-16 units of [s], one fewer where the cut would split a
+/// surrogate pair: half an emoji is no character, and UTF-8 turns it into
+/// U+FFFD, a broken glyph on every peer and in a saved file's name.
+String _head(String s, int n) {
+  if (s.length <= n) return s;
+  return s.substring(0, s.codeUnitAt(n - 1) & 0xfc00 == 0xd800 ? n - 1 : n);
+}
+
 class ItemTooLargeException implements Exception {
   ItemTooLargeException(this.size, this.max);
   final int size;
@@ -414,7 +422,7 @@ class ShelfStore {
   Future<ShelfItem> addText(String text) {
     final firstLine = text.trim().split('\n').first;
     final label = firstLine.length > 60
-        ? '${firstLine.substring(0, 60)}…'
+        ? '${_head(firstLine, 60)}…'
         : firstLine;
     return _addOwned(utf8.encode(text), label, ItemKind.text, 'text.txt');
   }
@@ -501,10 +509,7 @@ class ShelfStore {
     final ttl = Duration(
       milliseconds: min(r.ttlMs, maxRemoteTtl.inMilliseconds),
     );
-    final label = safeLabel(r.name);
-    final name = label.length > maxNameLength
-        ? label.substring(0, maxNameLength)
-        : label;
+    final name = _head(safeLabel(r.name), maxNameLength);
     final now = DateTime.now();
     final seen = _firstSeen.remove(key);
     final item = ShelfItem(
