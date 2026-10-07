@@ -1397,6 +1397,30 @@ void main() {
     await eventually(() => a.oneWay.isEmpty && b.peers.isNotEmpty);
   });
 
+  test('a peer that reaches us but cannot be reached is flagged', () async {
+    c = await Cluster.start(2, ttl: const Duration(seconds: 30));
+    final [a, b] = c.nodes;
+    await eventually(() => a.peers.isNotEmpty && b.peers.isNotEmpty);
+    expect(a.unreachable, isEmpty);
+
+    // B's firewall turns away whatever comes in; B still polls A.
+    await b.server.stop();
+    // Out of [peers] at the first missed poll, flagged at the third.
+    await eventually(() => a.unreachable.isNotEmpty);
+    expect(a.unreachable.map((p) => p.id), [b.id]);
+    expect(a.peers, isEmpty);
+    expect(b.peers.map((p) => p.id), [a.id]);
+    expect(b.unreachable, isEmpty);
+
+    // Once B no longer reaches A either, discovery listing it is not
+    // enough: it may have left without a goodbye.
+    c.discoveries[1].remove(a.id);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    a.server.seenBy[b.id] = DateTime.now().subtract(PlopNode.oneWayAfter * 2);
+    expect(a.engine.unreachablePeers.map((p) => p.id), [b.id]);
+    expect(a.unreachable, isEmpty);
+  });
+
   test('the server answers over IPv6 too where the host has it', () async {
     c = await Cluster.start(1, ttl: const Duration(seconds: 30));
     final [a] = c.nodes;

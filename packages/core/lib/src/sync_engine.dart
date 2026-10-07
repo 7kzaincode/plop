@@ -79,6 +79,15 @@ class SyncEngine {
       if (s.base != null && s.failures == 0) s.peer,
   ];
 
+  /// Peers discovery still lists that have missed [maxFailures] polls in a
+  /// row: their uncopied items are gone and they are not in
+  /// [reachablePeers]. Discovery can keep a device that left without
+  /// saying so for a long while, so this alone does not mean it is there.
+  List<Peer> get unreachablePeers => [
+    for (final s in _peers.values)
+      if (s.failures >= maxFailures) s.peer,
+  ];
+
   /// Since when [id] has been continuously reachable; null if it is not.
   DateTime? okSince(String id) => _peers[id]?.okSince;
 

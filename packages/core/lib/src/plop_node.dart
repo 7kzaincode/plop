@@ -84,6 +84,30 @@ class PlopNode {
     ];
   }
 
+  /// Peers that reach this node but that it cannot reach: the other side of
+  /// [oneWay], usually a firewall on theirs (a Windows PC whose firewall
+  /// prompt was dismissed, ufw on Linux). Their lists fail every poll, so
+  /// they are not in [peers] and none of their items show; without this
+  /// the shelf here reads as "just you" while they show up in [oneWay] on
+  /// their own screen.
+  ///
+  /// A peer counts once it has missed [SyncEngine.maxFailures] polls in a
+  /// row (it left [peers] at the first) and has also reached this node
+  /// within [oneWayAfter]. Discovery alone is not enough: a device that
+  /// left without saying so can stay listed for a long while, and would
+  /// read as blocked. Time-based, like [oneWay]: [changes] fires when a
+  /// peer stops answering, not when its last contact here ages out, so a
+  /// screen that shows this checks it again on a timer.
+  List<Peer> get unreachable {
+    final now = DateTime.now();
+    return [
+      for (final p in engine.unreachablePeers)
+        if (server.seenBy[p.id] case final seen?
+            when now.difference(seen) <= oneWayAfter)
+          p,
+    ];
+  }
+
   /// The later of: since when we have reached [id], and when it last reached
   /// us. A `seenBy` entry older than `okSince` predates the current reachable
   /// window (the peer slept or dropped off Wi-Fi), so it must not count, or
