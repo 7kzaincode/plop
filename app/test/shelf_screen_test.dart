@@ -75,9 +75,14 @@ void main() {
   Future<void> pumpApp(
     WidgetTester tester, {
     GlobalKey<ShelfScreenState>? screenKey,
+    Settings? settings,
   }) async {
     await tester.pumpWidget(
-      PlopApp(node: me, settings: Settings.inMemory(), screenKey: screenKey),
+      PlopApp(
+        node: me,
+        settings: settings ?? Settings.inMemory(),
+        screenKey: screenKey,
+      ),
     );
     await tester.pump(); // autofocus
     // Rows fade in from nothing, and a row that is not painted cannot
@@ -755,6 +760,40 @@ void main() {
     );
     expect(find.byIcon(Icons.arrow_downward_rounded), findsNothing);
     expect(tipOf(Icons.folder_open_rounded), 'show');
+
+    await tester.pump(const Duration(seconds: 5)); // the toast fades
+    await stopNodes(tester);
+  });
+
+  testWidgets('a lifetime that cannot be saved says so, and holds', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    // A settings path under a plain file: creating its directory fails.
+    final blocker = File('${root.path}/blocker')..writeAsStringSync('');
+    await pumpApp(
+      tester,
+      settings: Settings.at(File('${blocker.path}/settings.json')),
+    );
+    await tester.tap(find.text('2m'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5m').last);
+    await tester.pumpAndSettle(); // the menu closes; the save starts
+    // The save started in the test's fake zone: each of its disk steps
+    // needs real time to finish and a pump to be heard.
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(me.ttl, const Duration(minutes: 5));
+    expect(
+      find.text("couldn't save that lifetime · it holds until plop quits"),
+      findsOneWidget,
+    );
 
     await tester.pump(const Duration(seconds: 5)); // the toast fades
     await stopNodes(tester);

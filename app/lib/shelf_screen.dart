@@ -229,7 +229,11 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   void _setTtl(Duration d) {
     setState(() => node.ttl = d);
-    widget.settings.ttl = d;
+    widget.settings.setTtl(d).catchError((_) {
+      if (mounted) {
+        toast("couldn't save that lifetime · it holds until plop quits");
+      }
+    });
   }
 
   /// Who has a copy of one of your own items: 'on Zain's iPhone', 'on a and

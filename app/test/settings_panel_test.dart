@@ -517,6 +517,33 @@ void main() {
     expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
   });
 
+  testWidgets('a reset that cannot be saved says so', (tester) async {
+    addTearDown(() => Hotkeys.snip = Hotkeys.defaultSnip);
+    final dir = Directory.systemTemp.createTempSync('plop_settings');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final blocker = File('${dir.path}/blocker')..writeAsStringSync('');
+    Hotkeys.snip = HotKey(
+      key: PhysicalKeyboardKey.keyS,
+      modifiers: Hotkeys.defaultMods,
+    );
+    await openPanel(
+      tester,
+      settings: Settings.at(File('${blocker.path}/settings.json')),
+    );
+
+    // Tapped in real time, so the disk writes run and fail.
+    await tester.runAsync(() async {
+      await tester.tap(find.text('reset to defaults'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+    expect(
+      find.text("couldn't save that · the defaults hold until plop quits"),
+      findsOneWidget,
+    );
+    expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
+  });
+
   testWidgets('a shortcut that cannot be saved says so and still works', (
     tester,
   ) async {

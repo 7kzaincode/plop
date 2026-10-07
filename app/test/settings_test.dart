@@ -22,6 +22,23 @@ void main() {
     expect(settings.hotkey('snip'), isNotNull);
   });
 
+  // The shelf's "couldn't save that lifetime" depends on this too.
+  test('a failed write fails setTtl', () async {
+    final dir = Directory.systemTemp.createTempSync('plop_settings');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final blocker = File('${dir.path}/blocker')..writeAsStringSync('');
+    final settings = Settings.at(File('${blocker.path}/settings.json'));
+    await expectLater(
+      settings.setTtl(const Duration(minutes: 5)),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(settings.ttl, const Duration(minutes: 5), reason: 'until quit');
+
+    final file = File('${dir.path}/settings.json');
+    await Settings.at(file).setTtl(const Duration(hours: 1));
+    expect((await Settings.loadFrom(file)).ttl, const Duration(hours: 1));
+  });
+
   // A saved port that is not one would make binding throw ArgumentError,
   // which no fallback catches; it reads as nothing saved instead.
   test('webPort reads back only a port', () {
