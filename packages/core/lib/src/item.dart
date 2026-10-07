@@ -176,23 +176,29 @@ String mimeFor(String name) {
       'application/octet-stream';
 }
 
-/// Replaces each character that changes how the text around it is shown
-/// without being seen itself with `_`, so a peer-supplied name reads as
-/// what it is. A right-to-left override makes `invoice\u202Efdp.exe` read
-/// as "invoice" then "exe.pdf" on every shelf and in Finder and Explorer,
-/// and a double click runs it; a newline in `invoice.pdf\n.exe` leaves a
-/// one-line row showing `invoice.pdf`. Covers the C0 and C1 controls, the
-/// bidi marks, embeddings, overrides and isolates, zero-width space, word
-/// joiner and invisible operators, line and paragraph separators and the
-/// BOM. The joiners U+200C and U+200D stay: Persian and Hindi words and
-/// emoji sequences need them, and they cannot turn a run around.
+/// Makes a peer-supplied name read as what it is, with no character that
+/// changes how the text around it is shown while unseen itself. A
+/// right-to-left override makes `invoice\u202Efdp.exe` read as "invoice"
+/// then "exe.pdf" on every shelf and in Finder and Explorer, and a double
+/// click runs it; a newline in `invoice.pdf\n.exe` leaves a one-line row
+/// showing `invoice.pdf`. Those, and every C0 and C1 control, the bidi
+/// embeddings, overrides and isolates, and the line and paragraph
+/// separators, become `_`, so the place shows.
+///
+/// The other invisible marks go without a trace: the bidi marks (LRM, RLM,
+/// ALM), zero-width space, word joiner, invisible operators and BOM. They
+/// cannot turn a run of Latin text around, and are everyday in Hebrew and
+/// Arabic names and Thai text, which must not sprout underscores. The
+/// joiners U+200C and U+200D stay: Persian and Hindi words and emoji
+/// sequences need them.
 ///
 /// The one helper for this, for a name shown anywhere as well as saved.
-String safeLabel(String name) => name.replaceAll(_invisible, '_');
+String safeLabel(String name) =>
+    name.replaceAll(_hiding, '_').replaceAll(_invisible, '');
 
+final _hiding = RegExp(r'[\x00-\x1f\x7f-\x9f\u2028-\u202e\u2066-\u2069]');
 final _invisible = RegExp(
-  r'[\x00-\x1f\x7f-\x9f\u061c\u200b\u200e\u200f\u2028-\u202e'
-  r'\u2060-\u2064\u2066-\u206f\ufeff]',
+  r'[\u061c\u200b\u200e\u200f\u2060-\u2064\u206a-\u206f\ufeff]',
 );
 
 /// Makes a peer-supplied name safe to use as a single path segment on every

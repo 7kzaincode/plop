@@ -830,15 +830,30 @@ void main() {
     expect(safeFileName('a\u202Efdp.exe'), 'a_fdp.exe');
     // An isolate and its end, U+2067 and U+2069.
     expect(safeFileName('a\u2067fdp\u2069.exe'), 'a_fdp_.exe');
-    expect(safeLabel('\u200Ba\uFEFF'), '_a_');
+    // Marks that cannot turn Latin text around go without a trace, so
+    // Hebrew with a right-to-left mark (U+200F), Arabic with its letter
+    // mark (U+061C) and Thai with a zero-width space (U+200B) stay clean.
+    expect(safeLabel('\u200Ba\uFEFF'), 'a');
+    // Word joiner and the invisible operators, U+2060-2064, likewise.
+    expect(safeLabel('a\u2060b\u2061c\u2062d\u2063e\u2064f'), 'abcdef');
+    const report = '\u05D3\u05D5\u05D7 2024'; // Hebrew
+    expect(safeFileName('$report\u200F.pdf'), '$report.pdf');
+    const file = '\u0645\u0644\u0641'; // Arabic
+    expect(safeLabel('$file\u061C.txt'), '$file.txt');
+    const hello = '\u0E2A\u0E27\u0E31\u0E2A\u0E14\u0E35'; // Thai, two words
+    const sir = '\u0E04\u0E23\u0E31\u0E1A';
+    expect(safeFileName('$hello\u200B$sir.docx'), '$hello$sir.docx');
     // The joiner in an emoji sequence, or in Persian, is left alone.
     const family = '\u{1F468}\u200D\u{1F469}.png';
     expect(safeFileName(family), family);
     const iWant = '\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645';
     expect(safeLabel(iWant), iWant);
 
-    // A line break, C0 or C1, cuts a one-line row short.
+    // A line break, C0 or C1, cuts a one-line row short, and so do the
+    // line and paragraph separators, U+2028 and U+2029.
     expect(safeLabel('invoice.pdf\n.exe'), 'invoice.pdf_.exe');
+    expect(safeLabel('invoice.pdf .exe'), 'invoice.pdf_.exe');
+    expect(safeFileName('invoice.pdf .exe'), 'invoice.pdf_.exe');
     expect(safeLabel('a\r\tb\x7f\x85c'), 'a__b__c');
     expect(safeFileName('invoice.pdf\n.exe'), 'invoice.pdf_.exe');
 
