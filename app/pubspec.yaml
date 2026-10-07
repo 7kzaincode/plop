@@ -10,6 +10,7 @@ dependencies:
   bonsoir: ^7.1.5
   desktop_drop: ^0.8.4
   device_info_plus: ^13.3.0
+  ffi: ^2.2.0
   file_picker: ^13.1.0
   flutter:
     sdk: flutter

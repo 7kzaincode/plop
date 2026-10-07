@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
@@ -280,6 +281,9 @@ abstract final class Hotkeys {
       },
       'clip': () {
         if (_isRepeat('clip')) return;
+        // A Windows snip still waiting on the clipboard would plop this
+        // picture a second time, as a screenshot.
+        _snipGen++;
         _once(() async {
           if (await pasteInto(node)) {
             _feedback(true);
@@ -521,7 +525,13 @@ abstract final class Hotkeys {
 
   /// The Snipping Tool overlay puts its result on the clipboard. Watch the
   /// clipboard's sequence number rather than its contents, so nothing is read
-  /// until it changes; a newer press cancels this wait.
+  /// until it changes; a newer press, of this or the clipboard shortcut,
+  /// cancels this wait. Esc in the overlay says nothing, so the first
+  /// change is taken as the snip unless it is plainly a copy: the overlay
+  /// writes a picture and nothing else, while a browser, Office or a text
+  /// field adds text or HTML. A picture copied on its own (Paint, Photos,
+  /// some chat apps) still can't be told from a snip, which is why the
+  /// wait is short: nobody takes 45 s to drag out a rectangle.
   static Future<ShelfItem?> _snipWindows(PlopNode node, String name) async {
     final seqOf = _user32.lookupFunction<Uint32 Function(), int Function()>(
       'GetClipboardSequenceNumber',
@@ -529,10 +539,13 @@ abstract final class Hotkeys {
     final gen = ++_snipGen;
     final start = seqOf();
     await Process.start('explorer.exe', ['ms-screenclip:']);
-    final end = DateTime.now().add(const Duration(minutes: 2));
+    final end = DateTime.now().add(const Duration(seconds: 45));
     while (DateTime.now().isBefore(end) && gen == _snipGen) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       if (seqOf() == start) continue;
+      // Asked without opening the clipboard, so another process holding it
+      // doesn't matter here.
+      if (_copyFormats.any((f) => f != 0 && _hasFormat(f) != 0)) return null;
       // Another process may still hold the clipboard for a moment.
       for (var tries = 0; tries < 10; tries++) {
         try {
@@ -547,6 +560,28 @@ abstract final class Hotkeys {
     }
     return null;
   }
+
+  static final _hasFormat = _user32
+      .lookupFunction<Int32 Function(Uint32), int Function(int)>(
+        'IsClipboardFormatAvailable',
+      );
+
+  /// What a copy puts on the clipboard and a snip does not: CF_UNICODETEXT,
+  /// and the "HTML Format" browsers and Office add, whose id each session
+  /// hands out on first use (0 if it could not).
+  static final _copyFormats = () {
+    final register = _user32
+        .lookupFunction<
+          Uint32 Function(Pointer<Utf16>),
+          int Function(Pointer<Utf16>)
+        >('RegisterClipboardFormatW');
+    final html = 'HTML Format'.toNativeUtf16();
+    try {
+      return [13, register(html)];
+    } finally {
+      malloc.free(html);
+    }
+  }();
 
   /// A sound either way: the shortcuts are pressed from other apps, where
   /// the toast in plop's window can't be seen. Fire and forget.
