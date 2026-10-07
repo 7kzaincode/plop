@@ -1,5 +1,6 @@
 # Installable builds, attached to a GitHub Release:
-#   macOS    plop-macos.dmg, plop-macos.zip (universal, ad-hoc signed)
+#   macOS    plop-macos.dmg, plop-macos.zip (universal, signed with a
+#            self-signed certificate if one is set up, else ad hoc)
 #   Windows  plop-windows-setup.exe, plop-windows-x64.zip (VC++ runtime included)
 #   Linux    plop-linux-x64.tar.gz (libkeybinder, libnotify, libayatana-appindicator and a
 #            launcher icon included)
@@ -75,16 +76,50 @@ jobs:
             --build-name="$version" --build-number="$GITHUB_RUN_NUMBER"
           mkdir -p ../dist
 
+      # Not notarized either way (that needs a paid Apple account), so the
+      # first open still goes through Open Anyway: see README. What the
+      # signature decides is whether macOS knows an update is the same app.
+      # An ad-hoc signature's designated requirement is that one build's
+      # hash, so to macOS every update is a new app and Screen Recording has
+      # to be granted again. Optional secrets MACOS_SIGN_P12 (the base64 of
+      # a self-signed Code Signing certificate exported with its key, see
+      # README > Releasing) and MACOS_SIGN_P12_PASSWORD give every build the
+      # requirement "this identifier, signed by that certificate" instead,
+      # which the next build meets too. codesign takes only an identity
+      # trusted for code signing, so the certificate is trusted on this
+      # throwaway runner (root, so no prompt). Without the secrets, as on a
+      # fork, the app is signed ad hoc as before.
       - if: matrix.target == 'macos'
+        env:
+          P12: ${{ secrets.MACOS_SIGN_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_SIGN_P12_PASSWORD }}
         run: |
           app=build/macos/Build/Products/Release/plop.app
           lipo "$app/Contents/MacOS/plop" -verify_arch arm64 x86_64
-          # Ad-hoc signed (no Apple account), so not notarized: see README for
-          # the first open. The app is signed again on its own to keep its
-          # sandbox and network entitlements.
-          codesign --force --deep --sign - "$app"
-          codesign --force --sign - --entitlements macos/Runner/Release.entitlements "$app"
+          sign=(--sign -)
+          if [ -n "$P12" ]; then
+            kc=$RUNNER_TEMP/plop.keychain-db
+            echo "$P12" | base64 -d > "$RUNNER_TEMP/plop.p12"
+            security create-keychain -p '' "$kc"
+            security set-keychain-settings "$kc"
+            security unlock-keychain -p '' "$kc"
+            security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+            security import "$RUNNER_TEMP/plop.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k '' "$kc" > /dev/null
+            security find-certificate -a -p "$kc" > "$RUNNER_TEMP/plop.pem"
+            sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/plop.pem"
+            id=$(security find-identity -v -p codesigning "$kc" | awk '/\)/ {print $2; exit}')
+            test -n "$id" || { echo "no code signing identity in MACOS_SIGN_P12"; exit 1; }
+            # No timestamp: Apple's server is one more thing to fail, and the
+            # requirement macOS checks doesn't use it.
+            sign=(--sign "$id" --keychain "$kc" --timestamp=none)
+          fi
+          # The app is signed again on its own to keep its sandbox and network
+          # entitlements.
+          codesign --force --deep "${sign[@]}" "$app"
+          codesign --force "${sign[@]}" --entitlements macos/Runner/Release.entitlements "$app"
           codesign --verify --deep --strict "$app"
+          codesign --display -r - "$app"
           # ditto, not zip, keeps the frameworks' symlinks intact.
           ditto -c -k --keepParent "$app" ../dist/plop-macos.zip
           mkdir dmg && ditto "$app" dmg/plop.app && ln -s /Applications dmg/Applications
@@ -102,8 +137,14 @@ jobs:
           # The VC++ runtime, so plop.exe starts on PCs without the Visual C++
           # Redistributable. Copies next to the exe take precedence.
           Copy-Item "$env:WINDIR\System32\msvcp140.dll", "$env:WINDIR\System32\vcruntime140.dll", "$env:WINDIR\System32\vcruntime140_1.dll" $out
-          Compress-Archive "$out\*" ..\dist\plop-windows-x64.zip
+          # The installer first: plop.iss reads the Release folder by name.
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" ..\packaging\windows\plop.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # Zip the folder, not its contents, so "Extract here" gives
+          # plop\plop.exe, as the Linux tarball gives plop/plop, rather than a
+          # dozen loose DLLs in Downloads.
+          Rename-Item $out plop
+          Compress-Archive build\windows\x64\runner\plop ..\dist\plop-windows-x64.zip
 
       # libkeybinder-3.0 (shortcuts), libnotify (notifications) and
       # libayatana-appindicator3 (the tray icon) are not default packages on

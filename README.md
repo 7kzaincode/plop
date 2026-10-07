@@ -22,11 +22,14 @@ each system warns once; the steps below get past it.
    `xattr -dr com.apple.quarantine /Applications/plop.app`.
 3. Allow plop to find devices on your local network when asked.
 4. The first screen snip (⌃⌥P) asks for Screen Recording. Allow it, then quit
-   plop (⌘Q) and open it again: macOS only applies it to a fresh launch. After
-   an update macOS treats plop as a new app, so if a snip instead brings plop
-   forward saying it isn't allowed yet, open the settings from that message;
-   if plop is already switched on there, remove that entry with −, press ⌃⌥P
-   again and allow it.
+   plop (⌘Q) and open it again: macOS only applies it to a fresh launch.
+
+To update: quit plop (⌘Q, or "quit plop" from its menu bar icon), then
+install the new download as in steps 1 and 2 (each download needs Open
+Anyway once). If macOS asks about the local network again, allow it. If a
+snip then brings plop forward saying it isn't allowed yet, macOS has taken
+the update for a new app: open the settings from that message, remove plop
+there with −, press ⌃⌥P again, allow it and reopen plop.
 
 Closing the window keeps plop running, so the shortcuts and your items stay
 live. Click its Dock icon, ⌘Tab back to it, or pick "open plop" from its
@@ -49,7 +52,7 @@ settings panel can switch the island off ("show arrivals").
 2. Accept the admin prompt. The installer adds a firewall rule so the other
    devices can reach this PC; without it they see the PC but can't grab from it.
 
-No installer: unzip `plop-windows-x64.zip` and run `plop.exe`. When Windows
+No installer: unzip `plop-windows-x64.zip` and run `plop\plop.exe`. When Windows
 Firewall asks, tick both Private and Public. If you clicked Cancel, remove the
 plop entries under Windows Security > Firewall & network protection > Allow an
 app through firewall (or run the installer, which clears them).
@@ -97,16 +100,21 @@ plop as it used to. A notification says who sent what while plop is in the
 background (a shortcut's result is one too); click it to open plop. The
 settings panel can switch them off.
 
-The global shortcuts work only in an X11 session. Ubuntu and Debian GNOME log
-in to Wayland by default: pick the "… on Xorg" option from the gear menu at
-the login screen, or just use the in-window drop and paste (on Wayland the
-settings panel says so in place of the shortcut rows). Snipping runs
-`gnome-screenshot`, `spectacle` or `scrot`, whichever is installed (`sudo apt
-install gnome-screenshot` on stock Ubuntu). If you turned on ufw or
-firewalld, allow your LAN subnet in: plop listens on port 7567, or on a
-random one if that is taken.
+The global shortcuts work only in an X11 session; on Wayland, which GNOME
+and KDE log in to by default, the settings panel says so in place of the
+shortcut rows. Ubuntu 24.04 and Debian 13 still offer an X11 session: pick
+the "… on Xorg" option from the gear menu at the login screen. Ubuntu 25.10
+and later (26.04 LTS included) and Fedora 43 and later have none for GNOME,
+so there use the window instead: take a screenshot with Print Screen (GNOME
+copies it to the clipboard) and press Ctrl+V in plop to put it up; Ctrl+V
+also puts up whatever else you copied, and Ctrl+C or Enter grabs the newest
+item from another device. The tray and notifications work on Wayland too.
+On X11, snipping runs `gnome-screenshot`, `spectacle` or `scrot`, whichever
+is installed (`sudo apt install gnome-screenshot` on stock Ubuntu). If you
+turned on ufw or firewalld, allow your LAN subnet in: plop listens on port
+7567, or on a random one if that is taken.
 
-### iPhone and iPad
+### iPhone and iPad (iOS 15 or later)
 
 There is no app download: handing out iOS apps needs a paid Apple Developer
 account. Instead, any Mac, Windows or Linux computer running plop serves the
@@ -140,7 +148,8 @@ and Flutter:
    ID (Add Account… if it isn't listed). If Xcode says the bundle identifier
    is taken, change it to something unique, like `com.yourname.plop`.
 2. Connect the iPhone by cable and trust the Mac. Then on the iPhone turn on
-   Settings > Privacy & Security > Developer Mode (it restarts).
+   Settings > Privacy & Security > Developer Mode (it restarts; iOS 15 has
+   no such switch and needs none).
 3. `flutter run --release -d <iPhone>` (`flutter devices` lists it).
 4. On the first launch iOS refuses the untrusted developer: go to Settings >
    General > VPN & Device Management, tap your Apple ID and **Trust**. Open
@@ -195,8 +204,9 @@ to renew it.
   tap a saved row again to show it in Finder or Explorer (its folder, on
   Linux). ⌘C / Ctrl+C or Enter grabs the newest item from someone else. On
   phones, files open the share sheet. Images the clipboard can't take as a
-  picture save or share instead: all of them on Linux, HEIC, WebP and RAW on
-  Windows and Android.
+  picture save or share instead: all of them on Linux, SVGs everywhere, and
+  on Windows and Android any but PNG, JPEG, GIF and BMP (HEIC, WebP, AVIF,
+  TIFF, RAW…), as well as anything over 25 MB on Android.
 - **Nearby:** the top bar counts the devices plop can reach; hover it (tap
   it on a phone) for their names. With nobody there it says what to check,
   and a device whose firewall keeps plop out shows as unreachable, by
@@ -214,15 +224,26 @@ to renew it.
 
 ## From source
 
-Flutter 3.47.6, the version `.github/workflows/ci.yml` pins. Linux also needs
-`sudo apt install ninja-build libgtk-3-dev libkeybinder-3.0-dev libnotify-dev
-libayatana-appindicator3-dev`. `flutter run` builds run as their own instance, named "… (dev)", so they never wipe the
-installed plop's scratch folders; `PLOP_INSTANCE=x` does the same for a
-release build, to run two copies side by side.
+Flutter 3.47.6 (the version `.github/workflows/ci.yml` pins) and the
+toolchain for each system you build for; `flutter doctor` lists anything
+missing.
 
-- Mac: `app/tool/install_macos.sh` builds a release, signs it with your Apple
-  Development identity if you have one (so the Screen Recording and Local
-  Network permissions survive rebuilds) and installs it to /Applications.
+- macOS and iOS: Xcode. The macOS app also needs CocoaPods (`brew install
+  cocoapods`): its shortcut and notification plugins are still pods.
+- Windows: Visual Studio with the "Desktop development with C++" workload.
+- Linux: `sudo apt install clang cmake pkg-config ninja-build libgtk-3-dev
+  libkeybinder-3.0-dev libnotify-dev libayatana-appindicator3-dev`.
+- Android: Android Studio, which brings the SDK and a JDK.
+
+`flutter run` builds run as their own instance, named "… (dev)", so they
+never wipe the installed plop's scratch folders; `PLOP_INSTANCE=x` does the
+same for a release build, to run two copies side by side.
+
+- Install on a Mac: `app/tool/install_macos.sh` builds a release, signs it
+  with the `plop` certificate from Releasing below if this Mac trusts it for
+  code signing, else with your Apple Development identity if you have one
+  (so the Screen Recording and Local Network permissions survive rebuilds),
+  and installs it to /Applications.
 - Tests: `cd packages/core && dart test`; `cd app && flutter test` (the layout
   test drops screenshots in `app/build/screens/`);
   `flutter test integration_test -d macos` runs the end-to-end test over real
@@ -243,7 +264,21 @@ release build, to run two copies side by side.
 Push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
 `.github/workflows/release.yml` builds the downloads above and attaches them
 to a GitHub Release for that tag. Running it by hand (Actions > Release > Run
-workflow) on a branch replaces a "dev" prerelease instead. Optional: to keep
-the APK's signature the same from build to build, so each one installs over
-the last, add your debug keystore as a secret:
-`base64 -i ~/.android/debug.keystore | gh secret set ANDROID_DEBUG_KEYSTORE`.
+workflow) on a branch replaces a "dev" prerelease instead. Two optional
+secrets keep each build recognisable as the same app as the last:
+
+- Android, so each APK installs over the last: your debug keystore,
+  `base64 -i ~/.android/debug.keystore | gh secret set ANDROID_DEBUG_KEYSTORE`.
+- Mac, so an update keeps plop's Screen Recording permission (Gatekeeper
+  still asks for Open Anyway: only a paid account can notarize). Make a
+  certificate once in Keychain Access > Certificate Assistant > Create a
+  Certificate: name `plop`, Identity Type Self Signed Root, Certificate Type
+  Code Signing, tick "Let me override defaults" and make it valid for 3650
+  days. Export it with its key from My Certificates as `plop.p12`, with a
+  password, then `base64 -i plop.p12 | gh secret set MACOS_SIGN_P12` and
+  `gh secret set MACOS_SIGN_P12_PASSWORD`. Keep the .p12: a new certificate
+  makes every Mac grant the permission once more. Apple only promises that
+  the Local Network permission follows an Apple-issued identity, so macOS
+  may still ask for that one after an update. To have
+  `app/tool/install_macos.sh` use it too, set the certificate's Trust >
+  Code Signing to Always Trust.

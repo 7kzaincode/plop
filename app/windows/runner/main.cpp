@@ -60,10 +60,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  // Compact, like the macOS window: 460x560 of content.
-  Win32Window::Point origin(10, 10);
+  // Compact, like the macOS window: 460x560 of content, centred the first
+  // time (not in the corner, where the template put it), then where it was
+  // last left (win32_window.cpp), as macOS remembers its frame.
   Win32Window::Size size(460, 560);
-  if (!window.Create(L"plop", origin, size)) {
+  if (!window.Create(L"plop", Win32Window::CentredOrigin(size), size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);
