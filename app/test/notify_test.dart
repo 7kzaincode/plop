@@ -226,7 +226,7 @@ void main() {
     final changes = StreamController<void>.broadcast();
     addTearDown(changes.close);
     var remote = [item('a')];
-    Notify.watchItems(changes.stream, () => remote);
+    Notify.watchItems(changes.stream, () => remote, () => const []);
     await tester.pump(Notify.burst);
     remote = [item('a'), item('b', from: 'mac', sender: 'Studio')];
     changes.add(null);
@@ -239,6 +239,47 @@ void main() {
     await tester.pump(Notify.burst);
     expect(shown, hasLength(1));
     expect(shown.single['body'], 'IMG_4823.png · 1.5 KB');
+    await tester.pump(Notify.settle); // plop has settled in
+  });
+
+  testWidgets('a device found late at login brings no news, then does', (
+    tester,
+  ) async {
+    // Slow Wi-Fi or mDNS at login: the Mac turns up half a minute in, long
+    // after the first [grace], with its shelf as it was.
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.hidden);
+    final changes = StreamController<void>.broadcast();
+    addTearDown(changes.close);
+    var remote = <ShelfItem>[];
+    var peers = <String>[];
+    Notify.watchItems(changes.stream, () => remote, () => peers);
+    await tester.pump(const Duration(seconds: 30));
+    peers = ['mac'];
+    changes.add(null); // found; its items come with the next poll
+    await tester.pump(const Duration(seconds: 1));
+    ShelfItem studio(String id, String name) =>
+        item(id, from: 'mac', sender: 'Studio', name: name);
+    remote = [studio('b', 'notes.txt')];
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect(shown, isEmpty);
+
+    // Its grace is over: what it plops now is news.
+    await tester.pump(Notify.grace);
+    remote = [...remote, studio('c', 'IMG_4823.png')];
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect([for (final s in shown) s['body']], ['IMG_4823.png · 1.5 KB']);
+
+    // A device first heard from once plop has settled in is new, and so
+    // is everything it has.
+    await tester.pump(Notify.settle);
+    peers = [...peers, 'pad'];
+    remote = [...remote, item('d', from: 'pad', sender: 'iPad', name: 'd.pdf')];
+    changes.add(null);
+    await tester.pump(Notify.burst);
+    expect(shown.last['title'], 'iPad');
   });
 
   testWidgets('focusing the window before the burst ends cancels it', (

@@ -22,15 +22,28 @@ abstract final class Notify {
   /// together once there are three or more of them.
   static const burst = Duration(seconds: 2);
 
-  /// After [watch], arrivals are taken in without a word for this long: a
-  /// launch at login, with the window not focused, would otherwise announce
-  /// everything already on the other devices' shelves as it first syncs.
+  /// What a device brings in this long after plop first hears from it is
+  /// what it already had, taken in without a word: a launch at login, with
+  /// the window not focused, would otherwise announce everything on the
+  /// other devices' shelves as each first syncs.
   static const grace = Duration(seconds: 10);
+
+  /// After [watch], how long a device heard from for the first time still
+  /// counts as turning up rather than arriving: at login, Wi-Fi and mDNS
+  /// can take a while. One first heard from later is new to this device,
+  /// and so are its items.
+  static const settle = Duration(minutes: 1);
 
   static Settings? _settings;
   static bool _ready = false;
-  static Timer? _grace;
   static StreamSubscription<void>? _watching;
+
+  /// Running for [settle] after [watch].
+  static Timer? _settling;
+
+  /// Devices heard from since [watch], and those still in their [grace].
+  static final _heard = <String>{};
+  static final _quiet = <String, Timer>{};
 
   /// Every item from another device seen so far, so one that comes back
   /// with its peer is not news.
@@ -105,27 +118,43 @@ abstract final class Notify {
     );
   }
 
-  /// Call after runApp. Only later arrivals count: what is on the shelf now,
-  /// and what the first sync brings within [grace], was on the other
-  /// devices before plop started.
+  /// Call after runApp. Only later arrivals count: what a device had before
+  /// plop started comes in with its first sync, within [grace] of plop
+  /// first hearing from it, so long as that is within [settle] of launch.
   static void watch(PlopNode node) => watchItems(
     node.changes,
     () => node.items.where((i) => i.originId != node.id),
+    () => node.peers.map((p) => p.id),
   );
 
   /// [watch] with the node taken apart: [changes] fires whenever [remote],
-  /// the shelf's items from other devices, may have changed.
+  /// the shelf's items from other devices, or [peers], their ids, may have
+  /// changed. A device is heard from when it is found, or failing that when
+  /// its first items appear.
   @visibleForTesting
   static void watchItems(
     Stream<void> changes,
     Iterable<ShelfItem> Function() remote,
+    Iterable<String> Function() peers,
   ) {
     if (!supported) return;
-    _grace?.cancel();
-    _grace = Timer(grace, () => _grace = null);
-    arrived(remote());
+    _settling?.cancel();
+    _settling = Timer(settle, () => _settling = null);
+    void check() {
+      peers().forEach(_hear);
+      arrived(remote());
+    }
+
+    check();
     _watching?.cancel();
-    _watching = changes.listen((_) => arrived(remote()));
+    _watching = changes.listen((_) => check());
+  }
+
+  /// Starts [peer]'s [grace] the first time it is heard from while plop is
+  /// settling in.
+  static void _hear(String peer) {
+    if (_settling == null || !_heard.add(peer)) return;
+    _quiet[peer] = Timer(grace, () => _quiet.remove(peer));
   }
 
   /// The shelf's items from other devices as they are now. New ones are
@@ -136,10 +165,11 @@ abstract final class Notify {
     final here = <String>{};
     for (final item in remote) {
       here.add(item.key);
+      _hear(item.originId);
       if (!_seen.add(item)) continue;
       // The row just appeared on a focused shelf: in view already. Or plop
-      // just started, and the shelf is being filled in.
-      if (windowFocused || _grace != null) continue;
+      // just started and this device's shelf is being filled in.
+      if (windowFocused || _quiet.containsKey(item.originId)) continue;
       final b = _bursts[item.originId] ??= _Burst(
         item.originName,
         Timer(burst, () => _announce(item.originId)),
@@ -228,8 +258,13 @@ abstract final class Notify {
     }
     _bursts.clear();
     _seen.clear();
-    _grace?.cancel();
-    _grace = null;
+    _settling?.cancel();
+    _settling = null;
+    for (final t in _quiet.values) {
+      t.cancel();
+    }
+    _quiet.clear();
+    _heard.clear();
     _watching?.cancel();
     _watching = null;
     _ready = false;
