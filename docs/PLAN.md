@@ -14,7 +14,7 @@
 ## Status (2026-10-06)
 
 - Done: core (`dart test` in `packages/core`, 79 tests), the macOS, iOS,
-  Android, Windows and Linux apps (`flutter test` in `app`, 60 tests, the
+  Android, Windows and Linux apps (`flutter test` in `app`, 64 tests, the
   shelf and layout ones driving a real pair of nodes over loopback), and
   release builds for all but iOS via release.yml (ad-hoc or debug signed;
   the README covers the first open on each system). CI runs the core tests,
@@ -24,8 +24,10 @@
   shortcuts, open at login, Android share target, macOS Dock drops, a Dock
   badge / taskbar flash for arrivals while hidden, a tray / menu bar icon so
   closing the window keeps plop running on every desktop (Ctrl+Q quits from
-  the window on Windows and Linux), OS notifications for arrivals and
-  shortcut results while the window is away (texts by length only), one-way
+  the window on Windows and Linux), the macOS island (arrivals drop out of
+  the notch with copy / save / drag-out, in place of the Dock bounce) and OS
+  notifications elsewhere for arrivals and shortcut results while the window
+  is away (texts by length only), one-way
   (firewall) peer detection, networking revival after resume, a Windows
   installer that opens the firewall and closes a running plop to upgrade, the frosted macOS window, a Linux launcher entry, receipts
   (a sender's rows say which devices have the item), middle-truncated names
