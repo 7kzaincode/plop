@@ -51,6 +51,11 @@ class SyncEngine {
   /// most of the copies and this node's own server with them.
   static const maxEagerDownloads = 4;
 
+  /// Eager copies running at once from any one sender, so a slow one (or a
+  /// hostile one, trickling bytes) cannot take every slot while another's
+  /// one-line text waits behind it.
+  static const maxEagerPerPeer = 2;
+
   /// Eager copies started per item. One that fails is queued again by the
   /// next poll; after this many, the item waits for a tap like a large one.
   static const maxEagerTries = 3;
@@ -62,6 +67,7 @@ class SyncEngine {
   /// every poll queues whatever is still uncopied.
   final _eagerQueue = <String>{};
   var _eagerRunning = 0;
+  final _eagerByPeer = <String, int>{};
 
   /// Eager copies started per mirror. Kept beside the item, not by key, so
   /// the count goes with it; a mirror that leaves and comes back is a new
@@ -200,23 +206,42 @@ class SyncEngine {
       !_downloads.containsKey(item.key) &&
       (_eagerTries[item] ?? 0) < maxEagerTries;
 
-  /// Starts queued eager copies while fewer than [maxEagerDownloads] run.
+  /// Starts queued eager copies while fewer than [maxEagerDownloads] run,
+  /// each from a sender with fewer than [maxEagerPerPeer] running, smallest
+  /// first: a text or a screenshot does not wait behind a burst of videos.
   /// An item that expired, was dropped, landed or was tapped while it
-  /// waited is passed over. A tap ([fetch], [saveTo]) never queues: it
+  /// waited leaves the queue. A tap ([fetch], [saveTo]) never queues: it
   /// starts at once, and the queue then finds the copy already running.
   void _pumpEager() {
-    while (_eagerRunning < maxEagerDownloads && _eagerQueue.isNotEmpty) {
-      final key = _eagerQueue.first;
-      _eagerQueue.remove(key);
-      final item = store[key];
-      if (item == null || !_wantsEagerCopy(item)) continue;
-      _eagerTries[item] = (_eagerTries[item] ?? 0) + 1;
-      _eagerRunning++;
-      fetch(key).catchError((_) => '').whenComplete(() {
-        _eagerRunning--;
-        _pumpEager();
-      });
+    while (_eagerRunning < maxEagerDownloads) {
+      ShelfItem? next;
+      for (final key in _eagerQueue.toList()) {
+        final item = store[key];
+        if (item == null || !_wantsEagerCopy(item)) {
+          _eagerQueue.remove(key);
+        } else if ((_eagerByPeer[item.originId] ?? 0) < maxEagerPerPeer &&
+            (next == null || item.size < next.size)) {
+          next = item;
+        }
+      }
+      if (next == null) return;
+      _startEager(next);
     }
+  }
+
+  void _startEager(ShelfItem item) {
+    final key = item.key, peer = item.originId;
+    _eagerQueue.remove(key);
+    _eagerTries[item] = (_eagerTries[item] ?? 0) + 1;
+    _eagerRunning++;
+    _eagerByPeer.update(peer, (n) => n + 1, ifAbsent: () => 1);
+    fetch(key).catchError((_) => '').whenComplete(() {
+      _eagerRunning--;
+      if (_eagerByPeer.update(peer, (n) => n - 1) == 0) {
+        _eagerByPeer.remove(peer);
+      }
+      _pumpEager();
+    });
   }
 
   /// Drops a gone peer's mirrors that were never copied. One with a

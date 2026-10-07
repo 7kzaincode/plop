@@ -75,6 +75,9 @@ class CountingClient extends NodeClient {
   final bool Function(String name, int attempt) fails;
   var inFlight = 0, maxInFlight = 0;
 
+  /// The same, per sender, by its port.
+  final inFlightByPort = <int, int>{}, maxInFlightByPort = <int, int>{};
+
   /// Download attempts by file name.
   final calls = <String, int>{};
 
@@ -89,6 +92,9 @@ class CountingClient extends NodeClient {
     final name = destPath.split(Platform.pathSeparator).last;
     final attempt = calls[name] = (calls[name] ?? 0) + 1;
     if (++inFlight > maxInFlight) maxInFlight = inFlight;
+    final port = base.port;
+    final here = inFlightByPort[port] = (inFlightByPort[port] ?? 0) + 1;
+    if (here > (maxInFlightByPort[port] ?? 0)) maxInFlightByPort[port] = here;
     try {
       // Long enough for downloads to overlap if nothing holds them back.
       await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -102,7 +108,76 @@ class CountingClient extends NodeClient {
       );
     } finally {
       inFlight--;
+      inFlightByPort[port] = inFlightByPort[port]! - 1;
     }
+  }
+}
+
+/// A fake peer listing items of the given sizes by id, whose bytes it sends
+/// one every [step]: slow enough to hold a download for a long while, never
+/// so slow that the client's stall timeout trips. A sender on a bad link,
+/// or a hostile one.
+class Trickler {
+  Trickler._(this._server, this.sizes, this.step);
+
+  static Future<Trickler> start(
+    Map<String, int> sizes, {
+    Duration step = const Duration(milliseconds: 100),
+  }) async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final t = Trickler._(server, sizes, step);
+    server.listen(t._handle);
+    return t;
+  }
+
+  final HttpServer _server;
+  final Map<String, int> sizes;
+  final Duration step;
+  var _closed = false;
+
+  /// Download requests so far, by item id.
+  final requests = <String, int>{};
+
+  int get port => _server.port;
+
+  Peer get peer =>
+      Peer(id: 'trickler', name: 'trickler', hosts: ['127.0.0.1'], port: port);
+
+  Future<void> _handle(HttpRequest req) async {
+    final res = req.response;
+    try {
+      switch (req.uri.pathSegments) {
+        case ['v1', 'items']:
+          res.headers.contentType = ContentType.json;
+          res.write(
+            jsonEncode([
+              for (final MapEntry(:key, :value) in sizes.entries)
+                {'id': key, 'name': '$key.bin', 'size': value, 'ttlMs': 60000},
+            ]),
+          );
+        case ['v1', 'items', final id] when req.method == 'GET':
+          requests[id] = (requests[id] ?? 0) + 1;
+          final size = sizes[id] ?? 0;
+          res.contentLength = size;
+          // Paced by a timer: dart:io hides a hang-up from the server, so
+          // this goes on after the client gives up, until [close].
+          for (var i = 0; i < size && !_closed; i++) {
+            res.add([i % 251]);
+            await res.flush();
+            await Future<void>.delayed(step);
+          }
+        default:
+          res.statusCode = HttpStatus.notFound;
+      }
+      await res.close();
+    } catch (_) {
+      // Cut short by [close].
+    }
+  }
+
+  Future<void> close() async {
+    _closed = true;
+    await _server.close(force: true);
   }
 }
 
@@ -384,6 +459,36 @@ void main() {
     broken = false;
     await b.fetch(key);
     expect(b.store[key]!.isReady, isTrue);
+  });
+
+  test("a trickling sender cannot hold up another's text", () async {
+    // Ten seconds each, listed largest first.
+    final trickler = await Trickler.start({
+      for (var i = 0; i < 6; i++) 'slow$i': 105 - i,
+    });
+    addTearDown(trickler.close);
+    final client = CountingClient((_, _) => false);
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      client: (i) => i == 1 ? client : null,
+    );
+    final [a, b] = c.nodes;
+    c.discoveries[1].add(trickler.peer);
+    await eventually(
+      () => trickler.requests.length == SyncEngine.maxEagerPerPeer,
+    );
+    // Smallest first, and no more than its share.
+    expect(trickler.requests.keys, unorderedEquals(['slow5', 'slow4']));
+    expect(client.inFlightByPort[trickler.port], SyncEngine.maxEagerPerPeer);
+
+    final text = await a.addText('one line from another phone');
+    await eventually(
+      () => b.store[text.key]?.isReady ?? false,
+      timeout: const Duration(seconds: 2),
+      reason: 'the text waited behind the trickle',
+    );
+    expect(client.maxInFlightByPort[trickler.port], SyncEngine.maxEagerPerPeer);
   });
 
   test('text items arrive with their content', () async {
