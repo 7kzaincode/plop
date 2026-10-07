@@ -151,7 +151,7 @@ class WebHost {
         res.headers.contentType = ContentType.json;
         res.write(jsonEncode(await _shelf()));
       case ('GET', ['web', 'items', final origin, final id]):
-        await _download(req, itemKey(origin, id));
+        await _download(req, itemKey(origin, id), head: req.method == 'HEAD');
       case ('POST', ['web', 'items']):
         await _upload(req);
       case ('POST', ['web', 'text']):
@@ -281,7 +281,11 @@ class WebHost {
     }
   }
 
-  Future<void> _download(HttpRequest req, String key) async {
+  Future<void> _download(
+    HttpRequest req,
+    String key, {
+    required bool head,
+  }) async {
     final res = req.response;
     _noStore(res);
     // Whatever the bytes are, they never run as a page from this origin:
@@ -289,9 +293,20 @@ class WebHost {
     res.headers.set('content-security-policy', 'sandbox');
     // A file shared in place and changed since leaves the shelf instead,
     // as it does for peers.
-    final shared = node.store[key];
-    if (shared == null || !await node.store.stillThere(shared)) {
+    final item = node.store[key];
+    if (item == null || !await node.store.stillThere(item)) {
       res.statusCode = HttpStatus.notFound;
+      return;
+    }
+    res.headers
+      // Checked again here, not only where a peer's list is read: this is
+      // where a bad one would do harm.
+      ..set(HttpHeaders.contentTypeHeader, safeMime(item.mime))
+      ..set('content-disposition', _attachment(transferName(item)));
+    // HEAD is answered from what the shelf knows: a mirror not copied yet
+    // would otherwise be copied whole just to say how big it is.
+    if (head) {
+      res.contentLength = item.size;
       return;
     }
     final String path;
@@ -304,17 +319,11 @@ class WebHost {
           : HttpStatus.badGateway;
       return;
     }
-    final item = node.store[key];
     final file = File(path);
-    if (item == null || !await file.exists()) {
+    if (!await file.exists()) {
       res.statusCode = HttpStatus.notFound;
       return;
     }
-    res.headers
-      // Checked again here, not only where a peer's list is read: this is
-      // where a bad one would do harm.
-      ..set(HttpHeaders.contentTypeHeader, safeMime(item.mime))
-      ..set('content-disposition', _attachment(transferName(item)));
     res.contentLength = await file.length();
     await file.openRead().pipe(res);
   }

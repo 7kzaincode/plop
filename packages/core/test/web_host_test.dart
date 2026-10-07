@@ -445,6 +445,21 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 400));
     expect(p.a.store[big.key]!.isReady, isFalse, reason: 'over the eager cap');
 
+    // HEAD says what it is without copying it over.
+    final head = await send('HEAD', p.url('/web/items/${big.key}'));
+    expect(head.status, 200);
+    expect(head.headers.contentLength, bytes.length);
+    expect(head.headers.contentType?.mimeType, 'application/octet-stream');
+    expect(head.headers.value('content-disposition'), contains('.bin'));
+    expect(head.body, isEmpty);
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(p.a.store[big.key]!.isReady, isFalse, reason: 'HEAD fetched it');
+    expect(p.a.store[big.key]!.progress, isNull, reason: 'HEAD is fetching');
+    expect(
+      (await send('HEAD', p.url('/web/items/${p.b.id}/nope'))).status,
+      404,
+    );
+
     final r = await get(p.url('/web/items/${big.key}'));
     expect(r.status, 200);
     expect(r.body, bytes);
