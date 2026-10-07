@@ -263,8 +263,12 @@ void main() {
       expect(qr, findsOneWidget);
       await tester.ensureVisible(qr);
       await tester.pumpAndSettle();
-      final url = find.textContaining('http://');
+      // The .local name first; the next address (an IPv4) under it.
+      final urls = (await tester.runAsync(() => me.webUrls))!;
+      final address = urls.first;
+      final url = find.text(address);
       expect(url, findsOneWidget);
+      if (urls.length > 1) expect(find.text('or ${urls[1]}'), findsOneWidget);
       expect(
         tester.getSize(url).width,
         lessThanOrEqualTo(tester.getSize(find.byType(Dialog)).width),
@@ -275,8 +279,6 @@ void main() {
       await tester.runAsync(() => _shot(key, '$tag-phone'));
 
       // A tap copies the address, and the line says so for a moment.
-      final address = tester.widget<Text>(url).data!;
-      expect(address, (await tester.runAsync(() => me.webUrls))!.first);
       String? copied;
       messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
         if (call.method == 'Clipboard.setData') {

@@ -165,6 +165,15 @@ class _PhoneLinkState extends State<PhoneLink> {
           ),
         ),
       ),
+      // For browsers that cannot resolve .local (Android's, mostly).
+      if (urls.length > 1)
+        Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Text(
+            'or ${urls[1]}',
+            style: monoStyle(size: 11, color: Palette.faint),
+          ),
+        ),
       Padding(
         padding: const EdgeInsets.only(left: 4, top: 2),
         child: Text(
