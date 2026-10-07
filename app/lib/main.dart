@@ -120,7 +120,11 @@ Future<void> _start() async {
     // The plugin or its channel is missing (no keybinder on Linux, say). A
     // combo another app owns never throws; see Hotkeys.isFree.
   }
-  await ShareIn.listen(node, say).catchError((_) {});
+  await ShareIn.listen(
+    node,
+    say,
+    packing: (folder) => screen.currentState?.packing(folder),
+  ).catchError((_) {});
 }
 
 /// Debug builds only: put something on the shelf at launch, for testing

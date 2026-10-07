@@ -199,27 +199,22 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   /// Adds picked or dropped paths, carrying on past failures.
   Future<String?> _add(Future<List<String>> Function() pick) async {
-    final paths = await pick();
-    Object? first;
-    var failed = 0;
-    for (final p in paths) {
-      final name = p.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
-      // Zipping a big folder takes a while before its row appears.
-      if (await FileSystemEntity.isDirectory(p)) {
-        toast('packing $name…', sticky: true);
-      }
-      try {
-        // Phones' pickers hand over a copy in the app cache, not the file.
-        await (isDesktop ? node.addPath(p) : addCopy(node, p));
-      } catch (e) {
-        failed++;
-        first ??= e;
-      }
+    final (failed, first) = await addPaths(
+      node,
+      await pick(),
+      packing: packing,
+    );
+    return addedMessage(failed, first);
+  }
+
+  /// Says a folder called [name] is being zipped, which takes a while
+  /// before its row appears; null once that is over.
+  void packing(String? name) {
+    if (name != null) {
+      toast('packing $name…', sticky: true);
+    } else if (_toast?.startsWith('packing') ?? false) {
+      toast(null);
     }
-    if (_toast?.startsWith('packing') ?? false) toast(null);
-    if (first == null) return null;
-    final why = friendlyError(first);
-    return failed > 1 ? '$why · ${failed - 1} more failed' : why;
   }
 
   Future<String?> paste() async =>

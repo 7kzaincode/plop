@@ -88,6 +88,41 @@ Future<ShelfItem> addCopy(PlopNode node, String path) async {
 final _copies = <String, String>{};
 StreamSubscription<void>? _copyWatch;
 
+/// Puts each of [paths] on the shelf, carrying on past any that fail (a
+/// folder over the cap, a file moved meanwhile): how many failed, and the
+/// first error. Desktop paths are the user's own files, served in place;
+/// a phone's are plop's copies ([addCopy]). [packing] is told the name of
+/// a folder before it is zipped, which takes a while before its row
+/// appears, and null once all are done.
+Future<(int failed, Object? first)> addPaths(
+  PlopNode node,
+  List<String> paths, {
+  void Function(String? folder)? packing,
+}) async {
+  Object? first;
+  var failed = 0;
+  for (final p in paths) {
+    final name = p.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
+    if (await FileSystemEntity.isDirectory(p)) packing?.call(name);
+    try {
+      await (isDesktop ? node.addPath(p) : addCopy(node, p));
+    } catch (e) {
+      failed++;
+      first ??= e;
+    }
+  }
+  packing?.call(null);
+  return (failed, first);
+}
+
+/// What to say after [addPaths]: nothing if all went on the shelf, else
+/// the first error, and how many more failed.
+String? addedMessage(int failed, Object? first) {
+  if (first == null) return null;
+  final why = friendlyError(first);
+  return failed > 1 ? '$why · ${failed - 1} more failed' : why;
+}
+
 void _deleteCopy(String path) {
   final f = File(path);
   // The copy sits in a per-pick directory; a non-recursive delete leaves

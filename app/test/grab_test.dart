@@ -37,6 +37,42 @@ void main() {
     }
   });
 
+  // A drop on the window and one on the Dock icon both go through this;
+  // a path that fails must not keep the rest off the shelf.
+  test('adding paths carries on past one that fails, and says so', () async {
+    final root = await Directory.systemTemp.createTemp('plop_paths');
+    final node = await PlopNode.start(
+      dir: Directory('${root.path}/store'),
+      discovery: StaticDiscovery(),
+      name: 'me',
+    );
+    try {
+      final a = File('${root.path}/a.txt')..writeAsStringSync('a');
+      final folder = Directory('${root.path}/Photos')..createSync();
+      File('${folder.path}/b.txt').writeAsStringSync('b');
+      final told = <String?>[];
+      final (failed, first) = await addPaths(node, [
+        '${root.path}/gone.txt',
+        a.path,
+        folder.path,
+      ], packing: told.add);
+      expect(failed, 1);
+      expect(first, isA<FileSystemException>());
+      expect(
+        node.items.map((i) => i.name),
+        unorderedEquals(['a.txt', 'Photos']),
+      );
+      expect(told, ['Photos', null], reason: 'a folder is packed, then done');
+
+      expect(addedMessage(0, null), isNull);
+      expect(addedMessage(1, first), "can't access gone.txt");
+      expect(addedMessage(3, first), "can't access gone.txt · 2 more failed");
+    } finally {
+      await node.stop();
+      await root.delete(recursive: true);
+    }
+  });
+
   // The messages are the whole UI for a failed grab; the core's exceptions
   // must each land on their own line, not the catch-all.
   test('errors are told apart by type and message', () {
