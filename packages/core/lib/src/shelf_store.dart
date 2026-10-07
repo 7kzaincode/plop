@@ -24,6 +24,12 @@ import 'item.dart';
 /// gigabytes. Stored entries can only add up to more than the zip itself
 /// when their headers overlap, another bomb, so the output is bounded by
 /// the zip's own size. A failure removes [outDir] if this call created it.
+///
+/// The central directory is read and vetted here rather than through
+/// [ZipDecoder], which reads every entry flagged as a Unix symlink while
+/// decoding, to learn its target: a deflated "link" would be inflated into
+/// memory before any check here ran. Nothing is read until its header has
+/// passed. An entry named twice is written twice, the second numbered.
 Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
   () async {
     final target = Directory(outDir);
@@ -38,28 +44,36 @@ Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
     final places = _Places(outDir);
     final input = InputFileStream(zipPath);
     try {
-      for (final f in ZipDecoder().decodeStream(input)) {
-        final parts = f.name.split(RegExp(r'[/\\]'))
-          ..removeWhere((s) => s.isEmpty || s == '.');
-        if (f.isSymbolicLink || parts.isEmpty || parts.contains('..')) {
-          continue;
-        }
-        if (f.isCompressed) {
+      final dir = ZipDirectory()..read(input);
+      for (final h in dir.fileHeaders) {
+        final f = h.file!;
+        // Before anything is skipped, so no compressed entry gets past: a
+        // link or a `..` name is still a zip plop did not make. Both
+        // headers, since the local one maps a method it does not know to
+        // "stored" and would copy the packed bytes out as they are.
+        if (f.compressionMethod != CompressionType.none ||
+            h.compressionMethod != ZipFile.zipCompressionStore) {
           throw const FormatException('folder zip is compressed');
         }
-        final path = places.of(parts, isDir: f.isDirectory);
-        if (f.isDirectory) {
+        final mode = h.externalFileAttributes >> 16;
+        final isLink = h.versionMadeBy >> 8 == 3 && mode & 0xf000 == 0xa000;
+        final parts = h.filename.split(RegExp(r'[/\\]'))
+          ..removeWhere((s) => s.isEmpty || s == '.');
+        if (isLink || parts.isEmpty || parts.contains('..')) continue;
+        final isDir = h.filename.endsWith('/') || h.filename.endsWith('\\');
+        final path = places.of(parts, isDir: isDir);
+        if (isDir) {
           await Directory(path).create(recursive: true);
           continue;
         }
         final out = _BoundedOutput(path, budget - written);
         try {
-          f.writeContent(out);
+          f.decompress(out); // stored: copied through in 1 MB writes
         } finally {
           written += out.length;
           await out.close();
         }
-        if (f.mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
+        if (mode & 0x49 != 0 && (Platform.isMacOS || Platform.isLinux)) {
           _setExecutable(path);
         }
       }

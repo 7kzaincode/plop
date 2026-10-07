@@ -137,6 +137,59 @@ List<int> overlappingZip(int entries) {
   return out.takeBytes();
 }
 
+/// A zip written field by field, for entries ZipEncoder cannot make: it
+/// always records MS-DOS as the maker, so a Unix symlink is out of reach.
+/// [data] is the entry as it sits in the zip, packed by [method]; [size] is
+/// what it unpacks to and [mode] its Unix mode.
+List<int> handZip(
+  List<({String name, List<int> data, int method, int size, int mode})> files,
+) {
+  final out = BytesBuilder();
+  void u16(int v) => out.add([v & 0xff, v >> 8 & 0xff]);
+  void u32(int v) => out.add([for (var i = 0; i < 32; i += 8) v >> i & 0xff]);
+  final offsets = <int>[];
+  for (final f in files) {
+    offsets.add(out.length);
+    u32(0x04034b50); // local file header
+    for (final v in [20, 0, f.method, 0, 0]) {
+      u16(v); // version, flags, method, time, date
+    }
+    u32(0); // crc, not verified
+    u32(f.data.length);
+    u32(f.size);
+    u16(f.name.length);
+    u16(0); // extra length
+    out
+      ..add(ascii.encode(f.name))
+      ..add(f.data);
+  }
+  final cdStart = out.length;
+  for (final (i, f) in files.indexed) {
+    u32(0x02014b50); // central directory entry
+    for (final v in [3 << 8 | 20, 20, 0, f.method, 0, 0]) {
+      u16(v); // made by Unix, needed, flags, method, time, date
+    }
+    u32(0);
+    u32(f.data.length);
+    u32(f.size);
+    for (final v in [f.name.length, 0, 0, 0, 0]) {
+      u16(v); // name, extra and comment lengths, disk, internal attributes
+    }
+    u32(f.mode << 16); // external attributes
+    u32(offsets[i]);
+    out.add(ascii.encode(f.name));
+  }
+  final cdSize = out.length - cdStart;
+  u32(0x06054b50); // end of central directory
+  for (final v in [0, 0, files.length, files.length]) {
+    u16(v);
+  }
+  u32(cdSize);
+  u32(cdStart);
+  u16(0);
+  return out.takeBytes();
+}
+
 void main() {
   late Cluster c;
   tearDown(() => c.stop());
@@ -979,6 +1032,79 @@ void main() {
     );
     expect(taken.existsSync(), isTrue, reason: 'file at the target deleted');
     expect(taken.readAsStringSync(), 'keep');
+  });
+
+  test('a deflated entry posing as a link is refused unread', () async {
+    c = await Cluster.start(1);
+    // ZipDecoder reads a link's target while decoding, before any check of
+    // plop's could run, so a deflated one was inflated into memory whole.
+    final zeros = List.filled(1 << 20, 0);
+    final packed = ZLibCodec(raw: true).encode(zeros);
+    final readme = (
+      name: 'readme.txt',
+      data: [1],
+      method: 0,
+      size: 1,
+      mode: 0x81a4, // a file, 0644
+    );
+    final zip = File('${c.root.path}/link.zip')
+      ..writeAsBytesSync(
+        handZip([
+          readme,
+          (
+            name: 'link',
+            data: packed,
+            method: 8, // deflate
+            size: zeros.length,
+            mode: 0xa1ff, // a symlink, 0777
+          ),
+        ]),
+      );
+    expect(zip.lengthSync(), lessThan(8 * 1024), reason: 'not a bomb');
+    Matcher refused(String why) => throwsA(
+      isA<FormatException>().having((e) => e.message, 'message', contains(why)),
+    );
+    final out = Directory('${c.root.path}/x/out');
+    await expectLater(extractFolder(zip.path, out.path), refused('compressed'));
+    expect(out.existsSync(), isFalse);
+
+    // A method the archive package does not know reads as stored in the
+    // local header; the central directory still gives it away.
+    final odd = File('${c.root.path}/odd.zip')
+      ..writeAsBytesSync(
+        handZip([
+          readme,
+          (
+            name: 'lzma.bin',
+            data: packed,
+            method: 14,
+            size: 1 << 20,
+            mode: 0x81a4,
+          ),
+        ]),
+      );
+    await expectLater(extractFolder(odd.path, out.path), refused('compressed'));
+    expect(out.existsSync(), isFalse);
+
+    // The same zip with the link stored unpacks, leaving the link out.
+    final tame = File('${c.root.path}/tame.zip')
+      ..writeAsBytesSync(
+        handZip([
+          readme,
+          (
+            name: 'link',
+            data: ascii.encode('..'),
+            method: 0,
+            size: 2,
+            mode: 0xa1ff,
+          ),
+        ]),
+      );
+    await extractFolder(tame.path, out.path);
+    expect(
+      out.listSync().map((e) => e.path.split(Platform.pathSeparator).last),
+      ['readme.txt'],
+    );
   });
 
   test('unpacking a folder ignores symlinks that chain outside', () async {
