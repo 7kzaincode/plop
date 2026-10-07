@@ -106,7 +106,7 @@ void main() {
     expect(shown, hasLength(2));
     expect(shown[0]['title'], "Zain's iPhone");
     expect(shown[0]['body'], 'IMG_4821.png · 1.5 KB');
-    expect(shown[1]['body'], 'text · 7 characters', reason: 'never the text');
+    expect(shown[1]['body'], 'text', reason: 'never the text; not copied yet');
   });
 
   test('a text is described by its length, counted as a reader would', () {
@@ -120,12 +120,16 @@ void main() {
       name: 'héllo 👋🏽',
       size: file.lengthSync(),
     );
-    // Not copied yet: the size, which is the count for plain ASCII.
-    expect(Notify.describe(text), 'text · ${file.lengthSync()} characters');
+    // Not copied yet: no count, rather than the size in bytes under the
+    // name of characters (10 here).
+    expect(Notify.describe(text), 'text');
     text.path = file.path;
     expect(Notify.describe(text), 'text · 7 characters');
     file.writeAsStringSync('k');
     expect(Notify.describe(text), 'text · 1 character');
+    // Not UTF-8: no count either.
+    file.writeAsBytesSync([0x68, 0xff, 0xfe, 0x69]);
+    expect(Notify.describe(text), 'text');
   });
 
   testWidgets('three within two seconds are one notification', (tester) async {

@@ -199,27 +199,30 @@ abstract final class Notify {
   }
 
   /// What a notification says of one item: its name and size, but of text
-  /// only how long it is. Its name is its first line, and a copied password
-  /// or sign-in code would otherwise sit in the notification centre and on
-  /// the lock screen long after the item expired.
+  /// only how long it is, or just "text" when that can't be told. Its name
+  /// is its first line, and a copied password or sign-in code would
+  /// otherwise sit in the notification centre and on the lock screen long
+  /// after the item expired.
   @visibleForTesting
   static String describe(ShelfItem i) {
     if (i.kind != ItemKind.text) return '${i.name} · ${formatSize(i.size)}';
     final n = _length(i);
+    if (n == null) return 'text';
     return 'text · $n character${n == 1 ? '' : 's'}';
   }
 
   /// Characters as the reader counts them, from the copy on disk, which a
-  /// text has by the end of [burst] as a rule. Without one, or for a very
-  /// long text, the size: the same count for plain ASCII.
-  static int _length(ShelfItem i) {
+  /// text has by the end of [burst] as a rule. Null without one, for one
+  /// that isn't UTF-8, or one too long to read here: its size in bytes would
+  /// be a different number for anything but plain ASCII.
+  static int? _length(ShelfItem i) {
     final path = i.path;
-    if (path != null && i.size <= 64 * 1024) {
-      try {
-        return File(path).readAsStringSync().characters.length;
-      } catch (_) {}
+    if (path == null || i.size > 64 * 1024) return null;
+    try {
+      return File(path).readAsStringSync().characters.length;
+    } catch (_) {
+      return null;
     }
-    return i.size;
   }
 
   static void _show({required String title, required String body}) {
