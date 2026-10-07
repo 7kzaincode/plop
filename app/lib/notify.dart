@@ -78,6 +78,19 @@ abstract final class Notify {
     _show(title: 'plop', body: message);
   }
 
+  /// The window just closed into the tray, which until now quit plop on
+  /// Windows and Linux: the first time, say where it went, focus or not.
+  /// Once ever (Settings), and not with notifications switched off.
+  static void hiddenToTray() {
+    final s = _settings;
+    if (!_ready || s == null || !s.notifications || s.trayNoticeShown) return;
+    s.trayNoticeShown = true;
+    _show(
+      title: 'plop is still running in the tray',
+      body: 'its icon brings the window back or quits plop',
+    );
+  }
+
   /// Call after runApp. Only later arrivals count: what is on the shelf now,
   /// and what the first sync brings within [grace], was on the other
   /// devices before plop started.

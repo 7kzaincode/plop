@@ -15,6 +15,7 @@ import 'package:flutter/widgets.dart'
 import 'package:plop_core/plop_core.dart';
 import 'package:tray_manager/tray_manager.dart';
 
+import 'notify.dart';
 import 'window.dart';
 
 /// plop's icon in the menu bar (macOS) or the notification area (Windows,
@@ -121,12 +122,14 @@ abstract final class Tray {
   /// Flutter asking whether the app may exit: the window's close button on
   /// Windows and Linux (the embedders ask before the runner sees the close,
   /// and quit on "exit"), ⌘Q on macOS, and the runner's own quit on Windows.
-  /// A close with the icon up hides the window instead; everything else
-  /// goes through. Closing the window on macOS never asks.
+  /// A close with the icon up hides the window instead, the first time
+  /// with a notification saying so; everything else goes through. Closing
+  /// the window on macOS never asks.
   @visibleForTesting
   static Future<AppExitResponse> onExitRequested() async {
     if (Platform.isMacOS || _quitting || !active) return AppExitResponse.exit;
     AppWindow.hide();
+    Notify.hiddenToTray();
     return AppExitResponse.cancel;
   }
 

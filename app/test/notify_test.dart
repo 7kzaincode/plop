@@ -228,6 +228,37 @@ void main() {
     expect(shown, isEmpty);
   });
 
+  testWidgets('closing into the tray is explained once, ever', (tester) async {
+    await start(tester);
+    // Still focused: the close is happening in front of the user.
+    await lifecycle(tester, AppLifecycleState.resumed);
+    Notify.hiddenToTray();
+    await tester.pump();
+    expect(shown, hasLength(1));
+    expect(shown.single['title'], 'plop is still running in the tray');
+    expect(settings.trayNoticeShown, isTrue);
+
+    Notify.hiddenToTray();
+    await tester.pump();
+    expect(shown, hasLength(1));
+
+    // Next launch: remembered.
+    Notify.reset();
+    await Notify.init(settings);
+    Notify.hiddenToTray();
+    await tester.pump();
+    expect(shown, hasLength(1));
+  });
+
+  testWidgets('with notifications off the tray notice waits', (tester) async {
+    await start(tester);
+    settings.notifications = false;
+    Notify.hiddenToTray();
+    await tester.pump();
+    expect(shown, isEmpty);
+    expect(settings.trayNoticeShown, isFalse);
+  });
+
   testWidgets("a shortcut's result is said; a click shows the window", (
     tester,
   ) async {

@@ -65,6 +65,15 @@ class Settings {
     _save().ignore(); // the toggle has nowhere to say it failed
   }
 
+  /// Whether plop has said, once, that closing the window keeps it running
+  /// in the tray (lib/notify.dart).
+  bool get trayNoticeShown => _data['trayNoticeShown'] == true;
+
+  set trayNoticeShown(bool shown) {
+    _data['trayNoticeShown'] = shown;
+    _save().ignore(); // at worst it is said once more
+  }
+
   /// A custom global shortcut, or null for the default.
   HotKey? hotkey(String name) {
     final j = _data['hotkey.$name'];
