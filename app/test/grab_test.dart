@@ -156,7 +156,8 @@ void main() {
   });
 
   // On a Mac, pasteboard writes a blank picture for bytes ImageIO can't
-  // read and reports success; the copy must find out first.
+  // read and reports success; the copy must find out first. (Bytes that
+  // are no picture at all: the check reads the header, not every frame.)
   testWidgets('a picture that does not decode is never copied as one', (
     tester,
   ) async {

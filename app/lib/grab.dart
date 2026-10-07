@@ -272,9 +272,10 @@ bool isCopyableImage(ShelfItem item) =>
 /// WebP or RAW; a failed attempt on Windows also empties the clipboard. Any
 /// other picture is copied as a file, as a file is. macOS and iOS read
 /// pictures through ImageIO, which takes most kinds but not all (AVIF
-/// before macOS 13 and iOS 16, some cameras' RAW, a corrupt file): no list
-/// here, [copyItem] checks each one as it copies. Copying arrivals
-/// (lib/auto_copy.dart) takes only what this says yes to.
+/// before macOS 13 and iOS 16, some cameras' RAW, a file that is no
+/// picture whatever its name says): no list here, [copyItem] checks each
+/// one's header as it copies. Copying arrivals (lib/auto_copy.dart) takes
+/// only what this says yes to.
 bool copiesAsImage(ShelfItem item) {
   final os = debugClipboardOs ?? Platform.operatingSystem;
   if (!isCopyableImage(item) || os == 'linux') return false;
@@ -357,9 +358,10 @@ Future<String> copyItem(
       // pasteboard never says a picture failed to decode on macOS or iOS:
       // it empties the clipboard and writes a blank NSImage, or a nil
       // UIImage. Flutter's codec falls back to the same ImageIO there for
-      // what it can't read itself, so ask it first (the header only; no
-      // frame is decoded). A codec that says no throws an Exception, as a
-      // PlatformException from the write does.
+      // what it can't read itself, so ask it first whether it knows the
+      // kind. It reads the header only, no frame: a picture cut short
+      // still passes, as NSImage would take it too. A codec that says no
+      // throws an Exception, as a PlatformException from the write does.
       (await ui.instantiateImageCodec(bytes)).dispose();
       await Pasteboard.writeImage(bytes);
       return 'image copied';
