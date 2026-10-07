@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/hotkeys.dart';
+import 'package:plop/login_item.dart';
 import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop/settings_panel.dart';
@@ -115,6 +116,17 @@ void main() {
     expect(toggled(true), findsOneWidget);
     expect(on, isTrue);
   }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
+
+  // macOS 12 has no SMAppService; the switch is not offered there.
+  test('open at login is offered from macOS 13', () {
+    expect(
+      LoginItem.macHasLoginItems('Version 12.7.6 (Build 21H1320)'),
+      isFalse,
+    );
+    expect(LoginItem.macHasLoginItems('Version 13.4 (Build 22F66)'), isTrue);
+    expect(LoginItem.macHasLoginItems('Version 26.0 (Build 25A354)'), isTrue);
+    expect(LoginItem.macHasLoginItems('something new'), isTrue);
+  });
 
   testWidgets('a login item macOS holds for approval says where to go', (
     tester,
