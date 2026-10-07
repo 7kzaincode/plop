@@ -960,52 +960,70 @@ void main() {
     expect(await File(item.path!).readAsBytes(), [1, 2, 3]);
   });
 
-  test('webUrls lead with the .local name on macOS, then each IPv4', () async {
+  test('webUrls hand this machine\'s own facts to webUrlsFor', () async {
     p = await Pair.start();
-    final urls = await p.a.webUrls;
-    expect(urls, isNotEmpty);
     final host = await localHostName();
     expect(host, isNot(contains('.')));
     expect(host, host.toLowerCase());
     final ips = await localIPv4s();
-    final local = 'http://$host.local:${p.a.port}/';
-    if (Platform.isMacOS && host != 'localhost') {
-      expect(urls.first, local);
-    } else if (!Platform.isMacOS) {
-      expect(urls.first, isNot(local), reason: 'not unless it resolves');
-    }
+    // Whatever this machine's resolver says (avahi on a CI runner may well
+    // answer); where that puts the name is webUrlsFor's test below.
+    final local = host != 'localhost' ? '$host.local' : null;
+    final resolves =
+        local != null && !Platform.isMacOS && await resolvesToSelf(local, ips);
     expect(
-      [
-        for (final u in urls)
-          if (u != local) u,
-      ],
-      [for (final ip in ips) 'http://$ip:${p.a.port}/'],
+      await p.a.webUrls,
+      webUrlsFor(
+        port: p.a.port,
+        ips: ips,
+        local: local,
+        os: Platform.operatingSystem,
+        resolves: resolves,
+      ),
     );
+    if (Platform.isMacOS && local != null) {
+      expect((await p.a.webUrls).first, 'http://$local:${p.a.port}/');
+    }
   });
 
   test('webUrlsFor puts the .local name first, second or nowhere', () {
     const ips = ['192.168.1.5', '10.0.0.2'];
-    expect(webUrlsFor(port: 7567, ips: ips, local: 'mac.local'), [
-      'http://mac.local:7567/',
+    List<String> urls(String os, {bool resolves = false, List<String>? at}) =>
+        webUrlsFor(
+          port: 7567,
+          ips: at ?? ips,
+          local: 'box.local',
+          os: os,
+          resolves: resolves,
+        );
+    const first = [
+      'http://box.local:7567/',
       'http://192.168.1.5:7567/',
       'http://10.0.0.2:7567/',
-    ]);
-    expect(
-      webUrlsFor(port: 7567, ips: ips, local: 'pc.local', localFirst: false),
-      [
-        'http://192.168.1.5:7567/',
-        'http://pc.local:7567/',
-        'http://10.0.0.2:7567/',
-      ],
-    );
-    expect(webUrlsFor(port: 1, ips: ips), [
+    ];
+    const second = [
+      'http://192.168.1.5:7567/',
+      'http://box.local:7567/',
+      'http://10.0.0.2:7567/',
+    ];
+    const none = ['http://192.168.1.5:7567/', 'http://10.0.0.2:7567/'];
+    // macOS: Bonjour always answers, so no lookup is needed.
+    expect(urls('macos'), first);
+    expect(urls('macos', resolves: true), first);
+    // Linux and the rest: only once a lookup of it found this machine.
+    expect(urls('linux'), none);
+    expect(urls('linux', resolves: true), first);
+    expect(urls('freebsd', resolves: true), first);
+    // Windows: never first, since it resolves its own name regardless.
+    expect(urls('windows'), none);
+    expect(urls('windows', resolves: true), second);
+    expect(urls('windows', resolves: true, at: []), ['http://box.local:7567/']);
+    // No name at all: just the addresses.
+    expect(webUrlsFor(port: 1, ips: ips, os: 'macos'), [
       'http://192.168.1.5:1/',
       'http://10.0.0.2:1/',
     ]);
-    expect(webUrlsFor(port: 1, ips: [], local: 'pc.local', localFirst: false), [
-      'http://pc.local:1/',
-    ]);
-    expect(webUrlsFor(port: 1, ips: []), isEmpty);
+    expect(webUrlsFor(port: 1, ips: [], os: 'linux'), isEmpty);
   });
 
   test('rankIPv4s puts the likely LAN address first', () {

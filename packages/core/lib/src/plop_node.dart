@@ -85,23 +85,20 @@ class PlopNode {
   List<Peer> get peers => engine.reachablePeers;
 
   /// Where a browser on this network opens the web shelf, best first; see
-  /// [webUrlsFor]. The mDNS name (see [localHostName]) outlives a DHCP
-  /// lease, but leads only where other devices can count on it resolving:
-  /// on macOS, where Bonjour always answers for it, and on Linux once a
-  /// lookup of it from here finds this machine (avahi is answering). On
-  /// Windows it never leads, even when that lookup works: Windows resolves
-  /// its own name either way, while a Public network profile can keep
-  /// everyone else's queries out. It comes second there instead.
+  /// [webUrlsFor] for where the mDNS name (see [localHostName]) goes. The
+  /// lookup that decides it is skipped on macOS, which does not need it.
   Future<List<String>> get webUrls async {
     final (ips, host) = await (localIPv4s(), localHostName()).wait;
     final local = host.isNotEmpty && host != 'localhost' ? '$host.local' : null;
-    final works =
-        local != null && (Platform.isMacOS || await resolvesToSelf(local, ips));
     return webUrlsFor(
       port: port,
       ips: ips,
-      local: works ? local : null,
-      localFirst: !Platform.isWindows,
+      local: local,
+      os: Platform.operatingSystem,
+      resolves:
+          local != null &&
+          !Platform.isMacOS &&
+          await resolvesToSelf(local, ips),
     );
   }
 
@@ -213,15 +210,29 @@ class PlopNode {
   }
 }
 
-/// The web shelf's addresses on [port]: each of [ips] in order, with the
-/// [local] name, when there is one, first ([localFirst]) or second.
+/// The web shelf's addresses on [port] for a machine running [os] (as
+/// Platform.operatingSystem names it): each of [ips] in order, and the
+/// mDNS name [local] where other devices can count on it resolving. It
+/// outlives a DHCP lease, so it leads where it can: on macOS, where
+/// Bonjour always answers for it, and elsewhere once [resolves], a lookup
+/// of it from this machine, found one of its addresses (on Linux: avahi
+/// is answering). On Windows it never leads, even then: Windows resolves
+/// its own name either way, while a Public network profile can keep
+/// everyone else's queries out. It comes second there instead.
 List<String> webUrlsFor({
   required int port,
   required List<String> ips,
+  required String os,
   String? local,
-  bool localFirst = true,
+  bool resolves = false,
 }) {
   final hosts = [...ips];
-  if (local != null) hosts.insert(localFirst ? 0 : min(1, hosts.length), local);
+  if (local != null) {
+    if (os == 'macos' || resolves && os != 'windows') {
+      hosts.insert(0, local);
+    } else if (resolves) {
+      hosts.insert(min(1, hosts.length), local);
+    }
+  }
   return [for (final h in hosts) 'http://$h:$port/'];
 }
