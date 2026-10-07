@@ -200,7 +200,8 @@ class _PhoneLinkState extends State<PhoneLink> {
           ),
         ),
       ),
-      // For browsers that cannot resolve .local (Android's, mostly).
+      // The next best: an IPv4 address for browsers that cannot resolve
+      // .local (Android's, mostly), or on Windows the .local name.
       if (urls.length > 1)
         Padding(
           padding: const EdgeInsets.only(left: 4),

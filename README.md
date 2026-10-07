@@ -89,7 +89,8 @@ shelf as a web page to every phone on the same Wi-Fi:
 1. On the computer, open settings (sliders icon) and find **open on a
    phone**.
 2. Point the iPhone's camera at the QR code, or type the address under it
-   (like `http://zains-macbook.local:7567/`) into Safari.
+   into Safari: a Mac's `.local` name (like `http://zains-macbook.local:7567/`),
+   elsewhere usually an IP address (like `http://192.168.1.20:7567/`).
 3. Share > **Add to Home Screen**. From then on plop opens from its own icon,
    full screen.
 
@@ -98,7 +99,7 @@ to save them to Photos), other files download. `+` adds photos or files,
 `paste` adds text, `×` takes back what you added. The page works only while
 the computer that serves it is awake with plop running, and the phone does
 not count as a device nearby on the other shelves. Android phones can use
-the same page; if the `.local` address doesn't open there, use the
+the same page; if a `.local` address doesn't open there, use the
 `or http://…` one under it.
 
 #### The native app, from source

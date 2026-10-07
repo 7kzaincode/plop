@@ -140,10 +140,15 @@ on all of these routes.
 
 **Port.** The desktop app asks for the port it had last time, else `7567`
 (p-l-o-p on a phone keypad), else any free port, and remembers what it got,
-so an address saved on a phone's home screen keeps working. The address
-shown is `http://<host>.local:<port>/` (the name mDNS answers for: on macOS
-the Sharing settings' local host name), then `http://<ipv4>:<port>/` for
-each address, for browsers that do not resolve `.local`.
+so an address saved on a phone's home screen keeps working. The addresses
+shown are `http://<ipv4>:<port>/` for each address, best first (private LAN
+ranges on real interfaces, then other addresses, then VPN, VM and container
+interfaces, then 100.64/10, then 169.254/16), and `http://<host>.local:<port>/`
+(the name mDNS answers for: on macOS the Sharing settings' local host name)
+where other devices can count on it: first on macOS, first on Linux when a
+lookup of it from the machine itself finds one of its addresses, second on
+Windows under the same check (a Public network profile can keep other
+devices' queries out even then), and not at all otherwise.
 
 **Not part of the protocol.** No node calls these routes, so the rule that
 mirrors are never re-served between nodes holds. A browser on this page is a

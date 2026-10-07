@@ -820,19 +820,88 @@ void main() {
     expect(await File(item.path!).readAsBytes(), [1, 2, 3]);
   });
 
-  test('webUrls lead with the .local name, then each IPv4', () async {
+  test('webUrls lead with the .local name on macOS, then each IPv4', () async {
     p = await Pair.start();
     final urls = await p.a.webUrls;
     expect(urls, isNotEmpty);
     final host = await localHostName();
     expect(host, isNot(contains('.')));
     expect(host, host.toLowerCase());
-    if (host != 'localhost') {
-      expect(urls.first, 'http://$host.local:${p.a.port}/');
+    final ips = await localIPv4s();
+    final local = 'http://$host.local:${p.a.port}/';
+    if (Platform.isMacOS && host != 'localhost') {
+      expect(urls.first, local);
+    } else if (!Platform.isMacOS) {
+      expect(urls.first, isNot(local), reason: 'not unless it resolves');
     }
-    for (final u in urls.skip(host == 'localhost' ? 0 : 1)) {
-      expect(u, matches(RegExp(r'^http://\d+\.\d+\.\d+\.\d+:\d+/$')));
-    }
+    expect(
+      [
+        for (final u in urls)
+          if (u != local) u,
+      ],
+      [for (final ip in ips) 'http://$ip:${p.a.port}/'],
+    );
+  });
+
+  test('webUrlsFor puts the .local name first, second or nowhere', () {
+    const ips = ['192.168.1.5', '10.0.0.2'];
+    expect(webUrlsFor(port: 7567, ips: ips, local: 'mac.local'), [
+      'http://mac.local:7567/',
+      'http://192.168.1.5:7567/',
+      'http://10.0.0.2:7567/',
+    ]);
+    expect(
+      webUrlsFor(port: 7567, ips: ips, local: 'pc.local', localFirst: false),
+      [
+        'http://192.168.1.5:7567/',
+        'http://pc.local:7567/',
+        'http://10.0.0.2:7567/',
+      ],
+    );
+    expect(webUrlsFor(port: 1, ips: ips), [
+      'http://192.168.1.5:1/',
+      'http://10.0.0.2:1/',
+    ]);
+    expect(webUrlsFor(port: 1, ips: [], local: 'pc.local', localFirst: false), [
+      'http://pc.local:1/',
+    ]);
+    expect(webUrlsFor(port: 1, ips: []), isEmpty);
+  });
+
+  test('rankIPv4s puts the likely LAN address first', () {
+    expect(
+      rankIPv4s([
+        ('bridge0', '169.254.10.2'),
+        ('utun3', '10.8.0.6'),
+        ('vEthernet (WSL)', '172.27.112.1'),
+        ('tailscale0', '100.101.102.103'),
+        ('en7', '203.0.113.9'),
+        ('docker0', '172.17.0.1'),
+        ('en1', '10.0.0.20'),
+        ('en0', '192.168.2.21'),
+        ('Wi-Fi', '172.20.10.3'),
+        ('bridge100', '192.168.64.1'),
+        ('vboxnet0', '192.168.56.1'),
+      ]),
+      [
+        '192.168.2.21',
+        '10.0.0.20',
+        '172.20.10.3',
+        '203.0.113.9',
+        '10.8.0.6',
+        '172.27.112.1',
+        '172.17.0.1',
+        '192.168.64.1',
+        '192.168.56.1',
+        '100.101.102.103',
+        '169.254.10.2',
+      ],
+    );
+    // Equals keep the order they came in.
+    expect(rankIPv4s([('en1', '192.168.1.9'), ('en0', '192.168.1.8')]), [
+      '192.168.1.9',
+      '192.168.1.8',
+    ]);
   });
 
   test(

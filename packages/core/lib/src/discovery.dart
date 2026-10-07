@@ -113,16 +113,70 @@ Future<String> localHostName() async {
   return name.split('.').first.toLowerCase();
 }
 
-/// Non-loopback IPv4 addresses of this machine.
+/// Non-loopback IPv4 addresses of this machine, best first ([rankIPv4s]).
 Future<List<String>> localIPv4s() async {
   try {
     final ifaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
-    return [
+    return rankIPv4s([
       for (final i in ifaces)
         for (final a in i.addresses)
-          if (!a.isLoopback) a.address,
-    ];
+          if (!a.isLoopback) (i.name, a.address),
+    ]);
   } catch (_) {
     return [];
+  }
+}
+
+/// IPv4 addresses, given with their interface's name, ordered so the one
+/// another device on the same Wi-Fi most likely reaches comes first: the
+/// web shelf's QR code shows only that one. Private LAN ranges on a real
+/// interface lead (192.168/16, which nearly every home router hands out,
+/// then 10/8, then 172.16/12), then any other address on one; after them
+/// what VPNs, VMs, containers and Internet Sharing add, by interface name;
+/// then 100.64/10 (carrier-grade NAT, and Tailscale); last 169.254/16,
+/// which an interface gives itself when no DHCP server answered. Ties keep
+/// the system's order, which lists en0 (a Mac's Wi-Fi) first. dart:io has
+/// no route table, so the default route itself cannot be asked for.
+List<String> rankIPv4s(List<(String, String)> addrs) {
+  int rank((String, String) a) {
+    final (iface, ip) = a;
+    final o = [for (final p in ip.split('.')) int.tryParse(p) ?? 0];
+    if (o.length != 4) return 50;
+    if (o[0] == 169 && o[1] == 254) return 40;
+    if (o[0] == 100 && o[1] >= 64 && o[1] < 128) return 30;
+    if (_virtualIface.hasMatch(iface)) return 20;
+    if (o[0] == 192 && o[1] == 168) return 0;
+    if (o[0] == 10) return 1;
+    if (o[0] == 172 && o[1] >= 16 && o[1] < 32) return 2;
+    return 10;
+  }
+
+  final ranked = [for (final (i, a) in addrs.indexed) (rank(a), i, a.$2)]
+    ..sort((x, y) => x.$1 != y.$1 ? x.$1 - y.$1 : x.$2 - y.$2);
+  return [for (final r in ranked) r.$3];
+}
+
+/// Interface names of VPN tunnels, VMs, containers and bridges: Unix names
+/// by prefix, Windows' friendly names by what they contain.
+final _virtualIface = RegExp(
+  r'^(utun|tun|tap|ppp|ipsec|gif|stf|awdl|llw|bridge|vmnet|vboxnet|docker|'
+  r'br-|veth|virbr|vnic|zt|tailscale|wg|lxc|lxd|cni|flannel|podman|anpi)|'
+  r'virtual|vmware|hyper-v|vethernet|wsl|vpn|zerotier|hamachi|wireguard|'
+  r'nordlynx|loopback|tap-windows|docker|tailscale',
+  caseSensitive: false,
+);
+
+/// Whether [name] resolves, through this machine's own resolver, to one
+/// of [ips]: on Linux that means avahi and nss-mdns are running, so the
+/// `.local` name is being answered for on the network too.
+Future<bool> resolvesToSelf(String name, List<String> ips) async {
+  try {
+    final found = await InternetAddress.lookup(
+      name,
+      type: InternetAddressType.IPv4,
+    ).timeout(const Duration(seconds: 2));
+    return found.any((a) => ips.contains(a.address));
+  } catch (_) {
+    return false;
   }
 }

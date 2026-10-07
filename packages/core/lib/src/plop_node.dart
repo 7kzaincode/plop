@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'discovery.dart';
 import 'item.dart';
@@ -76,16 +77,25 @@ class PlopNode {
   List<ShelfItem> get items => store.items;
   List<Peer> get peers => engine.reachablePeers;
 
-  /// Where a browser on this network opens the web shelf, best first: the
-  /// mDNS name (see [localHostName]), which outlives a DHCP lease, then
-  /// each IPv4 address, for browsers that cannot resolve `.local`
-  /// (Android's, mostly).
+  /// Where a browser on this network opens the web shelf, best first; see
+  /// [webUrlsFor]. The mDNS name (see [localHostName]) outlives a DHCP
+  /// lease, but leads only where other devices can count on it resolving:
+  /// on macOS, where Bonjour always answers for it, and on Linux once a
+  /// lookup of it from here finds this machine (avahi is answering). On
+  /// Windows it never leads, even when that lookup works: Windows resolves
+  /// its own name either way, while a Public network profile can keep
+  /// everyone else's queries out. It comes second there instead.
   Future<List<String>> get webUrls async {
-    final host = await localHostName();
-    return [
-      if (host.isNotEmpty && host != 'localhost') 'http://$host.local:$port/',
-      for (final ip in await localIPv4s()) 'http://$ip:$port/',
-    ];
+    final (ips, host) = await (localIPv4s(), localHostName()).wait;
+    final local = host.isNotEmpty && host != 'localhost' ? '$host.local' : null;
+    final works =
+        local != null && (Platform.isMacOS || await resolvesToSelf(local, ips));
+    return webUrlsFor(
+      port: port,
+      ips: ips,
+      local: works ? local : null,
+      localFirst: !Platform.isWindows,
+    );
   }
 
   /// Name of a peer by id, for showing who an item's [ShelfItem.receivedBy]
@@ -194,4 +204,17 @@ class PlopNode {
     await server.stop();
     await store.dispose();
   }
+}
+
+/// The web shelf's addresses on [port]: each of [ips] in order, with the
+/// [local] name, when there is one, first ([localFirst]) or second.
+List<String> webUrlsFor({
+  required int port,
+  required List<String> ips,
+  String? local,
+  bool localFirst = true,
+}) {
+  final hosts = [...ips];
+  if (local != null) hosts.insert(localFirst ? 0 : min(1, hosts.length), local);
+  return [for (final h in hosts) 'http://$h:$port/'];
 }
