@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plop/auto_copy.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/notify.dart';
+import 'package:plop/seen.dart';
 import 'package:plop/settings.dart';
 import 'package:plop_core/plop_core.dart';
 
@@ -20,6 +21,9 @@ void main() {
   /// The clipboard's change count, as the OS keeps it: every copy, plop's
   /// or the user's, moves it on.
   var clip = 0;
+
+  /// The wall clock, which only a test of sleep moves.
+  var wall = DateTime.now();
 
   /// Copies of these names wait until their completer completes, as a big
   /// picture's would; copies of names starting "bad" fail.
@@ -36,6 +40,7 @@ void main() {
     copied = [];
     told = [];
     clip = 0;
+    wall = DateTime.now();
     slow.clear();
     settings = Settings.inMemory()..autoCopy = on;
     AutoCopy.onCopied = (item) => told.add(item.name);
@@ -48,6 +53,7 @@ void main() {
       maxBytes: 1 << 20,
       deadline: (_) => const Duration(seconds: 30),
       stamp: () async => clip,
+      clock: () => wall,
       copy: (item) async {
         await slow[item.name]?.future;
         if (item.name.startsWith('bad')) throw StateError('item expired');
@@ -370,6 +376,75 @@ void main() {
     shelf = [item('gone', ready: true)];
     await changed(tester);
     expect(copied, isEmpty);
+    await stop();
+  });
+
+  // Its shelf filled up while it was out of reach (a phone out of the
+  // house): what it brings back is not arriving now.
+  testWidgets('a device back after a while away is only turning up', (
+    tester,
+  ) async {
+    await start(tester);
+    await tester.pump(Notify.settle); // settled in
+    peers = ['phone']; // the Mac leaves
+    await changed(tester);
+    await tester.pump(const Duration(minutes: 2));
+    peers = ['phone', 'mac'];
+    shelf = [item('from before', from: 'mac', ready: true)];
+    await changed(tester);
+    expect(copied, isEmpty);
+
+    // Its grace over, what it plops is an arrival again.
+    await tester.pump(Notify.grace);
+    shelf = [item('new', from: 'mac', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, ['new']);
+
+    // A missed poll or two is no absence.
+    peers = ['phone'];
+    await changed(tester);
+    await tester.pump(const Duration(seconds: 20));
+    peers = ['phone', 'mac'];
+    shelf = [item('just now', from: 'mac', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, ['new', 'just now']);
+    await stop();
+  });
+
+  // Timers stand still while the machine sleeps; the wall clock does not.
+  testWidgets('after this machine slept, every device is turning up', (
+    tester,
+  ) async {
+    await start(tester);
+    await tester.pump(Notify.settle);
+    wall = wall.add(const Duration(minutes: 40)); // asleep
+    await tester.pump(Settling.tick);
+    shelf = [item('plopped meanwhile', ready: true)];
+    await changed(tester);
+    expect(copied, isEmpty);
+
+    // The Wi-Fi takes a moment to come back: the Mac drops off and
+    // returns with what it plopped meanwhile.
+    await tester.pump(const Duration(seconds: 5));
+    peers = ['phone'];
+    await changed(tester);
+    await tester.pump(const Duration(seconds: 15));
+    peers = ['phone', 'mac'];
+    shelf = [item('also meanwhile', from: 'mac', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, isEmpty);
+
+    await tester.pump(Notify.grace);
+    shelf = [item('after waking', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, ['after waking']);
+
+    // Awake all along, nothing is held back.
+    await tester.pump(Notify.settle);
+    await tester.pump(Settling.tick * 3);
+    shelf = [item('later still', from: 'mac', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, ['after waking', 'later still']);
     await stop();
   });
 

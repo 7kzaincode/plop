@@ -16,10 +16,11 @@ import 'settings.dart';
 /// Text and pictures another device plops go straight onto this one's
 /// clipboard once they are here, when the settings panel has it switched on
 /// ([Settings.autoCopy]). Off by default: anyone nearby with plop could then
-/// fill the clipboard. Only arrivals count, as with the notifications
-/// (lib/notify.dart): not what was on the shelf at launch or what a device
-/// brings in its first seconds ([Settling]), nor an item back with a peer
-/// that dropped off ([SeenItems]). The newest arrival wins: one still on its
+/// fill the clipboard. Only arrivals count: not what was on the shelf at
+/// launch, nor what a device brings in its first seconds on the network,
+/// at launch, back after a while away or after this machine slept
+/// ([Settling]), nor an item back with a peer that dropped off
+/// ([SeenItems]). The newest arrival wins: one still on its
 /// way when a newer one comes is skipped, so the clipboard ends up holding
 /// the last thing sent. Files and folders never go: they are things to save,
 /// not to paste. Nor does anything over the eager-copy size, which is only
@@ -44,7 +45,7 @@ abstract final class AutoCopy {
 
   /// Every item from another device seen so far, copied or not.
   static final _seen = SeenItems();
-  static final _settling = Settling(grace: Notify.grace, settle: Notify.settle);
+  static var _settling = Settling(grace: Notify.grace, settle: Notify.settle);
 
   /// The newest arrival waiting for its bytes, with the clipboard as it
   /// was when it arrived and the time it has to get here.
@@ -74,7 +75,8 @@ abstract final class AutoCopy {
   /// the shelf, or [peers], the ids of the other devices, may have changed;
   /// [self] is this device's id, [copy] puts an item on the clipboard,
   /// [maxBytes] is the eager-copy size and [deadline] the time an eager
-  /// copy of a size gets. [stamp] stands in for [clipboardStamp].
+  /// copy of a size gets. [stamp] stands in for [clipboardStamp] and
+  /// [clock] for the wall clock, which shows when the machine slept.
   @visibleForTesting
   static void watchItems(
     Stream<void> changes,
@@ -86,6 +88,7 @@ abstract final class AutoCopy {
     int maxBytes = defaultEagerCopyBytes,
     Duration Function(int bytes)? deadline,
     Future<Object?> Function()? stamp,
+    DateTime Function()? clock,
   }) {
     if (!isDesktop) return;
     _settings = settings;
@@ -93,9 +96,13 @@ abstract final class AutoCopy {
     _maxBytes = maxBytes;
     _deadline = deadline ?? _eagerDeadline;
     _stamp = stamp ?? clipboardStamp;
-    _settling.start();
+    _settling.clear();
+    _settling = Settling(grace: Notify.grace, settle: Notify.settle, now: clock)
+      ..start();
     void check() {
-      peers().forEach(_settling.hear);
+      final here = peers().toList();
+      _settling.present(here);
+      here.forEach(_settling.hear);
       _arrived(items().where((i) => i.originId != self));
     }
 

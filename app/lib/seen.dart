@@ -36,52 +36,116 @@ class SeenItems {
   void clear() => _until.clear();
 }
 
-/// Which devices are still in their first moments, so what they bring is
-/// what they already had rather than news: at a launch at login the other
-/// devices' shelves fill in over the first seconds, as each first syncs.
-/// A device gets [grace] from when plop first hears from it, so long as
-/// that is within [settle] of [start]: at login, Wi-Fi and mDNS can take a
-/// while. One first heard from later is new to this device, and so are its
-/// items. Copying arrivals (lib/auto_copy.dart) keeps time with this; the
-/// notifications (lib/notify.dart) keep the same time with their own.
+/// Which devices are only turning up, so what they bring is what they
+/// already had rather than news, and when. A device gets [grace] from when
+/// it turns up:
+///   - heard from for the first time within [settle] of [start]: at a
+///     launch at login the other devices' shelves fill in over the first
+///     seconds, and Wi-Fi and mDNS can take a while;
+///   - back on the network after more than [away] gone, or after any
+///     absence while settling: its shelf filled up while it was out of
+///     reach (a phone out of the house, a laptop asleep);
+///   - heard from when this machine wakes from sleep, which [start]s
+///     settling again: what the others plopped meanwhile is not arriving
+///     now.
+/// One first heard from once plop has settled in is new to this device,
+/// and so are its items. Copying arrivals (lib/auto_copy.dart) keeps time
+/// with this; the notifications (lib/notify.dart) keep their own, for
+/// launch only.
 class Settling {
-  Settling({required this.grace, required this.settle});
+  Settling({
+    required this.grace,
+    required this.settle,
+    this.away = const Duration(minutes: 1),
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
 
   final Duration grace;
   final Duration settle;
+  final Duration away;
+
+  /// How often the wall clock is read, to see that the machine slept:
+  /// timers stand still in sleep (or run late under App Nap), the wall
+  /// clock does not. A gap of more than this plus [away] between two reads
+  /// is taken as sleep; a false one costs a device's [grace], no more.
+  static const tick = Duration(seconds: 15);
+
+  final DateTime Function() _now;
 
   /// Running for [settle] after [start].
   Timer? _settling;
+  Timer? _ticking;
+  DateTime? _lastTick;
 
   /// Devices heard from since [start], and those still in their [grace].
   final _heard = <String>{};
   final _quiet = <String, Timer>{};
 
-  /// Plop starts watching: devices heard from in the next [settle] are
-  /// turning up, not arriving.
+  /// Devices on the network at the last [present], and those that have
+  /// left since, each with a timer that runs out once it has been [away].
+  var _here = <String>{};
+  final _gone = <String, Timer>{};
+
+  /// Plop starts watching, or the machine woke: devices heard from in the
+  /// next [settle] are turning up, not arriving.
   void start() {
     _settling?.cancel();
     _settling = Timer(settle, () => _settling = null);
+    _heard.clear();
+    _lastTick = _now();
+    _ticking ??= Timer.periodic(tick, (_) => _tick());
+  }
+
+  void _tick() {
+    final now = _now(), last = _lastTick;
+    _lastTick = now;
+    // Each device's grace starts when it is next heard from, which may be
+    // a while after waking, once the network is back.
+    if (last != null && now.difference(last) > tick + away) start();
   }
 
   /// Starts [peer]'s [grace] the first time it is heard from while plop is
   /// settling in.
   void hear(String peer) {
     if (_settling == null || !_heard.add(peer)) return;
+    _quietFor(peer);
+  }
+
+  /// The devices on the network now. One back after long enough away, or
+  /// while settling, starts a [grace]; one seen for the first time is
+  /// left to [hear].
+  void present(Iterable<String> peers) {
+    final now = peers.toSet();
+    for (final p in now.difference(_here)) {
+      final gone = _gone.remove(p);
+      if (gone == null) continue;
+      final long = !gone.isActive;
+      gone.cancel();
+      if (long || _settling != null) _quietFor(p);
+    }
+    for (final p in _here.difference(now)) {
+      _gone[p] = Timer(away, () {});
+    }
+    _here = now;
+  }
+
+  void _quietFor(String peer) {
+    _quiet[peer]?.cancel();
     _quiet[peer] = Timer(grace, () => _quiet.remove(peer));
   }
 
   /// Whether what [peer] brings now is what it already had.
   bool isQuiet(String peer) => _quiet.containsKey(peer);
 
-  /// Forgets every device and stops the clock, as before [start].
+  /// Forgets every device and stops the clocks, as before [start].
   void clear() {
-    _settling?.cancel();
-    _settling = null;
-    for (final t in _quiet.values) {
-      t.cancel();
+    for (final t in [_settling, _ticking, ..._quiet.values, ..._gone.values]) {
+      t?.cancel();
     }
+    _settling = _ticking = _lastTick = null;
     _quiet.clear();
+    _gone.clear();
     _heard.clear();
+    _here = {};
   }
 }
