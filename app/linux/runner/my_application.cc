@@ -135,9 +135,9 @@ static void my_application_activate(GApplication* application) {
 
   FlView* view = fl_view_new(project);
   GdkRGBA background_color;
-  // Background defaults to black, override it here if necessary, e.g. #00000000
-  // for transparent.
-  gdk_rgba_parse(&background_color, "#000000");
+  // The shelf's own canvas (Palette.bg), as the Windows runner paints its
+  // caption, so a resize that outruns Flutter's next frame shows no seam.
+  gdk_rgba_parse(&background_color, "#0A0A0A");
   fl_view_set_background_color(view, &background_color);
   gtk_widget_show(GTK_WIDGET(view));
   gtk_container_add(GTK_CONTAINER(window), GTK_WIDGET(view));
@@ -184,11 +184,19 @@ static gboolean my_application_local_command_line(GApplication* application,
 
 // Implements GApplication::startup.
 static void my_application_startup(GApplication* application) {
-  // MyApplication* self = MY_APPLICATION(object);
-
-  // Perform any actions required at application startup.
-
   G_APPLICATION_CLASS(my_application_parent_class)->startup(application);
+
+  // Dark chrome whatever the desktop's theme, as the Windows runner's dark
+  // caption and the macOS window's darkAqua give: the header bar takes the
+  // theme's own dark variant (Yaru, Adwaita and Breeze all ship one), so on
+  // a stock light Ubuntu it is no longer a white strip over the near-black
+  // shelf. Only plop's windows change, not other apps', and the user's
+  // theme stays theirs. A window manager's own title bar (X11 outside GNOME,
+  // where the runner uses one) is drawn by it and not touched. Here, after
+  // the parent's startup has initialised GTK and before any window exists,
+  // and once per process: a second launch never gets this far.
+  g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
+               TRUE, nullptr);
 }
 
 // Implements GApplication::shutdown.
