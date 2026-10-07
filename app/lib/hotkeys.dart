@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:pasteboard/pasteboard.dart';
@@ -12,10 +13,12 @@ import 'grab.dart';
 import 'notify.dart';
 import 'window.dart';
 
-/// System-wide shortcuts on desktop, so things can go on the shelf without
-/// switching to plop. The defaults, which the user can rebind:
+/// System-wide shortcuts on desktop, so things can go on the shelf, and come
+/// off it, without switching to plop. The defaults, which the user can
+/// rebind:
 ///   ⌃⌥P / Ctrl+Shift+Alt+P  select a region of the screen; it lands on the shelf
 ///   ⌃⌥V / Ctrl+Shift+Alt+V  put whatever is on the clipboard on the shelf
+///   ⌃⌥G / Ctrl+Shift+Alt+G  grab the newest thing another device put there
 /// Windows and Linux add Shift: Ctrl+Alt alone is AltGr on many layouts and
 /// clashes with Office and JetBrains shortcuts.
 abstract final class Hotkeys {
@@ -35,11 +38,26 @@ abstract final class Hotkeys {
     modifiers: defaultMods,
   );
 
+  static final defaultGrab = HotKey(
+    key: PhysicalKeyboardKey.keyG,
+    modifiers: defaultMods,
+  );
+
   static HotKey snip = defaultSnip;
   static HotKey clip = defaultClip;
+  static HotKey grab = defaultGrab;
 
   static String get snipLabel => label(snip);
   static String get clipLabel => label(clip);
+  static String get grabLabel => label(grab);
+
+  /// The current bindings by the name each is saved under
+  /// (Settings.hotkey).
+  static Map<String, HotKey> get bindings => {
+    'snip': snip,
+    'clip': clip,
+    'grab': grab,
+  };
 
   /// ⌃⌥⇧⌘P on macOS, Ctrl+Shift+Alt+P elsewhere.
   static String label(HotKey k) {
@@ -195,7 +213,10 @@ abstract final class Hotkeys {
           (Platform.environment['XDG_SESSION_TYPE'] == 'wayland' ||
               (Platform.environment['WAYLAND_DISPLAY'] ?? '').isNotEmpty));
 
-  static bool _busy = false;
+  /// The locks [_once] holds: snip and clip share one, so two things never
+  /// go on the shelf at once; a grab, which may be a long download, has its
+  /// own, so it never keeps the other two waiting.
+  static final _busy = <String>{};
   static int _snipGen = 0;
   static final _lastPress = <String, DateTime>{};
   static bool _askedForScreen = false;
@@ -238,8 +259,8 @@ abstract final class Hotkeys {
     if (!supported || node == null || onPlopped == null) return;
     await hotKeyManager.unregisterAll();
     // Registering a taken combo reports success and does nothing, so say so;
-    // the other shortcut still works.
-    for (final k in [snip, clip]) {
+    // the other shortcuts still work.
+    for (final k in bindings.values) {
       if (!isFree(k)) {
         onPlopped(
           '${label(k)} is taken by another app · change it in settings',
@@ -260,7 +281,7 @@ abstract final class Hotkeys {
 
         if (_isRepeat('snip')) return;
         // The Windows snip waits on the user, so it must not hold the lock
-        // that the other shortcut shares.
+        // that the clipboard shortcut shares.
         if (Platform.isWindows) {
           run().catchError((Object e) => _fail(friendlyError(e)));
         } else {
@@ -281,18 +302,75 @@ abstract final class Hotkeys {
               }
             }),
     );
+    await hotKeyManager.register(
+      grab,
+      keyDownHandler: (_) => _isRepeat('grab')
+          ? null
+          : _once(lock: 'grab', () async {
+              final (:message, :saved) = await grabNewest(node);
+              _feedback(true);
+              onPlopped(
+                message,
+                action: saved == null ? null : 'show',
+                onTap: saved == null ? null : () => reveal(saved),
+              );
+            }),
+    );
   }
 
-  static Future<void> _once(Future<void> Function() f) async {
-    if (_busy) return;
-    _busy = true;
+  /// Runs [f] unless the same [lock] is held, i.e. a press while the last
+  /// one is still running is dropped, not queued; a failure is said.
+  static Future<void> _once(
+    Future<void> Function() f, {
+    String lock = 'shelf',
+  }) async {
+    if (!_busy.add(lock)) return;
     try {
       await f();
     } catch (e) {
       _fail(friendlyError(e));
     } finally {
-      _busy = false;
+      _busy.remove(lock);
     }
+  }
+
+  /// The newest item another device put on the shelf, by when this device
+  /// first saw it, or null if there is none: what the grab shortcut takes.
+  /// Your own are left out; they are here already.
+  static ShelfItem? newestRemote(Iterable<ShelfItem> items, String self) {
+    ShelfItem? newest;
+    for (final i in items) {
+      if (i.originId == self) continue;
+      if (newest == null || i.addedAt.isAfter(newest.addedAt)) newest = i;
+    }
+    return newest;
+  }
+
+  /// What the grab shortcut does with the newest item from another device:
+  /// what its row's copy does, since the shortcut is pressed in another app
+  /// to paste there. Text, a picture or any other file goes on the
+  /// clipboard ([copyItem]); a folder, which the clipboard can't hold as
+  /// one, is saved where the row saves it ([saveItem]). Either fetches it
+  /// first if it is not here yet. Returns what to say, and where a save
+  /// went; throws a [PlopMessage] when there is nothing to grab. [copy] and
+  /// [save] are for tests.
+  @visibleForTesting
+  static Future<({String message, String? saved})> grabNewest(
+    PlopNode node, {
+    Future<String> Function(PlopNode node, ShelfItem item) copy = copyItem,
+    Future<String> Function(PlopNode node, ShelfItem item) save = saveItem,
+  }) async {
+    final item = newestRemote(node.items, node.id);
+    if (item == null) throw const PlopMessage('nothing new to grab');
+    if (item.kind == ItemKind.folder) {
+      final path = await save(node, item);
+      return (
+        message: 'saved ${item.name} to ${savedWhere(path)}',
+        saved: path,
+      );
+    }
+    await copy(node, item);
+    return (message: 'copied ${messageName(item)}', saved: null);
   }
 
   static void _fail(String message) {
@@ -461,6 +539,12 @@ abstract final class Hotkeys {
     return false;
   }
 }
+
+/// How a message names [item]: by its name, but a text only as "text". Its
+/// name is its first line, and a copied password or sign-in code would
+/// otherwise sit in a notification on the lock screen (see Notify.describe).
+String messageName(ShelfItem item) =>
+    item.kind == ItemKind.text ? 'text' : item.name;
 
 /// A short message after something lands, or with `ok: false` when it failed
 /// and the user needs to act; [action] names what a tap then does.

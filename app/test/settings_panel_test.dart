@@ -95,9 +95,9 @@ void main() {
     expect(on, isTrue);
     expect(find.textContaining("couldn't change"), findsNothing);
 
-    // Tab reaches it, after the two shortcut keys and the reset link; Space
-    // flips it back, Enter flips it again.
-    for (var i = 0; i < 4; i++) {
+    // Tab reaches it, after the three shortcut keys and the reset link;
+    // Space flips it back, Enter flips it again.
+    for (var i = 0; i < 5; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     }
     await tester.pump();
@@ -157,6 +157,35 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     expect(notifications(false), findsOneWidget);
+  }, skip: !Notify.supported); // the section is desktop only
+
+  testWidgets('copying arrivals is off by default, says why, remembers on', (
+    tester,
+  ) async {
+    Finder autoCopy(bool on) => find.byWidgetPredicate(
+      (w) =>
+          w is Semantics &&
+          w.properties.label == 'copy arrivals automatically' &&
+          w.properties.toggled == on,
+    );
+    final settings = await openPanel(tester);
+    expect(autoCopy(false), findsOneWidget);
+    expect(settings.autoCopy, isFalse);
+    expect(find.textContaining('anyone nearby can fill it'), findsOneWidget);
+
+    await tester.ensureVisible(autoCopy(false));
+    await tester.tap(autoCopy(false));
+    await tester.pumpAndSettle();
+    expect(autoCopy(true), findsOneWidget);
+    expect(settings.autoCopy, isTrue);
+    expect(notifications(true), findsOneWidget, reason: 'its own switch');
+
+    // Reopened, the panel shows what was saved.
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(autoCopy(true), findsOneWidget);
   }, skip: !Notify.supported); // the section is desktop only
 
   testWidgets('with the tray icon up on Windows and Linux, the panel quits', (
@@ -268,9 +297,11 @@ void main() {
     expect(Hotkeys.keyName(Hotkeys.snip.physicalKey), 'S');
     expect(settings.hotkey('snip'), isNotNull);
 
-    // Tab on to the clipboard key, then the reset link; Space resets.
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    // Tab on to the clipboard and grab keys, then the reset link; Space
+    // resets.
+    for (var i = 0; i < 3; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    }
     await tester.pump();
     expect(focused(find.text('reset to defaults')), isTrue);
     expect(ring, findsOneWidget);
@@ -297,7 +328,7 @@ void main() {
     // Tab to the reset link, then start recording with a click on the snip
     // key. The click takes focus with it, so a bare Enter is offered to the
     // recorder (and refused) rather than pressing the link.
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 4; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     }
     await tester.pump();
@@ -315,8 +346,9 @@ void main() {
 
     // Tab is refused as a binding too, but still moves focus; Enter on the
     // link it reaches is no reset either while the recorder is up.
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    for (var i = 0; i < 3; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    }
     await tester.pump();
     expect(focused(find.text('reset to defaults')), isTrue);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -351,7 +383,7 @@ void main() {
 
     // Tab past the keys and the reset link onto the toggle; a click on the
     // clipboard key then starts recording and takes focus with it.
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 5; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
     }
     await tester.pump();
@@ -366,8 +398,9 @@ void main() {
     expect(find.text('…'), findsOneWidget, reason: 'still recording');
 
     // Back on the toggle by Tab, Space is still a key being offered.
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    for (var i = 0; i < 3; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    }
     await tester.pump();
     expect(focused(toggle), isTrue);
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
@@ -425,6 +458,63 @@ void main() {
     expect(saved, isNotNull);
     expect(Hotkeys.same(saved!, Hotkeys.snip), isTrue);
     Hotkeys.snip = Hotkeys.defaultSnip;
+  });
+
+  testWidgets('grab newest has a row of its own, refuses taken keys, resets', (
+    tester,
+  ) async {
+    addTearDown(() => Hotkeys.grab = Hotkeys.defaultGrab);
+    final settings = await openPanel(tester);
+    expect(find.text('grab newest'), findsOneWidget);
+    expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
+
+    await tester.tap(find.text(Hotkeys.grabLabel));
+    await tester.pump();
+    expect(find.text('…'), findsOneWidget);
+
+    /// Holds [mods] down and presses [key].
+    Future<void> chord(
+      List<LogicalKeyboardKey> mods,
+      LogicalKeyboardKey key,
+    ) async {
+      for (final m in mods) {
+        await tester.sendKeyDownEvent(m);
+      }
+      await tester.sendKeyEvent(key);
+      for (final m in mods.reversed) {
+        await tester.sendKeyUpEvent(m);
+      }
+      await tester.pump();
+    }
+
+    // The snip's own keys: refused, and recording goes on.
+    await chord([
+      for (final m in Hotkeys.defaultMods)
+        switch (m) {
+          HotKeyModifier.control => LogicalKeyboardKey.controlLeft,
+          HotKeyModifier.shift => LogicalKeyboardKey.shiftLeft,
+          _ => LogicalKeyboardKey.altLeft,
+        },
+    ], LogicalKeyboardKey.keyP);
+    expect(find.text('that one is already taken'), findsOneWidget);
+    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+
+    await chord([
+      LogicalKeyboardKey.controlLeft,
+      LogicalKeyboardKey.altLeft,
+    ], LogicalKeyboardKey.keyS);
+    expect(find.text('…'), findsNothing);
+    expect(Hotkeys.keyName(Hotkeys.grab.physicalKey), 'S');
+    expect(find.text(Hotkeys.grabLabel), findsOneWidget);
+    expect(Hotkeys.same(settings.hotkey('grab')!, Hotkeys.grab), isTrue);
+    expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
+    expect(settings.hotkey('snip'), isNull, reason: 'the others keep theirs');
+
+    await tester.tap(find.text('reset to defaults'));
+    await tester.pump();
+    expect(Hotkeys.same(Hotkeys.grab, Hotkeys.defaultGrab), isTrue);
+    expect(settings.hotkey('grab'), isNull);
+    expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
   });
 
   testWidgets('a shortcut that cannot be saved says so and still works', (

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'auto_copy.dart';
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
@@ -82,7 +83,13 @@ Future<void> _start() async {
   Tray.init(node).ignore();
   Notify.init(settings).ignore();
   Notify.watch(node);
-  Island.init(node);
+  // Arrivals and shortcut results on macOS: the notch island. The copy
+  // button's tooltip names the shortcut that grabs the newest.
+  Island.init(node, hint: () => Hotkeys.grabLabel);
+  // Desktop only, and only once switched on in the settings panel; on macOS
+  // the island says so on the item's row.
+  AutoCopy.watch(node, settings);
+  if (Island.supported) AutoCopy.onCopied = Island.copied;
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
   // the Screen Recording steps, waits until they look instead of fading out;
@@ -104,6 +111,7 @@ Future<void> _start() async {
   );
   Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
   Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;
+  Hotkeys.grab = settings.hotkey('grab') ?? Hotkeys.defaultGrab;
   try {
     await Hotkeys.register(node, say);
   } catch (_) {

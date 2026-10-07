@@ -162,4 +162,34 @@ void main() {
     expect(f['meta'], 'folder · 1.5 KB');
     expect(f['actions'], ['save']);
   });
+
+  testWidgets('a copy that beats the island still shows on its row', (
+    tester,
+  ) async {
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.inactive);
+    final text = item('t', name: 'otp 123456', kind: ItemKind.text);
+    // Auto-copy finished first; the arrival is still gathering.
+    Island.copied(text);
+    final row = (await tester.runAsync(() => Island.describe(text)))!;
+    expect(row['mark'], '✓ copied automatically');
+    // Shown in time, so no line of its own.
+    Notify.arrived([text]);
+    await tester.pump(Island.burst);
+    await settle(tester);
+    await tester.pump(Island.burst * 2);
+    expect(calls.where((c) => c.method == 'say'), isEmpty);
+    expect(calls.where((c) => c.method == 'show'), hasLength(1));
+  });
+
+  testWidgets('a copy whose arrival never shows says so on its own', (
+    tester,
+  ) async {
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.inactive);
+    Island.copied(item('t', name: 'otp 123456', kind: ItemKind.text));
+    await tester.pump(Island.burst * 2);
+    final say = calls.singleWhere((c) => c.method == 'say');
+    expect((say.arguments as Map)['text'], "copied text from Zain's iPhone");
+  });
 }

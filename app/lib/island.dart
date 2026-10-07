@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:plop_core/plop_core.dart';
 
 import 'grab.dart';
+import 'notify.dart';
 import 'shelf_screen.dart' show formatSize;
 import 'type_icons.dart';
 import 'window.dart';
@@ -61,6 +62,7 @@ abstract final class Island {
     _shown = [];
     _marks.clear();
     _saved.clear();
+    _autoCopied.clear();
   }
 
   /// Call after runApp on macOS. [hint] names the shortcut that grabs the
@@ -98,15 +100,28 @@ abstract final class Island {
   }
 
   /// [item] went onto the clipboard by itself (auto-copy): the island says
-  /// so on its row, or on its own when that row isn't showing.
+  /// so on its row. A small text is often copied before its arrival is
+  /// shown, so the row says so when it comes; if it never does (the window
+  /// was focused, say), a line of its own says it.
   static void copied(ShelfItem item) {
     if (!active) return;
+    _autoCopied.add(item.key);
     if (_shown.any((i) => i.key == item.key)) {
-      _mark(item.key, '✓ copied automatically');
-    } else {
-      say('copied ${_title(item)} from ${item.originName}');
+      _mark(item.key, _copiedLine);
+      return;
     }
+    Timer(burst * 2, () {
+      if (_shown.any((i) => i.key == item.key)) return;
+      if (!Notify.windowFocused) {
+        say('copied ${_title(item)} from ${item.originName}');
+      }
+    });
   }
+
+  static const _copiedLine = '✓ copied automatically';
+
+  /// Keys auto-copy put on the clipboard, for their rows' line.
+  static final _autoCopied = <String>{};
 
   static void hide() {
     if (!active) return;
@@ -143,7 +158,9 @@ abstract final class Island {
               .readAsString()
               .then<String?>((t) => t, onError: (_) => null)
         : null;
-    final mark = _marks[i.key];
+    final mark =
+        _marks[i.key] ??
+        (_autoCopied.contains(i.key) ? (_copiedLine, false) : null);
     return {
       'key': i.key,
       'title': _title(i),
@@ -193,6 +210,7 @@ abstract final class Island {
     for (final key in gone) {
       _channel.invokeMethod<void>('drop', {'key': key}).ignore();
     }
+    _autoCopied.removeWhere((k) => node.store[k] == null);
     _shown = [for (final i in _shown) ?node.store[i.key]];
     final ready = {
       for (final i in _shown)

@@ -14,14 +14,15 @@
 ## Status (2026-10-06)
 
 - Done: core (`dart test` in `packages/core`, 79 tests), the macOS, iOS,
-  Android, Windows and Linux apps (`flutter test` in `app`, 64 tests, the
+  Android, Windows and Linux apps (`flutter test` in `app`, 83 tests, the
   shelf and layout ones driving a real pair of nodes over loopback), and
   release builds for all but iOS via release.yml (ad-hoc or debug signed;
   the README covers the first open on each system). CI runs the core tests,
   the app's widget tests and the Linux and Windows builds.
 - Added beyond the brief: folders, per-item lifetime picker, copy vs save,
-  100 GB cap with transfers that outlive expiry, rebindable snip/clipboard
-  shortcuts, open at login, Android share target, macOS Dock drops, a Dock
+  100 GB cap with transfers that outlive expiry, rebindable snip/clipboard/
+  grab-newest shortcuts, copying arrivals to the clipboard (opt-in), open
+  at login, Android share target, macOS Dock drops, a Dock
   badge / taskbar flash for arrivals while hidden, a tray / menu bar icon so
   closing the window keeps plop running on every desktop (Ctrl+Q quits from
   the window on Windows and Linux), the macOS island (arrivals drop out of
