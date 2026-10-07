@@ -127,11 +127,11 @@ abstract final class Notify {
   /// [item] went onto the clipboard by itself (lib/auto_copy.dart). True
   /// when its arrival is still to be announced, and then says so ("text ·
   /// 7 characters · copied"), so one arrival is one notification; false
-  /// when it won't be (announced already, the window in front, a web
-  /// upload, which is never announced), for the caller to say it on a line
+  /// when it won't be (announced already, the window in front), for the
+  /// caller to say it on a line
   /// of its own. Not used with the island, which marks its row instead.
   static bool copied(ShelfItem item) {
-    final b = _bursts[item.originId];
+    final b = _bursts[_isUpload(item.key) ? 'web' : item.originId];
     if (b == null || !b.items.any((i) => i.key == item.key)) return false;
     _copied = item.key; // the clipboard holds one thing: the last
     return true;

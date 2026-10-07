@@ -36,6 +36,7 @@ class ShelfItem {
     this.path,
     this.ownsFile = true,
     this.sourceModified,
+    this.ageAtArrival,
   }) : addedAt = addedAt ?? expiresAt.subtract(ttl);
 
   final String id;
@@ -61,6 +62,12 @@ class ShelfItem {
   /// With the size, this is how a rewrite of that file is noticed; null
   /// for anything the store owns.
   final DateTime? sourceModified;
+
+  /// For a mirror, how long ago its sender had put it up when this node
+  /// first saw it (the list's `ageMs`); null for an own item, or from a
+  /// sender too old to say. Something already minutes old on first sight
+  /// came in while this device was asleep or away, not just now.
+  final Duration? ageAtArrival;
 
   /// 0..1 while downloading, otherwise null.
   double? progress;
@@ -91,6 +98,8 @@ class ShelfItem {
     'mime': mime,
     'kind': kind.name,
     'ttlMs': remaining.inMilliseconds,
+    // Only ever sent for this node's own items, whose addedAt is the add.
+    'ageMs': max(0, DateTime.now().difference(addedAt).inMilliseconds),
   };
 }
 
@@ -121,6 +130,7 @@ class RemoteItem {
     required String mime,
     required this.kind,
     required this.ttlMs,
+    this.ageMs,
   }) : mime = safeMime(mime);
 
   factory RemoteItem.fromJson(Map<String, dynamic> j) => RemoteItem(
@@ -131,6 +141,11 @@ class RemoteItem {
     // Unknown kinds from newer peers degrade to plain files.
     kind: ItemKind.values.asNameMap()[j['kind']] ?? ItemKind.file,
     ttlMs: (j['ttlMs'] as num).toInt(),
+    // Optional: older nodes leave it out. Nonsense reads as unknown.
+    ageMs: switch (j['ageMs']) {
+      final num a when a >= 0 && a < 1e12 => a.toInt(),
+      _ => null,
+    },
   );
 
   final String id;
@@ -139,6 +154,10 @@ class RemoteItem {
   final String mime;
   final ItemKind kind;
   final int ttlMs;
+
+  /// How long ago the sender put it up, in milliseconds; null when it
+  /// doesn't say.
+  final int? ageMs;
 }
 
 final _rng = Random.secure();

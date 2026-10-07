@@ -116,6 +116,7 @@ abstract final class AutoCopy {
     _settling = Settling(grace: Notify.grace, settle: Notify.settle, now: clock)
       ..start();
     void check() {
+      _settling.check(); // slept since? then this is old news
       final here = peers().toList();
       _settling.present(here);
       here.forEach(_settling.hear);
@@ -132,6 +133,12 @@ abstract final class AutoCopy {
       Duration(milliseconds: bytes * 1000 ~/ (256 << 10));
 
   static bool get _on => _settings?.autoCopy ?? false;
+
+  /// Older than this when it got here (its sender says how old, from
+  /// plop's protocol `ageMs`): not an arrival to put on the clipboard, but
+  /// something that was waiting while this device was asleep or away. A
+  /// sender too old to say gets the [Settling] rules alone.
+  static const fresh = Duration(seconds: 30);
 
   /// Text, or a picture this OS's clipboard takes as one ([copiesAsImage]:
   /// none on Linux, no HEIC or WebP on Windows, never SVG), small enough to
@@ -155,9 +162,12 @@ abstract final class AutoCopy {
       if (!upload) _settling.hear(item.originId);
       if (!_seen.add(item)) continue;
       // Switched off (switching on later does not reach back), a device
-      // that is only turning up, or nothing for the clipboard.
+      // that is only turning up, something already old when it got here
+      // (put up while this machine slept, say), or nothing for the
+      // clipboard.
       if (!_on ||
           (!upload && _settling.isQuiet(item.originId)) ||
+          (item.ageAtArrival ?? Duration.zero) > fresh ||
           !_wanted(item)) {
         continue;
       }
@@ -176,7 +186,19 @@ abstract final class AutoCopy {
       return;
     }
     final ready = items.firstWhere((i) => i.key == pending.key);
-    if (!ready.isReady) return;
+    if (!ready.isReady) {
+      // Its copy just started: from now, its own deadline.
+      if (!pending.started && ready.progress != null) {
+        pending.timer.cancel();
+        _pending = (
+          key: pending.key,
+          stamp: pending.stamp,
+          started: true,
+          timer: _expire(pending.key, _deadline(ready.size)),
+        );
+      }
+      return;
+    }
     _letGo();
     // An [onCopied] that throws must not stop every copy after it.
     _copying = _copying
@@ -185,18 +207,24 @@ abstract final class AutoCopy {
   }
 
   /// [item] is the one to copy once it is here, so long as that is within
-  /// its eager-copy deadline.
+  /// its eager-copy deadline of the copy starting. It may wait its turn
+  /// first (four copies at a time, two per device), so until it starts it
+  /// gets [_queued] times as long.
   static void _wait(ShelfItem item) {
     _letGo();
-    final key = item.key;
     _pending = (
-      key: key,
+      key: item.key,
       stamp: _readStamp(),
-      timer: Timer(_deadline(item.size), () {
-        if (_pending?.key == key) _pending = null;
-      }),
+      started: false,
+      timer: _expire(item.key, _deadline(item.size) * _queued),
     );
   }
+
+  static const _queued = 4;
+
+  static Timer _expire(String key, Duration after) => Timer(after, () {
+    if (_pending?.key == key) _pending = null;
+  });
 
   static void _letGo() {
     _pending?.timer.cancel();
@@ -256,7 +284,12 @@ abstract final class AutoCopy {
 /// phone without the app, as a rule.
 const webSender = 'a phone (web)';
 
-typedef _Pending = ({String key, Future<Object?> stamp, Timer timer});
+typedef _Pending = ({
+  String key,
+  Future<Object?> stamp,
+  bool started,
+  Timer timer,
+});
 
 /// Something that changes whenever anything is copied, anywhere, compared
 /// by ==; null when it can't be told. macOS: the pasteboard's changeCount,
@@ -277,13 +310,21 @@ Future<Object?> clipboardStamp() async {
 /// (a test runner).
 final int Function()? _macChangeCount = () {
   try {
-    final objc = DynamicLibrary.open('/usr/lib/libobjc.A.dylib');
-    final named =
-        objc.lookupFunction<
+    // Every Mac app has the Objective-C runtime loaded already.
+    final objc = DynamicLibrary.process();
+    // lookupFunction must be called directly, each time: stored as a value
+    // it throws, which would leave the stamp unknown and the user's own
+    // copy unprotected.
+    final getClass = objc
+        .lookupFunction<
           Pointer<Void> Function(Pointer<Uint8>),
           Pointer<Void> Function(Pointer<Uint8>)
-        >;
-    final getClass = named('objc_getClass'), sel = named('sel_registerName');
+        >('objc_getClass');
+    final sel = objc
+        .lookupFunction<
+          Pointer<Void> Function(Pointer<Uint8>),
+          Pointer<Void> Function(Pointer<Uint8>)
+        >('sel_registerName');
     // objc_msgSend is called as the method's own C type: (id, SEL) -> id
     // for generalPasteboard, (id, SEL) -> NSInteger for changeCount.
     final sendId = objc

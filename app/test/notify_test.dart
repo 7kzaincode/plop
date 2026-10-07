@@ -300,10 +300,12 @@ void main() {
     var shelf = <ShelfItem>[];
     final uploads = <String>{};
     final copied = <String>[];
+    // Wired as Notify.watch is: a phone's web-shelf upload is an arrival.
     Notify.watchItems(
       changes.stream,
-      () => shelf.where((i) => i.originId != 'me'),
+      () => shelf.where((i) => i.originId != 'me' || uploads.contains(i.key)),
       () => const ['phone'],
+      isUpload: uploads.contains,
     );
     AutoCopy.watchItems(
       changes.stream,
@@ -349,8 +351,8 @@ void main() {
       hasLength(1),
     );
 
-    // A phone without the app put it up through the web shelf: no arrival
-    // is announced for it, so the copy is a line of its own.
+    // A phone without the app put it up through the web shelf: its arrival
+    // is announced too, from the web, and says it was copied.
     shown.clear();
     final upload = ready(
       item('u', from: 'me', kind: ItemKind.text, name: 'from a phone'),
@@ -360,8 +362,8 @@ void main() {
     changes.add(null);
     await tester.pump(Notify.burst);
     expect(shown, hasLength(1));
-    expect(shown.single['title'], 'plop');
-    expect(shown.single['body'], 'copied text from a phone (web)');
+    expect(shown.single['title'], 'a phone (web)');
+    expect(shown.single['body'], 'text · copied');
     AutoCopy.reset(); // its clocks, before the test's end checks for timers
     Notify.reset();
   });

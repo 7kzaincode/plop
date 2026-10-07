@@ -98,6 +98,7 @@ void main() {
     int size = 12,
     bool ready = false,
     DateTime? added,
+    Duration? age,
   }) => ShelfItem(
     id: name.replaceAll(RegExp('[^A-Za-z0-9]'), '_'),
     originId: from,
@@ -110,6 +111,7 @@ void main() {
     ttl: const Duration(minutes: 2),
     addedAt: added,
     path: ready ? '/tmp/$name' : null,
+    ageAtArrival: age,
   );
 
   testWidgets('off by default; switched on, only later arrivals go', (
@@ -295,21 +297,42 @@ void main() {
   // from its row) would replace whatever the user copied since.
   testWidgets('one not here within its deadline is let go', (tester) async {
     await start(tester);
+    // Its copy starts, and takes longer than its deadline (30 s here).
     final late = item('late');
     shelf = [late];
     await changed(tester);
+    late.progress = 0.1;
+    await changed(tester);
     await tester.pump(const Duration(seconds: 31));
-    late.path = '/tmp/late';
+    late
+      ..progress = null
+      ..path = '/tmp/late';
     await changed(tester);
     expect(copied, isEmpty);
 
-    final onTime = item('on time');
-    shelf = [onTime, late];
+    // It waits its turn behind other copies first: the deadline runs from
+    // when its own copy starts.
+    final queued = item('queued');
+    shelf = [queued, late];
     await changed(tester);
-    await tester.pump(const Duration(seconds: 29));
-    onTime.path = '/tmp/on time';
+    await tester.pump(const Duration(seconds: 60));
+    queued.progress = 0.1;
     await changed(tester);
-    expect(copied, ['on time']);
+    await tester.pump(const Duration(seconds: 20));
+    queued
+      ..progress = null
+      ..path = '/tmp/queued';
+    await changed(tester);
+    expect(copied, ['queued']);
+
+    // Never started at all: let go after four deadlines.
+    final never = item('never');
+    shelf = [never, queued, late];
+    await changed(tester);
+    await tester.pump(const Duration(seconds: 121));
+    never.path = '/tmp/never';
+    await changed(tester);
+    expect(copied, ['queued']);
     await stop();
   });
 
@@ -425,7 +448,10 @@ void main() {
     await tester.pump(Notify.settle);
     wall = wall.add(const Duration(minutes: 40)); // asleep
     await tester.pump(Settling.tick);
-    shelf = [item('plopped meanwhile', ready: true)];
+    // Its sender says it has been up for 20 minutes.
+    shelf = [
+      item('plopped meanwhile', ready: true, age: const Duration(minutes: 20)),
+    ];
     await changed(tester);
     expect(copied, isEmpty);
 
@@ -436,7 +462,15 @@ void main() {
     await changed(tester);
     await tester.pump(const Duration(seconds: 15));
     peers = ['phone', 'mac'];
-    shelf = [item('also meanwhile', from: 'mac', ready: true), ...shelf];
+    shelf = [
+      item(
+        'also meanwhile',
+        from: 'mac',
+        ready: true,
+        age: const Duration(minutes: 3),
+      ),
+      ...shelf,
+    ];
     await changed(tester);
     expect(copied, isEmpty);
 
@@ -485,6 +519,30 @@ void main() {
     text.path = '/tmp/later';
     await changed(tester);
     expect(copied, isEmpty);
+    await stop();
+  });
+
+  testWidgets('something already old when it gets here stays on the shelf', (
+    tester,
+  ) async {
+    await start(tester);
+    await tester.pump(Notify.settle);
+    // A device that kept something up while this one was away: its sender
+    // says it is two minutes old.
+    shelf = [item('waiting', ready: true, age: const Duration(minutes: 2))];
+    await changed(tester);
+    expect(copied, isEmpty);
+    // Just put up: it goes.
+    shelf = [
+      item('just now', ready: true, age: const Duration(seconds: 2)),
+      ...shelf,
+    ];
+    await changed(tester);
+    expect(copied, ['just now']);
+    // A sender too old to say: the usual rules alone.
+    shelf = [item('no age', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, ['just now', 'no age']);
     await stop();
   });
 }

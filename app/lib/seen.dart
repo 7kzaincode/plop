@@ -58,24 +58,29 @@ class Settling {
     required this.settle,
     this.away = const Duration(minutes: 1),
     DateTime Function()? now,
-  }) : _now = now ?? DateTime.now;
+    Stopwatch? monotonic,
+  }) : _now = now ?? DateTime.now,
+       _mono = monotonic ?? (Stopwatch()..start());
 
   final Duration grace;
   final Duration settle;
   final Duration away;
 
-  /// How often the wall clock is read, to see that the machine slept:
-  /// timers stand still in sleep (or run late under App Nap), the wall
-  /// clock does not. A gap of more than this plus [away] between two reads
-  /// is taken as sleep; a false one costs a device's [grace], no more.
+  /// How often the clocks are compared when nothing else asks ([check]).
   static const tick = Duration(seconds: 15);
 
   final DateTime Function() _now;
 
+  /// Sleep shows as the wall clock running ahead of a monotonic one, which
+  /// stands still while the machine sleeps; App Nap delays timers but runs
+  /// both clocks alike, so it is not mistaken for sleep.
+  final Stopwatch _mono;
+  DateTime? _wall;
+  Duration _monoAt = Duration.zero;
+
   /// Running for [settle] after [start].
   Timer? _settling;
   Timer? _ticking;
-  DateTime? _lastTick;
 
   /// Devices heard from since [start], and those still in their [grace].
   final _heard = <String>{};
@@ -92,16 +97,31 @@ class Settling {
     _settling?.cancel();
     _settling = Timer(settle, () => _settling = null);
     _heard.clear();
-    _lastTick = _now();
-    _ticking ??= Timer.periodic(tick, (_) => _tick());
+    _mark();
+    _ticking ??= Timer.periodic(tick, (_) => check());
   }
 
-  void _tick() {
-    final now = _now(), last = _lastTick;
-    _lastTick = now;
-    // Each device's grace starts when it is next heard from, which may be
-    // a while after waking, once the network is back.
-    if (last != null && now.difference(last) > tick + away) start();
+  void _mark() {
+    _wall = _now();
+    _monoAt = _mono.elapsed;
+  }
+
+  /// Whether the machine slept since the last look; call it before taking
+  /// in what the network says, so what came in while asleep is not news.
+  /// On waking, every device already on the shelf starts its [grace] at
+  /// once (one that left and comes back gets one from [present]), and
+  /// devices heard from for the first time in the next [settle] get one.
+  void check() {
+    final wall = _wall;
+    final ran = _mono.elapsed - _monoAt,
+        passed = wall == null ? ran : _now().difference(wall);
+    _mark();
+    if (passed - ran <= away) return;
+    _settling?.cancel();
+    _settling = Timer(settle, () => _settling = null);
+    for (final p in {..._here, ..._heard}) {
+      _quietFor(p);
+    }
   }
 
   /// Starts [peer]'s [grace] the first time it is heard from while plop is
@@ -142,7 +162,8 @@ class Settling {
     for (final t in [_settling, _ticking, ..._quiet.values, ..._gone.values]) {
       t?.cancel();
     }
-    _settling = _ticking = _lastTick = null;
+    _settling = _ticking = null;
+    _wall = null;
     _quiet.clear();
     _gone.clear();
     _heard.clear();

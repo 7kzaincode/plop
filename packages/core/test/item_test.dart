@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:plop_core/plop_core.dart';
 import 'package:test/test.dart';
 
@@ -42,5 +44,46 @@ void main() {
     // No extension worth keeping: the head, cut.
     expect(clean('x' * 30, 10), '${'x' * 9}…');
     expect(clean('a.${'x' * 40}', 10), 'a.xxxxxxx…', reason: 'too long a tail');
+  });
+
+  test('a list entry says how old the item is; a mirror keeps it', () async {
+    final added = DateTime.now().subtract(const Duration(seconds: 90));
+    final own = ShelfItem(
+      id: 'a1',
+      originId: 'me',
+      originName: 'Mac',
+      name: 'notes.txt',
+      size: 3,
+      mime: 'text/plain',
+      kind: ItemKind.file,
+      expiresAt: added.add(const Duration(minutes: 2)),
+      ttl: const Duration(minutes: 2),
+      addedAt: added,
+    );
+    final json = own.toJson();
+    expect(json['ageMs'] as int, inInclusiveRange(89000, 92000));
+
+    final remote = RemoteItem.fromJson(json);
+    expect(remote.ageMs, json['ageMs']);
+    // Older nodes leave it out; nonsense is unknown, not trusted.
+    for (final odd in [null, -5, 'x', 1e300]) {
+      final r = RemoteItem.fromJson({...json, 'ageMs': odd});
+      expect(r.ageMs, isNull, reason: '$odd');
+    }
+
+    final dir = Directory.systemTemp.createTempSync('plop_age');
+    final store = ShelfStore(nodeId: 'me', nodeName: 'Mac', dir: dir);
+    addTearDown(() async {
+      await store.dispose();
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    final mirror = store.addRemote('peer', 'Phone', remote)!;
+    expect(mirror.ageAtArrival!.inSeconds, inInclusiveRange(89, 92));
+    final old = store.addRemote(
+      'peer',
+      'Phone',
+      RemoteItem.fromJson({...json, 'id': 'b2', 'ageMs': null}),
+    )!;
+    expect(old.ageAtArrival, isNull);
   });
 }

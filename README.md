@@ -185,8 +185,11 @@ to renew it.
   after your computer slept. One that is slow to get here (past its
   download deadline), or that finds you have copied something since it
   arrived, is left on the shelf, so it never overwrites your own copy later
-  (on Linux, only a text you copied is noticed). Anyone nearby with plop can
-  fill your clipboard while this is on, which is why it starts off.
+  (on Linux, only a text you copied is noticed), and anything that was
+  already up a while before this device saw it (put up while it slept) stays
+  on the shelf. Anyone nearby with plop, or with the web shelf open in a
+  browser, can fill your clipboard while this is on, which is why it starts
+  off.
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
   folders save to Downloads (folders unpacked). Hover for the other option;
   tap a saved row again to show it in Finder or Explorer (its folder, on

@@ -592,6 +592,7 @@ class ShelfStore {
       addedAt: seen != null && seen.expiresAt.isAfter(now)
           ? seen.addedAt
           : null,
+      ageAtArrival: r.ageMs == null ? null : Duration(milliseconds: r.ageMs!),
     );
     _insert(item, ttl);
     return item;
