@@ -522,26 +522,33 @@ h1 span{color:var(--dim);font-weight:400}
 .off h1 span{color:var(--warn)}
 .btn{padding:6px 12px;border:1px solid var(--border);border-radius:6px;line-height:1.2;white-space:nowrap}
 .btn:active{background:var(--pressed)}
-#list{flex:1;display:flex;flex-direction:column;padding-bottom:env(safe-area-inset-bottom)}
-#list:has(+ #hint.on){padding-bottom:0}
-.row{flex:none;display:flex;align-items:center;gap:12px;padding:14px 12px 14px 16px;position:relative;cursor:pointer;user-select:none;-webkit-user-select:none}
+#list{flex:1;display:flex;flex-direction:column}
+.row{flex:none;display:flex;align-items:center;gap:12px;padding:12px 8px 12px 16px;position:relative;cursor:pointer;user-select:none;-webkit-user-select:none}
 .row:active{background:var(--pressed)}
 .main{flex:1;min-width:0}
 .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta{font-size:13px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.time{color:var(--dim);font-variant-numeric:tabular-nums;min-width:48px;text-align:right}
+.lead{flex:none;width:32px;height:32px;display:block}
+.a{flex:none;width:40px;height:40px;margin:-4px 0;display:flex;align-items:center;justify-content:center;color:var(--dim);border-radius:8px}
+.a svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.a:active{color:var(--text);background:var(--pressed)}
+.time{color:var(--dim);font-variant-numeric:tabular-nums;min-width:44px;text-align:right;padding-right:4px}
 .time.ending{color:var(--warn)}
 .x{color:var(--dim);font-size:20px;line-height:1;padding:8px 10px;margin:-8px -4px}
 .x:active{color:var(--text)}
+#bar{position:sticky;bottom:0;display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--bg);z-index:1}
+.gb{flex:1;min-width:0;height:46px;display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--border);border-radius:10px;font-size:14px;white-space:nowrap}
+.gb svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.gb:active{background:var(--pressed)}
 .bar{position:absolute;left:0;right:0;bottom:0;height:1px;background:var(--line)}
 .bar i{display:block;height:1px;width:100%;background:var(--faint);transition:width 1s linear}
 .bar.live i{background:var(--text);transition:none}
 .empty{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--faint);font-size:13px;line-height:1.7;padding:32px}
-#hint{display:none;align-items:center;gap:8px;margin-top:auto;padding:12px 12px calc(12px + env(safe-area-inset-bottom)) 16px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+#hint{display:none;align-items:center;gap:8px;padding:12px 12px 12px 16px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
 #hint.on{display:flex}
 #hint span{flex:1}
 #hint b{color:var(--text);font-weight:400}
-#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:calc(100vw - 32px);padding:8px 12px;background:#161616;border:1px solid #2a2a2a;border-radius:8px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .15s;pointer-events:none;z-index:3}
+#toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:calc(100vw - 32px);padding:8px 12px;background:#161616;border:1px solid #2a2a2a;border-radius:8px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .15s;pointer-events:none;z-index:3}
 #toast.on{opacity:1}
 #sheet,#view{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:2}
 #sheet.on{display:flex;align-items:flex-end;justify-content:center}
@@ -552,9 +559,11 @@ textarea:focus{border-color:var(--dim)}
 .ghost{color:var(--dim);padding:6px 12px}
 #sheet.show .btn{display:none}
 #view.on{display:flex;flex-direction:column;background:var(--bg)}
-#view img{flex:1;min-height:0;width:100%;object-fit:contain;padding:calc(16px + env(safe-area-inset-top)) 16px 16px}
-#view .foot{display:flex;align-items:center;gap:12px;padding:12px 16px calc(16px + env(safe-area-inset-bottom));color:var(--dim);font-size:13px}
-#view .foot span{flex:1}
+#view img{flex:1;min-height:0;width:100%;object-fit:contain;padding:calc(16px + env(safe-area-inset-top)) 16px 16px;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto}
+#view .foot{display:flex;flex-direction:column;gap:12px;padding:12px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+#how{text-align:center;color:var(--dim);font-size:14px;line-height:1.5}
+#how b{color:var(--text);font-weight:500}
+#view .vb{display:flex;gap:8px}
 input[type=file]{display:none}
 </style>
 </head>
@@ -562,14 +571,15 @@ input[type=file]{display:none}
 <header>
 <h1>plop <span>· {{name}}</span></h1>
 <button class="btn" id="install" hidden>install</button>
-<button class="btn" id="paste">paste</button>
-<button class="btn" id="add" aria-label="add files">+</button>
-<input type="file" id="file" multiple>
 </header>
 <div id="list"></div>
 <div id="hint"><span>add plop to your home screen: <b>share › add to home screen</b></span><button class="x" id="hintx" aria-label="dismiss">×</button></div>
+<nav id="bar"><button class="gb" id="photo"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9 9"/></svg>photo</button><button class="gb" id="add"><svg viewBox="0 0 24 24"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5v5h5"/></svg>file</button><button class="gb" id="paste"><svg viewBox="0 0 24 24"><rect x="5.5" y="5" width="13" height="15.5" rx="2"/><path d="M9 5V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/></svg>paste</button></nav>
+<input type="file" id="pics" accept="image/*,video/*" multiple>
+<input type="file" id="file" multiple>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><clipPath id="bk"><path d="M7.04 1.28L24.96 1.28C28.48 1.28 29.76 2.88 29.92 6.08L31.2 24.32C31.68 29.44 29.44 31.04 26.24 29.44C20.48 26.88 11.52 26.88 5.76 29.44C2.56 31.04 0.32 29.44 0.8 24.32L2.08 6.08C2.24 2.88 3.52 1.28 7.04 1.28Z"/></clipPath></defs></svg>
 <div id="sheet"><form id="textform"><textarea id="text" placeholder="paste or type, then plop"></textarea><div class="actions"><button type="button" class="ghost" id="cancel">cancel</button><button type="submit" class="btn">plop</button></div></form></div>
-<div id="view"><img id="pic" alt=""><div class="foot"><span>press and hold the picture to save it</span><button class="ghost" id="dl">download</button><button class="ghost" id="close">close</button></div></div>
+<div id="view"><img id="pic" alt=""><div class="foot"><div id="how"></div><div class="vb"><button class="gb" id="dl">save to files</button><button class="gb" id="close">done</button></div></div></div>
 <div id="toast"></div>
 <script>
 'use strict';
@@ -587,7 +597,7 @@ const mine = new Map((() => {
 })().filter(([, v]) => v && typeof v.token === 'string' && typeof v.at === 'number'));
 const seen = new Map();  // key -> {expires, total}: countdowns between polls
 const blobs = new Map(); // key -> Blob fetched for share(), kept for a retry
-const asked = new Set(); // keys tapped before their bytes were here
+const asked = new Map(); // key -> when it was tapped before its bytes were here
 let items = [], byKey = new Map(), uploads = [], seq = 0, sig = '', polling = false, again = false, pollTimer, toastTimer, viewing;
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
@@ -599,6 +609,86 @@ const url = it => '/web/items/' + it.key;
 const fileName = it => it.kind === 'folder' ? it.name + '.zip' : it.kind === 'text' ? 'text.txt' : it.name;
 const isImage = it => it.kind === 'file' && /^image\//.test(it.mime);
 const canShare = f => !!(navigator.share && navigator.canShare && navigator.canShare({files: [f]}));
+const done = new Map(); // key -> 'copied' or 'saved', said on the row as the app does
+
+// ------------------------------------------------------------- the rows, as the app draws them
+
+// File types, each with its own glyph on a white tile shaped like the
+// logo's bucket (the app's type_icons.dart, redrawn in SVG).
+const TYPES = {
+  image: 'jpg jpeg png gif webp heic heif bmp tif tiff svg ico raw dng avif',
+  video: 'mp4 mov avi mkv webm m4v wmv', audio: 'mp3 wav m4a aac flac ogg aiff',
+  document: 'txt doc docx rtf pages odt log', pdf: 'pdf',
+  code: 'py js ts jsx tsx c cc cpp h hpp java kt swift go rs rb php html css scss dart cs lua vue svelte m mm',
+  sheet: 'xlsx xls csv tsv numbers ods', slides: 'pptx ppt key odp', archive: 'zip rar 7z tar gz tgz bz2 xz',
+  model: 'stl obj fbx gltf glb blend 3mf step stp usdz', project: 'psd fig sketch ai xd aep prproj',
+  data: 'json db sql sqlite xml yaml yml parquet toml', app: 'exe app dmg msi apk ipa deb pkg rpm',
+  terminal: 'sh bash zsh bat cmd ps1 command', font: 'ttf otf woff woff2', note: 'md markdown note', web: 'url webloc website'
+};
+const byExt = {};
+for (const [t, exts] of Object.entries(TYPES)) for (const e of exts.split(' ')) byExt[e] = t;
+function typeOf(it) {
+  if (it.kind === 'text') return 'document';
+  if (it.kind === 'folder') return 'folder';
+  const dot = it.name.lastIndexOf('.');
+  const t = dot >= 0 && byExt[it.name.slice(dot + 1).toLowerCase()];
+  if (t) return t;
+  const m = /^(image|video|audio)\//.exec(it.mime);
+  return m ? m[1] : 'other';
+}
+const S = 'fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"';
+const GLYPHS = {
+  image: '<path d="M2.5 18.5l6-8 4 5 3-3.5 6 6.5z"/><circle cx="16.5" cy="6.5" r="2"/>',
+  video: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  audio: '<path d="M10 4.5h8v3.8h-6v9.2a3.5 3.5 0 1 1-2-3.16z"/>',
+  document: '<rect x="4" y="6" width="16" height="2.4" rx="1.2"/><rect x="4" y="10.8" width="16" height="2.4" rx="1.2"/><rect x="4" y="15.6" width="10" height="2.4" rx="1.2"/>',
+  code: '<path ' + S + ' d="M9 7l-5 5 5 5M15 7l5 5-5 5"/>',
+  sheet: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  slides: '<path d="M11 3.6a8.5 8.5 0 1 0 9.4 9.4H11z"/><path d="M13 2v9h9a9 9 0 0 0-9-9z"/>',
+  archive: '<rect x="10.1" y="2.8" width="3.8" height="2.2" rx="1"/><rect x="10.1" y="6.8" width="3.8" height="2.2" rx="1"/><rect x="10.1" y="10.9" width="3.8" height="2.2" rx="1"/><rect x="10" y="14.9" width="4.1" height="6.7" rx="2"/>',
+  model: '<path ' + S + ' stroke-width="2.2" d="M12 2.8l8 4.4v9.6l-8 4.4-8-4.4V7.2zM4 7.2l8 4.4 8-4.4M12 11.6v9.6"/>',
+  project: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M4.8 12.2 12 16.2l7.2-4 1.8 1-9 5-9-5z"/>',
+  data: '<rect x="3.5" y="4" width="17" height="4.4" rx="1.3"/><rect x="3.5" y="9.8" width="17" height="4.4" rx="1.3"/><rect x="3.5" y="15.6" width="17" height="4.4" rx="1.3"/>',
+  app: '<circle cx="12" cy="12" r="5.2" fill="none" stroke-width="3.2"/>' +
+    [0, 45, 90, 135, 180, 225, 270, 315].map(a => '<rect x="10.4" y="1.8" width="3.2" height="4.4" rx="1" transform="rotate(' + a + ' 12 12)"/>').join(''),
+  terminal: '<path ' + S + ' d="M5 7.5l4.5 4.5L5 16.5"/><rect x="11.5" y="15.3" width="7.5" height="2.4" rx="1.2"/>',
+  note: '<path d="M5 4h14a1 1 0 0 1 1 1v9h-5a1 1 0 0 0-1 1v5H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M16 16h4l-4 4z"/>',
+  web: '<g fill="none" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.6" ry="8.5"/><path d="M3.5 12h17"/></g>',
+  folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2h8.4A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/>',
+  other: '<circle cx="12" cy="12" r="3.6"/>'
+};
+const LABELS = {pdf: ['PDF', 10.3], font: ['Aa', 12]};
+const BUCKET = 'M7.04 1.28L24.96 1.28C28.48 1.28 29.76 2.88 29.92 6.08L31.2 24.32C31.68 29.44 29.44 31.04 26.24 29.44C20.48 26.88 11.52 26.88 5.76 29.44C2.56 31.04 0.32 29.44 0.8 24.32L2.08 6.08C2.24 2.88 3.52 1.28 7.04 1.28Z';
+// Pictures already on the desktop show as themselves, in the bucket's shape.
+function lead(it) {
+  const t = typeOf(it);
+  if (t === 'image' && it.ready && it.size <= 8 * 1024 * 1024 && !/svg/.test(it.mime)) {
+    return '<svg class="lead" viewBox="0 0 32 32"><path d="' + BUCKET + '" fill="#3a3a3a"/><image href="' + url(it) +
+      '" width="32" height="32" preserveAspectRatio="xMidYMid slice" clip-path="url(#bk)"/></svg>';
+  }
+  const l = LABELS[t];
+  const glyph = l
+    ? '<text x="16" y="' + (14.2 + l[1] * 0.36) + '" text-anchor="middle" font-size="' + l[1] + '" font-weight="600" font-family="-apple-system,system-ui,Helvetica,Arial,sans-serif" fill="#0a0a0a">' + l[0] + '</text>'
+    : '<g transform="translate(7.7 5.8) scale(.693)" fill="#0a0a0a" stroke="#0a0a0a" stroke-width="0">' + GLYPHS[t] + '</g>';
+  return '<svg class="lead" viewBox="0 0 32 32"><path d="' + BUCKET + '" fill="#f5f5f5"/>' + glyph + '</svg>';
+}
+const ICONS = {
+  copy: '<rect x="8.5" y="8.5" width="11" height="11.5" rx="2"/><path d="M5 15.5V6a1.5 1.5 0 0 1 1.5-1.5H15"/>',
+  save: '<path d="M12 4.5v14M6.5 13 12 18.5 17.5 13"/>',
+  share: '<path d="M12 3.5v11M8 7.5l4-4 4 4M6.5 11v8a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5v-8"/>',
+  remove: '<path d="M7 7l10 10M17 7 7 17"/>'
+};
+const icon = (a, key) => '<button class="a" data-a="' + a + '" aria-label="' + a + '"><svg viewBox="0 0 24 24">' + ICONS[a] + '</svg></button>';
+// What a row offers, first being what a tap on the row does. Pictures copy
+// first, as in the app; a page from the desktop over plain http gets no
+// share sheet, so files are saved instead, where they show in Files.
+function actionsFor(it) {
+  if (it.kind === 'text') return ['copy'];
+  if (it.kind === 'folder') return ['save'];
+  const share = canShare(new File([], fileName(it), {type: it.mime}));
+  if (isImage(it) && !/svg/.test(it.mime)) return share ? ['copy', 'share'] : ['copy', 'save'];
+  return share ? ['share'] : ['save'];
+}
 
 function size(n) {
   const u = ['B', 'KB', 'MB', 'GB'];
@@ -632,7 +722,7 @@ async function poll() {
     items = await r.json();
     for (const it of items) { it.name = clean(it.name); it.from = clean(it.from); }
     byKey = new Map(items.map(it => [it.key, it]));
-    for (const k of [...asked]) if (!byKey.has(k) || byKey.get(k).ready) asked.delete(k);
+    for (const k of [...asked.keys()]) if (!byKey.has(k) || byKey.get(k).ready) asked.delete(k);
     const now = Date.now(), live = new Set();
     for (const it of items) {
       live.add(it.key);
@@ -662,20 +752,20 @@ function frac(key) {
 // Rebuilds the rows only when the shelf itself changed, so a tap never
 // lands on a row that was swapped out under it; tick() keeps the clocks.
 function render() {
-  const next = JSON.stringify([uploads.map(u => [u.id, u.wait]), items.map(it => [it.key, it.name, it.from, mine.has(it.key)])]);
+  const next = JSON.stringify([uploads.map(u => [u.id, u.wait]), items.map(it => [it.key, it.name, it.from, it.ready, mine.has(it.key), done.get(it.key)])]);
   if (next === sig) return tick();
   sig = next;
   const rows = [];
   for (const u of uploads) {
-    rows.push('<div class="row" data-up="' + u.id + '"><div class="main"><div class="name">' + esc(u.name) +
+    rows.push('<div class="row" data-up="' + u.id + '">' + lead({kind: 'file', name: u.name, mime: ''}) + '<div class="main"><div class="name">' + esc(u.name) +
       '</div><div class="meta">' + size(u.size) + (u.wait ? ' · waiting' : ' · uploading') + '</div></div><div class="time">' +
       (u.wait ? '' : u.pct + '%') + '</div><div class="bar live"><i style="width:' + (u.wait ? 0 : u.pct) + '%"></i></div></div>');
   }
   for (const it of items) {
-    const meta = [it.kind === 'text' ? null : size(it.size), mine.has(it.key) ? 'you' : it.from].filter(Boolean).join(' · ');
-    rows.push('<div class="row" data-key="' + esc(it.key) + '"><div class="main"><div class="name">' + esc(it.name) +
+    const meta = [it.kind === 'text' ? null : size(it.size), mine.has(it.key) ? 'you' : it.from, done.get(it.key)].filter(Boolean).join(' · ');
+    rows.push('<div class="row" data-key="' + esc(it.key) + '">' + lead(it) + '<div class="main"><div class="name">' + esc(it.name) +
       '</div><div class="meta">' + esc(meta) + '<span class="cp"></span></div></div>' +
-      (mine.has(it.key) ? '<button class="x" data-x="' + esc(it.key) + '" aria-label="remove">×</button>' : '') +
+      actionsFor(it).map(a => icon(a)).join('') + (mine.has(it.key) ? icon('remove') : '') +
       '<div class="time"></div><div class="bar"><i></i></div></div>');
   }
   list.innerHTML = rows.length ? rows.join('') :
@@ -685,8 +775,11 @@ function render() {
 // A row whose bytes are not on the desktop yet says so while the desktop
 // copies them over: an eager copy as it happens, a big item once tapped
 // (the desktop fetches it only then), with how far along when it knows.
+// A tap the desktop never started copying for (its sender is gone, say)
+// stops saying so after a while.
 function copying(it) {
-  if (!it || it.ready || (it.progress == null && !asked.has(it.key))) return '';
+  const t = it && asked.get(it.key);
+  if (!it || it.ready || (it.progress == null && !(t && Date.now() - t < 10000))) return '';
   return ' · copying' + (it.progress == null ? '…' : ' ' + Math.round(it.progress * 100) + '%');
 }
 function tick() {
@@ -704,21 +797,26 @@ function tick() {
 setInterval(tick, 1000);
 
 list.addEventListener('click', e => {
-  const x = e.target.closest('[data-x]');
-  if (x) return remove(x.dataset.x);
   const row = e.target.closest('[data-key]');
-  if (row) grab(row.dataset.key);
+  if (!row) return;
+  const b = e.target.closest('[data-a]'), it = byKey.get(row.dataset.key);
+  if (b && b.dataset.a === 'remove') return remove(row.dataset.key);
+  if (it) act(it, b ? b.dataset.a : actionsFor(it)[0]);
 });
 
 // ------------------------------------------------------------- grabbing
 
-async function grab(key) {
-  const it = items.find(i => i.key === key);
-  if (!it) return;
-  if (!it.ready) { asked.add(key); tick(); }
-  if (it.kind === 'text') return copyText(it);
+function mark(it, what) {
+  done.set(it.key, what);
+  render();
+}
+async function act(it, a) {
+  const key = it.key;
+  if (!it.ready && it.kind !== 'text') { asked.set(key, Date.now()); tick(); }
+  if (a === 'copy') return it.kind === 'text' ? copyText(it) : copyImage(it);
+  if (a === 'save') return save(it);
   const name = fileName(it);
-  if (canShare(new File([], name, {type: it.mime}))) {
+  {
     let blob = blobs.get(key);
     if (!blob) {
       try { blob = await fetchBlob(it); } catch (e) { return toast("couldn't fetch " + it.name); }
@@ -731,11 +829,35 @@ async function grab(key) {
       // bytes are kept, so the next tap shares right away.
       if (e.name !== 'AbortError') toast('ready · tap again to share');
     }
-  } else if (isImage(it)) {
-    show(it);
-  } else {
-    download(it);
   }
+}
+// A picture onto the clipboard where the browser lets a page do that (a
+// secure page: localhost, or https). Over plain http, iPhones and Android
+// keep the clipboard from pages, so the picture opens full screen, where
+// holding it gives the phone's own Copy.
+function copyImage(it) {
+  if (window.isSecureContext && navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+    const png = fetchItem(it).then(r => { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(toPng);
+    navigator.clipboard.write([new ClipboardItem({'image/png': png})])
+      .then(() => { toast('image copied'); mark(it, 'copied'); }, () => show(it, 'copy'));
+    return;
+  }
+  show(it, 'copy');
+}
+async function toPng(blob) {
+  if (blob.type === 'image/png') return blob;
+  const bmp = await createImageBitmap(blob), c = document.createElement('canvas');
+  c.width = bmp.width;
+  c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0);
+  return new Promise((ok, no) => c.toBlob(b => b ? ok(b) : no(new Error('png')), 'image/png'));
+}
+// On a phone a picture goes to Photos by holding it full screen (a
+// download lands in Files instead, a button away there); the rest download.
+function save(it) {
+  if (isImage(it) && touch) return show(it, 'save');
+  download(it);
+  mark(it, 'saved');
 }
 // The desktop answers once it has the bytes itself, so an answer, or a
 // failure, ends its copying.
@@ -763,11 +885,12 @@ async function fetchBlob(it) {
   }
   return new Blob(chunks, {type: it.mime});
 }
-// A new tab, which the attachment header turns into a download; from a
-// home-screen app it opens in the browser, which can save it. A link
-// click where popups are blocked.
+// A link with the download attribute, which the browser saves (Safari
+// asks first, then it is in Files › Downloads). A home-screen app has no
+// download list of its own, so there the item opens in the browser, which
+// saves it from its attachment header.
 function download(it) {
-  if (window.open(url(it), '_blank')) return;
+  if (standalone && window.open(url(it), '_blank')) return;
   const a = document.createElement('a');
   a.href = url(it);
   a.download = fileName(it);
@@ -775,15 +898,19 @@ function download(it) {
   a.click();
   a.remove();
 }
-// Full screen, where a long press offers to save it to the photo library.
-function show(it) {
+// Full screen, where holding the picture gives the phone's own menu:
+// Copy, Save to Photos, Share. The line under it says which to pick.
+function show(it, why) {
   viewing = it;
   $('pic').src = url(it);
+  $('how').innerHTML = touch
+    ? 'hold the picture, then tap <b>' + (why === 'save' ? 'Save to Photos' : 'Copy') + '</b>'
+    : 'right-click the picture › <b>' + (why === 'save' ? 'Save Image' : 'Copy Image') + '</b>';
   view.classList.add('on');
 }
 function closeView() { view.classList.remove('on'); $('pic').removeAttribute('src'); viewing = null; }
 $('close').onclick = closeView;
-$('dl').onclick = () => { if (viewing) download(viewing); };
+$('dl').onclick = () => { if (viewing) { download(viewing); mark(viewing, 'saved'); } };
 
 // Copies inside the tap when the text came with the list; the clipboard
 // API, where a browser gives it to a plain http page, and execCommand,
@@ -810,6 +937,7 @@ function copyLegacy(text) {
   return ok;
 }
 async function copyText(it) {
+  done.set(it.key, 'copied');
   if (typeof it.text === 'string') return copyNow(it.text);
   try {
     const r = await fetchItem(it);
@@ -823,7 +951,8 @@ async function copyText(it) {
 // ------------------------------------------------------------- adding
 
 $('add').onclick = () => $('file').click();
-$('file').onchange = () => { for (const f of $('file').files) upload(f); $('file').value = ''; };
+$('photo').onclick = () => $('pics').click();
+for (const id of ['file', 'pics']) $(id).onchange = () => { for (const f of $(id).files) upload(f); $(id).value = ''; };
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); for (const f of e.dataTransfer.files) upload(f); });
 addEventListener('paste', e => {
@@ -836,13 +965,13 @@ addEventListener('paste', e => {
 addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); closeView(); } });
 
 // Two at a time from this page: the desktop takes four uploads at once
-// from everyone and answers 503 past that. A 503, or a connection that
-// broke (which is how a refusal can look to a page still sending), is
-// tried again a few times, the row saying it waits meanwhile.
+// from everyone and answers 503 past that, which is waited out; a
+// connection that broke (how a refusal can look to a page still sending)
+// is tried again a few times. The row says it waits meanwhile.
 const waiting = [];
 let sending = 0;
 function upload(file) {
-  const u = {id: ++seq, name: clean(file.name).trim() || 'file', size: file.size, pct: 0, file, tries: 0, wait: true};
+  const u = {id: ++seq, name: clean(file.name).trim() || 'file', size: file.size, pct: 0, file, tries: 0, busy: 0, wait: true};
   uploads.push(u);
   waiting.push(u);
   render();
@@ -872,23 +1001,25 @@ function send(u) {
     }
   };
   const end = () => { sending--; next(); };
-  const retry = () => {
-    if (++u.tries > 3) return false;
+  // A 503 means the desktop took nothing and is busy with other uploads,
+  // so that waits as long as it takes; a broken connection gets 3 tries.
+  const retry = busy => {
+    if (busy ? ++u.busy > 150 : ++u.tries > 3) return false;
     u.wait = true;
     render();
-    setTimeout(() => { waiting.unshift(u); next(); }, 2000 * u.tries);
+    setTimeout(() => { waiting.unshift(u); next(); }, busy ? Math.min(2000 * u.busy, 8000) : 2000 * u.tries);
     return true;
   };
   const done = () => { uploads = uploads.filter(v => v !== u); render(); };
   x.onload = () => {
     end();
-    if (x.status === 503 && retry()) return;
+    if (x.status === 503 && retry(true)) return;
     done();
     if (x.status !== 200) return toast(refusal(x.status, u.name));
     try { keep(JSON.parse(x.responseText)); } catch (e) {}
     poll();
   };
-  x.onerror = () => { end(); if (retry()) return; done(); toast("couldn't upload " + u.name); };
+  x.onerror = () => { end(); if (retry(false)) return; done(); toast("couldn't upload " + u.name); };
   x.send(u.file);
 }
 async function sendText(t) {
@@ -956,6 +1087,7 @@ $('paste').onclick = () => {
 
 const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+const touch = matchMedia('(pointer: coarse)').matches;
 if (ios && !standalone && !store.get('plop.hint')) $('hint').classList.add('on');
 $('hintx').onclick = () => { $('hint').classList.remove('on'); store.set('plop.hint', '1'); };
 let installEvt;

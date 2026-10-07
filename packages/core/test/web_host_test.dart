@@ -358,16 +358,16 @@ void main() {
     expect(html, isNot(contains('{{name}}')));
     // Nothing is fetched from outside the LAN.
     expect(html, isNot(contains('https://')));
-    // Home-screen mode: the last row clears the home indicator, unless the
-    // hint under the list already does.
+    // Home-screen mode: the bottom bar, under the list, clears the home
+    // indicator.
     expect(
       html,
-      contains(
-        '#list{flex:1;display:flex;flex-direction:column;'
-        'padding-bottom:env(safe-area-inset-bottom)}',
-      ),
+      contains('padding:10px 12px calc(10px + env(safe-area-inset-bottom))'),
     );
-    expect(html, contains('#list:has(+ #hint.on){padding-bottom:0}'));
+    // The app's photo / file / paste bar, and the bucket every tile uses.
+    for (final id in ['photo', 'add', 'paste', 'pics', 'file', 'bk']) {
+      expect(html, contains('id="$id"'), reason: id);
+    }
     final head = await send('HEAD', p.url('/'));
     expect(head.status, 200);
     expect(head.headers.contentType?.mimeType, 'text/html');
