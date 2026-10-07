@@ -56,6 +56,16 @@ class Settings {
     _save().ignore(); // the picker has nowhere to say it failed
   }
 
+  /// The port the node served on last time, asked for first on the next
+  /// launch so the web shelf's address on a phone's home screen keeps
+  /// working; null before the first launch.
+  int? get webPort => _data['webPort'] is int ? _data['webPort'] as int : null;
+
+  set webPort(int? port) {
+    _data['webPort'] = port;
+    _save().ignore();
+  }
+
   /// A custom global shortcut, or null for the default.
   HotKey? hotkey(String name) {
     final j = _data['hotkey.$name'];

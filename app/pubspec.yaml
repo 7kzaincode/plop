@@ -35,6 +35,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/brand/logo.png
+    - assets/icon/icon.png
   fonts:
     - family: Geist
       fonts:
