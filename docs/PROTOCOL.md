@@ -88,6 +88,12 @@ has simply gone, a phone locking, say, and is not.
   clocks on a LAN disagree. The sender picks the lifetime (2 minutes by
   default); it can differ per item. A receiver clamps it to 24 hours, and
   ignores entries with `ttlMs` ≤ 0, which are already expired.
+- `ageMs` (optional) is how long ago the sender put the item up, in
+  milliseconds, so a receiver can tell something put up just now from
+  something that waited while it was asleep or away: copying arrivals to the
+  clipboard skips what was already over 30 s old when first seen. Older
+  nodes leave it out; a receiver treats it, or a negative or absurd value, as
+  unknown.
 
 ### `GET /v1/items/{id}`
 

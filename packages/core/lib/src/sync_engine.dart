@@ -53,6 +53,12 @@ class SyncEngine {
   final Duration eagerDeadline;
   final Duration pollInterval;
 
+  /// The time an eager copy of [bytes] gets: [eagerDeadline] plus a second
+  /// per 256 KB. The app waits no longer than this for an arrival it means
+  /// to copy to the clipboard.
+  Duration eagerDeadlineFor(int bytes) =>
+      eagerDeadline + Duration(milliseconds: bytes * 1000 ~/ (256 << 10));
+
   /// After this many failed polls in a row, a peer counts as gone.
   static const maxFailures = 3;
 
@@ -257,7 +263,7 @@ class SyncEngine {
     _eagerByPeer.update(peer, (n) => n + 1, ifAbsent: () => 1);
     final cutOff = Completer<void>();
     final deadline = _deadlines[key] = Timer(
-      eagerDeadline + Duration(milliseconds: item.size * 1000 ~/ (256 << 10)),
+      eagerDeadlineFor(item.size),
       cutOff.complete,
     );
     _fetch(key, cutOff: cutOff.future).catchError((_) => '').whenComplete(() {

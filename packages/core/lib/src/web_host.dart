@@ -94,6 +94,25 @@ class WebHost {
   /// shared, which nothing on /v1 can remove either.
   final _uploaded = <String, String>{};
 
+  /// Keys of the items the page put up that are still on the shelf. They
+  /// are this node's own items, but came from another device (a phone
+  /// without the app), so the app treats them as arrivals: grabbing the
+  /// newest, copying arrivals.
+  Set<String> get uploads => {
+    for (final k in _uploaded.keys)
+      if (node.store[k] != null) k,
+  };
+
+  /// Whether [key] is an item the page put up, still on the shelf.
+  bool isUpload(String key) =>
+      _uploaded.containsKey(key) && node.store[key] != null;
+
+  /// Fires when an item becomes one of [uploads]. The store announced the
+  /// item a moment before, as one of this node's own; this is when it is
+  /// known to be from the page.
+  Stream<void> get changes => _changes.stream;
+  final _changes = StreamController<void>.broadcast();
+
   final _texts = <String, String>{}; // key -> body of an inlined text item
 
   /// Answers one request to a path outside /v1. Always closes the response.
@@ -265,6 +284,7 @@ class WebHost {
   void _answerUpload(HttpResponse res, ShelfItem item) {
     final token = randomId(16);
     _uploaded[item.key] = token;
+    _changes.add(null);
     res.headers.contentType = ContentType.json;
     res.write(jsonEncode({'key': item.key, 'token': token}));
   }

@@ -58,6 +58,44 @@ void main() {
     expect(friendlyError(Object()), "that didn't work");
   });
 
+  // A row's copy, the grab shortcut and copying arrivals all go by this;
+  // a picture it says no to goes on the clipboard as a file, or not at all.
+  test('which pictures each clipboard takes as a picture', () {
+    addTearDown(() => debugClipboardOs = null);
+    ShelfItem pic(String name, [int size = 1024]) => ShelfItem(
+      id: 'x',
+      originId: 'phone',
+      originName: 'phone',
+      name: name,
+      size: size,
+      mime: 'application/octet-stream',
+      kind: ItemKind.file,
+      expiresAt: DateTime.now().add(const Duration(minutes: 1)),
+      ttl: const Duration(minutes: 1),
+    );
+    final names = ['a.png', 'b.JPG', 'c.gif', 'd.heic', 'e.webp', 'f.svg'];
+    for (final (os, want) in [
+      ('macos', ['a.png', 'b.JPG', 'c.gif', 'd.heic', 'e.webp']),
+      ('ios', ['a.png', 'b.JPG', 'c.gif', 'd.heic', 'e.webp']),
+      ('windows', ['a.png', 'b.JPG', 'c.gif']),
+      ('android', ['a.png', 'b.JPG', 'c.gif']),
+      ('linux', <String>[]),
+    ]) {
+      debugClipboardOs = os;
+      expect(
+        [
+          for (final n in names)
+            if (copiesAsImage(pic(n))) n,
+        ],
+        want,
+        reason: os,
+      );
+    }
+    debugClipboardOs = 'android';
+    expect(copiesAsImage(pic('big.png', 26 << 20)), isFalse);
+    expect(copiesAsImage(pic('notes.pdf')), isFalse);
+  });
+
   // Android's clipboard hands over whatever the source app wrote; a wrong
   // extension sends a Windows receiver into a GDI+ copy that fails and
   // leaves a ".png" that is really WebP.

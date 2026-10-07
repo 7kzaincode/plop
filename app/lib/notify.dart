@@ -5,12 +5,15 @@ import 'package:flutter/widgets.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'auto_copy.dart' show webSender;
+import 'island.dart';
 import 'seen.dart';
 import 'settings.dart';
 import 'shelf_screen.dart' show formatSize;
 import 'window.dart';
 
-/// OS notifications for what happens while plop is in the background, now
+/// OS notifications (on macOS, the island: lib/island.dart) for what
+/// happens while plop is in the background, now
 /// that closing the window no longer quits it: what a global shortcut did,
 /// and things other devices put on the shelf. Nothing is said while the
 /// window is focused, where the toast and the new row are in view anyway,
@@ -50,16 +53,21 @@ abstract final class Notify {
   static final _seen = SeenItems();
   static final _bursts = <String, _Burst>{};
 
+  /// The arrival copying arrivals last put on the clipboard, while its
+  /// announcement is still to come.
+  static String? _copied;
+
   static bool get supported =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;
 
   /// Whether the user has the shelf in front of them. On desktop, inactive
   /// means another window has focus and hidden means closed or minimized.
-  /// Null is startup, with no state reported yet: the window just opened.
-  static bool get windowFocused {
-    final s = WidgetsBinding.instance.lifecycleState;
-    return s == null || s == AppLifecycleState.resumed;
-  }
+  /// Null, no state reported yet, is an app that was never brought to the
+  /// front: started at login, its window behind whatever the user is in.
+  /// That is not in view, so arrivals are said then too; at an ordinary
+  /// launch the [grace] keeps the first sync quiet anyway.
+  static bool get windowFocused =>
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
 
   static bool get _wanted =>
       _ready && (_settings?.notifications ?? true) && !windowFocused;
@@ -99,10 +107,34 @@ abstract final class Notify {
         : ShortcutPolicy.requireCreate;
   }
 
-  /// What a global shortcut did, as the in-window toast says it.
-  static void say(String message) {
+  /// What a global shortcut did, as the in-window toast says it; on macOS
+  /// the island says it, in red when [ok] is false.
+  static void say(String message, {bool ok = true}) {
+    if (Island.active) {
+      if (_islandWanted) Island.say(message, ok: ok);
+      return;
+    }
     if (!_wanted) return;
     _show(title: 'plop', body: message);
+  }
+
+  /// The island needs no notification permission, only the same consent.
+  static bool get islandWanted => _islandWanted;
+
+  static bool get _islandWanted =>
+      (_settings?.notifications ?? true) && !windowFocused;
+
+  /// [item] went onto the clipboard by itself (lib/auto_copy.dart). True
+  /// when its arrival is still to be announced, and then says so ("text ·
+  /// 7 characters · copied"), so one arrival is one notification; false
+  /// when it won't be (announced already, the window in front), for the
+  /// caller to say it on a line
+  /// of its own. Not used with the island, which marks its row instead.
+  static bool copied(ShelfItem item) {
+    final b = _bursts[_isUpload(item.key) ? 'web' : item.originId];
+    if (b == null || !b.items.any((i) => i.key == item.key)) return false;
+    _copied = item.key; // the clipboard holds one thing: the last
+    return true;
   }
 
   /// The window just closed into the tray, which until now quit plop on
@@ -123,9 +155,18 @@ abstract final class Notify {
   /// first hearing from it, so long as that is within [settle] of launch.
   static void watch(PlopNode node) => watchItems(
     node.changes,
-    () => node.items.where((i) => i.originId != node.id),
+    () => node.items.where(
+      (i) => i.originId != node.id || node.web.isUpload(i.key),
+    ),
     () => node.peers.map((p) => p.id),
+    isUpload: node.web.isUpload,
   );
+
+  /// Which of this device's own items a phone put up through the web shelf:
+  /// arrivals all the same, from [webSender], with no quiet period (the
+  /// phone was not on the shelf before plop started).
+  static bool Function(String key) _isUpload = _never;
+  static bool _never(String key) => false;
 
   /// [watch] with the node taken apart: [changes] fires whenever [remote],
   /// the shelf's items from other devices, or [peers], their ids, may have
@@ -135,9 +176,11 @@ abstract final class Notify {
   static void watchItems(
     Stream<void> changes,
     Iterable<ShelfItem> Function() remote,
-    Iterable<String> Function() peers,
-  ) {
+    Iterable<String> Function() peers, {
+    bool Function(String key)? isUpload,
+  }) {
     if (!supported) return;
+    _isUpload = isUpload ?? _never;
     _settling?.cancel();
     _settling = Timer(settle, () => _settling = null);
     void check() {
@@ -165,14 +208,18 @@ abstract final class Notify {
     final here = <String>{};
     for (final item in remote) {
       here.add(item.key);
-      _hear(item.originId);
+      final upload = _isUpload(item.key);
+      if (!upload) _hear(item.originId);
       if (!_seen.add(item)) continue;
       // The row just appeared on a focused shelf: in view already. Or plop
       // just started and this device's shelf is being filled in.
-      if (windowFocused || _quiet.containsKey(item.originId)) continue;
-      final b = _bursts[item.originId] ??= _Burst(
-        item.originName,
-        Timer(burst, () => _announce(item.originId)),
+      if (windowFocused || (!upload && _quiet.containsKey(item.originId))) {
+        continue;
+      }
+      final from = upload ? 'web' : item.originId;
+      final b = _bursts[from] ??= _Burst(
+        upload ? webSender : item.originName,
+        Timer(Island.active ? Island.burst : burst, () => _announce(from)),
       );
       b.items.add(item);
     }
@@ -181,20 +228,33 @@ abstract final class Notify {
 
   static void _announce(String sender) {
     final b = _bursts.remove(sender);
+    if (b != null && Island.active) {
+      if (_islandWanted) Island.arrived(b.sender, b.items).ignore();
+      return;
+    }
     // Focused in the meantime, or switched off: the rows are there to see.
     if (b == null || !_wanted) return;
     final items = b.items;
+    final copied = _copied;
+    if (items.any((i) => i.key == copied)) _copied = null;
     if (items.length >= 3) {
       _show(
         title: '${items.length} items from ${b.sender}',
         body: items
-            .map((i) => i.kind == ItemKind.text ? 'text' : i.name)
+            .map(
+              (i) =>
+                  '${i.kind == ItemKind.text ? 'text' : i.name}'
+                  '${i.key == copied ? ' (copied)' : ''}',
+            )
             .join(' · '),
       );
       return;
     }
     for (final i in items) {
-      _show(title: b.sender, body: describe(i));
+      _show(
+        title: b.sender,
+        body: '${describe(i)}${i.key == copied ? ' · copied' : ''}',
+      );
     }
   }
 
@@ -256,10 +316,12 @@ abstract final class Notify {
   /// Tests: forget what was seen and set up.
   @visibleForTesting
   static void reset() {
+    _isUpload = _never;
     for (final b in _bursts.values) {
       b.timer.cancel();
     }
     _bursts.clear();
+    _copied = null;
     _seen.clear();
     _settling?.cancel();
     _settling = null;

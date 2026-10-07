@@ -40,13 +40,13 @@ class _SettingsPanel extends StatefulWidget {
 }
 
 class _SettingsPanelState extends State<_SettingsPanel> {
-  String? _recording; // 'snip' or 'clip'
+  String? _recording; // 'snip', 'clip' or 'grab'
   String? _note;
   bool? _login;
 
-  /// The two key chips, so recording can put focus on the one recording.
+  /// The key chips, so recording can put focus on the one recording.
   final _keyFocus = {
-    for (final which in ['snip', 'clip'])
+    for (final which in Hotkeys.bindings.keys)
       which: FocusNode(debugLabel: '$which key'),
   };
 
@@ -115,8 +115,9 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _note = why);
       return true;
     }
-    final other = _recording == 'snip' ? Hotkeys.clip : Hotkeys.snip;
-    if (Hotkeys.same(k, other)) {
+    final which = _recording!;
+    final others = {...Hotkeys.bindings}..remove(which);
+    if (others.values.any((o) => Hotkeys.same(k, o))) {
       setState(() => _note = 'that one is already taken');
       return true;
     }
@@ -124,11 +125,13 @@ class _SettingsPanelState extends State<_SettingsPanel> {
       setState(() => _note = 'another app already uses ${Hotkeys.label(k)}');
       return true;
     }
-    final which = _recording!;
-    if (which == 'snip') {
-      Hotkeys.snip = k;
-    } else {
-      Hotkeys.clip = k;
+    switch (which) {
+      case 'snip':
+        Hotkeys.snip = k;
+      case 'clip':
+        Hotkeys.clip = k;
+      default:
+        Hotkeys.grab = k;
     }
     // Leave recording mode and re-register first, so a failure while saving
     // can never strand the panel on "…" with the shortcuts paused.
@@ -149,8 +152,10 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     _stopRecording(apply: false);
     Hotkeys.snip = Hotkeys.defaultSnip;
     Hotkeys.clip = Hotkeys.defaultClip;
-    widget.settings.setHotkey('snip', null).ignore();
-    widget.settings.setHotkey('clip', null).ignore();
+    Hotkeys.grab = Hotkeys.defaultGrab;
+    for (final which in Hotkeys.bindings.keys) {
+      widget.settings.setHotkey(which, null).ignore();
+    }
     Hotkeys.apply();
     setState(() => _note = null);
   }
@@ -231,6 +236,17 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                     recording: _recording != null,
                     focusNode: _keyFocus['clip']!,
                     onTap: () => _record('clip'),
+                  ),
+                  label,
+                ),
+                _row(
+                  'grab newest',
+                  _Key(
+                    text: _recording == 'grab' ? '…' : Hotkeys.grabLabel,
+                    active: _recording == 'grab',
+                    recording: _recording != null,
+                    focusNode: _keyFocus['grab']!,
+                    onTap: () => _record('grab'),
                   ),
                   label,
                 ),
@@ -465,9 +481,12 @@ class _LinkState extends State<_Link> {
 const _loginLabel = 'open plop at login';
 
 /// What plop does while its window is closed, which it now outlives on
-/// every desktop (in the tray): the one switch for its OS notifications
-/// (lib/notify.dart), and on Windows and Linux a way to quit from the
-/// window, should the tray's menu be out of reach.
+/// every desktop (in the tray), or while the user is in another app: the
+/// one switch for showing arrivals (the island on macOS, OS notifications
+/// elsewhere: lib/notify.dart), the one for
+/// copying arrivals to the clipboard (lib/auto_copy.dart), off unless
+/// switched on and saying why, and on Windows and Linux a way to quit from
+/// the window, should the tray's menu be out of reach.
 class _BackgroundSection extends StatefulWidget {
   const _BackgroundSection(
     this.settings, {
@@ -487,8 +506,28 @@ class _BackgroundSection extends StatefulWidget {
 }
 
 class _BackgroundSectionState extends State<_BackgroundSection> {
-  static const _label = 'notifications';
-  late bool _on = widget.settings.notifications;
+  static const _notifyLabel = 'show arrivals';
+  static const _copyLabel = 'copy arrivals automatically';
+  late bool _notify = widget.settings.notifications;
+  late bool _copy = widget.settings.autoCopy;
+
+  Widget _switch(String label, bool value, ValueChanged<bool> onChanged) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label, style: monoStyle(color: Palette.text)),
+            ),
+            _Toggle(
+              label: label,
+              value: value,
+              recording: widget.recording,
+              onChanged: onChanged,
+            ),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) => Column(
@@ -497,24 +536,19 @@ class _BackgroundSectionState extends State<_BackgroundSection> {
       const Divider(height: 20, color: Palette.line),
       Text('when plop is in the background', style: monoStyle(size: 11)),
       const SizedBox(height: 6),
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(_label, style: monoStyle(color: Palette.text)),
-            ),
-            _Toggle(
-              label: _label,
-              value: _on,
-              recording: widget.recording,
-              onChanged: (on) {
-                setState(() => _on = on);
-                widget.settings.notifications = on;
-              },
-            ),
-          ],
-        ),
+      _switch(_notifyLabel, _notify, (on) {
+        setState(() => _notify = on);
+        widget.settings.notifications = on;
+      }),
+      _switch(_copyLabel, _copy, (on) {
+        setState(() => _copy = on);
+        widget.settings.autoCopy = on;
+      }),
+      // What switching it on lets in, said before anyone does.
+      Text(
+        'text and pictures from other devices go straight to your '
+        'clipboard · anyone nearby can fill it',
+        style: monoStyle(size: 11, color: Palette.dim),
       ),
       if (widget.onQuit case final quit?)
         Align(

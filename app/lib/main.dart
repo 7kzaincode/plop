@@ -6,9 +6,11 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'auto_copy.dart';
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
+import 'island.dart';
 import 'login_item.dart';
 import 'notify.dart';
 import 'settings.dart';
@@ -77,10 +79,18 @@ Future<void> _start() async {
   LoginItem.installLauncher();
   Arrivals.watch(node);
   // Closing the window keeps plop in the tray once its icon is up; what
-  // happens while the window is away is said with OS notifications.
+  // happens while the window is away is said on the island on macOS and
+  // with OS notifications elsewhere.
   Tray.init(node).ignore();
   Notify.init(settings).ignore();
   Notify.watch(node);
+  // Arrivals and shortcut results on macOS: the notch island. The copy
+  // button's tooltip names the shortcut that grabs the newest.
+  Island.init(node, hint: () => Hotkeys.grabLabel);
+  // Desktop only, and only once switched on in the settings panel; on macOS
+  // the island says so on the item's row.
+  AutoCopy.watch(node, settings);
+  if (Island.supported) AutoCopy.onCopied = Island.copied;
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
   // the Screen Recording steps, waits until they look instead of fading out;
@@ -100,8 +110,10 @@ Future<void> _start() async {
             WidgetsBinding.instance.lifecycleState !=
                 AppLifecycleState.resumed),
   );
-  Hotkeys.snip = settings.hotkey('snip') ?? Hotkeys.defaultSnip;
-  Hotkeys.clip = settings.hotkey('clip') ?? Hotkeys.defaultClip;
+  Hotkeys.load(
+    settings.hotkey,
+    remember: (name, k) => settings.setHotkey(name, k).ignore(),
+  );
   try {
     await Hotkeys.register(node, say);
   } catch (_) {

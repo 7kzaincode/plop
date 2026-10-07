@@ -36,7 +36,12 @@ class Settings {
 
   static Future<Settings> load() async {
     final dir = await getApplicationSupportDirectory();
-    final file = File('${dir.path}${Platform.pathSeparator}settings.json');
+    return loadFrom(File('${dir.path}${Platform.pathSeparator}settings.json'));
+  }
+
+  /// What [file] holds, backed by it from now on; [load] with the file
+  /// named, so tests can read back what was written.
+  static Future<Settings> loadFrom(File file) async {
     var data = <String, Object?>{};
     try {
       data = (jsonDecode(await file.readAsString()) as Map).cast();
@@ -56,12 +61,24 @@ class Settings {
     _save().ignore(); // the picker has nowhere to say it failed
   }
 
-  /// OS notifications while plop is in the background (lib/notify.dart).
-  /// On unless switched off.
+  /// Showing arrivals and shortcut results while plop is in the background:
+  /// the island on macOS, OS notifications elsewhere (lib/notify.dart). On
+  /// unless switched off.
   bool get notifications => _data['notifications'] != false;
 
   set notifications(bool on) {
     _data['notifications'] = on;
+    _save().ignore(); // the toggle has nowhere to say it failed
+  }
+
+  /// Text and pictures from other devices go straight onto the clipboard as
+  /// they arrive (lib/auto_copy.dart). Off unless switched on: with it on,
+  /// anyone nearby with plop can put whatever they like on the clipboard,
+  /// to be pasted without a look.
+  bool get autoCopy => _data['autoCopy'] == true;
+
+  set autoCopy(bool on) {
+    _data['autoCopy'] = on;
     _save().ignore(); // the toggle has nowhere to say it failed
   }
 

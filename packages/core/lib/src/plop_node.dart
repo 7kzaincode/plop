@@ -197,14 +197,16 @@ class PlopNode {
     engine.onNudge(null);
   }
 
-  /// Fires when items or peers change.
+  /// Fires when items or peers change, or an item turns out to be one the
+  /// web shelf took in ([WebHost.uploads]).
   Stream<void> get changes {
     late final StreamController<void> c;
     final subs = <StreamSubscription<void>>[];
     c = StreamController<void>.broadcast(
       onListen: () => subs
         ..add(store.changes.listen(c.add))
-        ..add(engine.peerChanges.listen(c.add)),
+        ..add(engine.peerChanges.listen(c.add))
+        ..add(web.changes.listen(c.add)),
       onCancel: () {
         for (final s in subs) {
           s.cancel();

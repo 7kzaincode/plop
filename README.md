@@ -32,9 +32,14 @@ Closing the window keeps plop running, so the shortcuts and your items stay
 live. Click its Dock icon, ⌘Tab back to it, or pick "open plop" from its
 menu bar icon to bring the window back; ⌘Q or "quit plop" in that menu
 quits. Files dropped on the Dock icon land on the shelf. When something
-arrives while the window is closed or behind other apps, the Dock icon shows
-a count and a notification says who sent what (a shortcut's result is one
-too); click it to open plop. The settings panel can switch them off.
+arrives while the window is closed or behind other apps, it drops out of the
+notch (from the top of a screen without one) as a black island: what it is,
+who sent it, and copy / save right there. Drag the file out of it into any
+app, hover to keep it open, or let it tuck itself away after a few seconds;
+several from one device show as one, opening into their rows on hover. A
+shortcut's result shows there too. It never takes the keyboard from what
+you're typing in. The Dock icon keeps a quiet count, without bouncing. The
+settings panel can switch the island off ("show arrivals").
 
 ### Windows (10 or 11)
 
@@ -153,17 +158,38 @@ to renew it.
 - **From anywhere (Mac, Windows, Linux on X11):**
   - ⌃⌥P / Ctrl+Shift+Alt+P: select a region of the screen; it lands on plop.
   - ⌃⌥V / Ctrl+Shift+Alt+V: plop whatever is on the clipboard.
-  - Change either in the settings panel (sliders icon), where you can also
-    make plop open at login (macOS 13 or later; if macOS holds the switch for
-    approval, the panel says where) and switch off the notifications.
+  - ⌃⌥G / Ctrl+Shift+Alt+G: grab the newest item from another device (or
+    from a phone through the web shelf). Text, pictures and files go on the
+    clipboard, ready to paste; a folder saves to Downloads. If you had
+    already given ⌃⌥G to one of the others, it starts on ⌃⌥N instead.
+  - Change any of them in the settings panel (sliders icon), where you can
+    also make plop open at login (macOS 13 or later; if macOS holds the
+    switch for approval, the panel says where) and switch off "show
+    arrivals" (the island on a Mac, notifications elsewhere).
 - **In the background:** closing the window keeps plop running, with an icon
   in the menu bar or tray to bring it back or quit it. Items from other
-  devices and the results of the shortcuts are then OS notifications, which
-  open plop when clicked; three or more items from one device within a
+  devices and the results of the shortcuts then show on the island on a Mac
+  (see above), and as OS notifications on Windows and Linux, which open plop
+  when clicked; three or more items from one device within a
   couple of seconds are one notification. A text only says how long it is
   ("text · 42 characters"), never what it says, so a copied password stays
   off the lock screen. What the other devices already had when plop started
   isn't announced, nor an item that comes back when its device does.
+- **Copy arrivals automatically** (desktop, off unless switched on in the
+  settings panel): text and pictures another device plops (or a phone puts
+  up through the web shelf) go straight to your clipboard as soon as they
+  are here, the newest winning. Files, folders, anything over 25 MB and
+  pictures the clipboard can't take as pictures never do (so on Linux only
+  text does). Nor does what a device already had: what was there when plop
+  started, or what a device brings back after more than a minute away or
+  after your computer slept. One that is slow to get here (past its
+  download deadline), or that finds you have copied something since it
+  arrived, is left on the shelf, so it never overwrites your own copy later
+  (on Linux, only a text you copied is noticed), and anything that was
+  already up a while before this device saw it (put up while it slept) stays
+  on the shelf. Anyone nearby with plop, or with the web shelf open in a
+  browser, can fill your clipboard while this is on, which is why it starts
+  off.
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
   folders save to Downloads (folders unpacked). Hover for the other option;
   tap a saved row again to show it in Finder or Explorer (its folder, on

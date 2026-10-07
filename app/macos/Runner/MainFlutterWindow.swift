@@ -9,6 +9,8 @@ class MainFlutterWindow: NSWindow {
   // before Dart has a handler); later drops are pushed as "shared".
   private var share: FlutterMethodChannel?
   private var pendingOpens: [String] = []
+  /// Arrivals and shortcut results while plop is not in front (Island.swift).
+  private var island: Island?
   private var dartListening = false
 
   func open(_ paths: [String]) {
@@ -145,6 +147,7 @@ class MainFlutterWindow: NSWindow {
       window.pendingOpens = []
     }
     self.share = share
+    island = Island(messenger: flutterViewController.engine.binaryMessenger)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
