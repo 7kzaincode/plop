@@ -698,6 +698,77 @@ void main() {
     expect(await delete(file['key'] as String, file['token'] as String), 204);
   });
 
+  // The app treats what a phone put up through the page as an arrival, not
+  // as the desktop user's own: it must be told which items those are, and
+  // when one is known to be (after the store announced it as its own).
+  test('the page says which items it put up', () async {
+    p = await Pair.start();
+    Future<String> up(String path, List<int> body) async =>
+        (jsonDecode(
+                  utf8.decode(
+                    (await send('POST', p.url(path), body: body)).body,
+                  ),
+                )
+                as Map)['key']
+            as String;
+
+    final text = await up('/web/text', utf8.encode('from a phone'));
+    final file = await up('/web/items?name=a.bin', [1, 2, 3]);
+    final desktop = await p.a.addText('the desktop user shared this');
+    final theirs = await p.b.addText('theirs');
+    await eventually(() => p.a.store[theirs.key] != null);
+
+    expect(p.a.web.uploads, {text, file});
+    expect(p.a.web.isUpload(text), isTrue);
+    expect(p.a.web.isUpload(file), isTrue);
+    expect(p.a.web.isUpload(desktop.key), isFalse);
+    expect(p.a.web.isUpload(theirs.key), isFalse);
+
+    // Gone from the shelf, it is no upload any more.
+    p.a.remove(file);
+    expect(p.a.web.uploads, {text});
+    expect(p.a.web.isUpload(file), isFalse);
+  });
+
+  // The store announces an upload as one of this node's own, and may do so
+  // before the page has recorded it: the page says so itself once it has,
+  // through the node's changes, so the app never has to rely on the order.
+  test('a change follows once an item is known to be an upload', () async {
+    final root = await Directory.systemTemp.createTemp('plop_web_solo');
+    final solo = await PlopNode.start(
+      dir: Directory('${root.path}/solo'),
+      discovery: StaticDiscovery(),
+      name: 'solo',
+    );
+    addTearDown(() async {
+      await solo.stop();
+      await root.delete(recursive: true);
+    });
+    solo.web.enabled = true;
+    final told = <bool>[]; // the newest item is an upload, per web change
+    var fromStore = 0, fromNode = 0;
+    final subs = [
+      solo.web.changes.listen(
+        (_) => told.add(solo.web.isUpload(solo.items.first.key)),
+      ),
+      solo.store.changes.listen((_) => fromStore++),
+      solo.changes.listen((_) => fromNode++),
+    ];
+    addTearDown(() => Future.wait([for (final s in subs) s.cancel()]));
+    for (final body in ['from a phone', 'and again']) {
+      final res = await send(
+        'POST',
+        Uri.parse('http://127.0.0.1:${solo.port}/web/text'),
+        body: utf8.encode(body),
+      );
+      expect(res.status, 200);
+    }
+    await solo.addText('the desktop user shared this'); // no web change
+    await eventually(() => told.length == 2 && fromStore == 3);
+    expect(told, [true, true]);
+    await eventually(() => fromNode == 5, reason: 'the node passes both on');
+  });
+
   test('a mirror being copied says how far; its time running out mid-copy '
       'does not cost the download', () async {
     p = await Pair.start(eagerCopyBytes: 1024);

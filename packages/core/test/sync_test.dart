@@ -532,6 +532,15 @@ void main() {
     expect(b.store[slow]?.isReady, isTrue);
   });
 
+  // The app waits this long for an arrival it means to copy, and no longer.
+  test("an eager copy's deadline grows a second per 256 KB", () async {
+    c = await Cluster.start(1, eagerDeadline: const Duration(seconds: 30));
+    final e = c.nodes.single.engine;
+    expect(e.eagerDeadlineFor(0), const Duration(seconds: 30));
+    expect(e.eagerDeadlineFor(256 << 10), const Duration(seconds: 31));
+    expect(e.eagerDeadlineFor(25 << 20), const Duration(seconds: 130));
+  });
+
   test('text items arrive with their content', () async {
     c = await Cluster.start(2, ttl: const Duration(seconds: 30));
     final [a, b] = c.nodes;
