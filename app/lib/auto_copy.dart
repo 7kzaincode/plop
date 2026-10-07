@@ -83,10 +83,12 @@ abstract final class AutoCopy {
 
   static bool get _on => _settings?.autoCopy ?? false;
 
-  /// Text, or a picture (not SVG, which no clipboard takes as one), small
-  /// enough to have been copied here on sight.
+  /// Text, or a picture this OS's clipboard takes as one ([copiesAsImage]:
+  /// none on Linux, no HEIC or WebP on Windows, never SVG), small enough to
+  /// have been copied here on sight. A picture the clipboard can't take
+  /// would go on it as a file, and files never do.
   static bool _wanted(ShelfItem item) =>
-      (item.kind == ItemKind.text || isCopyableImage(item)) &&
+      (item.kind == ItemKind.text || copiesAsImage(item)) &&
       item.size <= _maxBytes;
 
   /// The shelf's items from other devices as they are now.

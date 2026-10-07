@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plop/auto_copy.dart';
+import 'package:plop/grab.dart';
 import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop_core/plop_core.dart';
@@ -15,6 +16,10 @@ void main() {
   late List<String> copied; // names, in the order they reached the clipboard
   late List<String> told; // names onCopied was called with
   late Settings settings;
+
+  // Pictures copy as pictures here, as on a Mac, whatever runs the tests.
+  setUp(() => debugClipboardOs = 'macos');
+  tearDown(() => debugClipboardOs = null);
 
   /// Starts watching an empty shelf, switched on unless [on] is false, with
   /// the phone and the Mac already found and their first seconds over, so
@@ -228,6 +233,26 @@ void main() {
     await changed(tester);
     expect(copied, ['IMG_4821.png']);
     await stop();
+  });
+
+  // A picture the clipboard can't take as one would go on it as a file,
+  // copied in full to a scratch folder: none on Linux, and on Windows only
+  // what GDI+ reads.
+  testWidgets('only pictures that copy as pictures', (tester) async {
+    for (final (os, want) in [
+      ('linux', <String>[]),
+      ('windows', ['a.jpg', 'b.png']),
+      ('macos', ['a.jpg', 'b.png', 'c.webp', 'd.heic']),
+    ]) {
+      debugClipboardOs = os;
+      await start(tester);
+      for (final name in ['a.jpg', 'b.png', 'c.webp', 'd.heic']) {
+        shelf = [item(name, kind: ItemKind.file, ready: true), ...shelf];
+        await changed(tester);
+      }
+      expect(copied, want, reason: os);
+      await stop();
+    }
   });
 
   testWidgets('a hook that throws does not stop the copies after it', (

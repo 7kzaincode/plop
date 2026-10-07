@@ -223,24 +223,32 @@ bool isCopyableImage(ShelfItem item) =>
 
 /// Whether this OS's clipboard can take the item as a picture. Windows goes
 /// through GDI+ and Android through BitmapFactory, which can't read HEIC,
-/// WebP or RAW; a failed attempt on Windows also empties the clipboard.
-bool _copiesAsImage(ShelfItem item) {
-  if (!isCopyableImage(item) || Platform.isLinux) return false;
-  if (Platform.isMacOS || Platform.isIOS) return true;
+/// WebP or RAW; a failed attempt on Windows also empties the clipboard. Any
+/// other picture is copied as a file, as a file is. Copying arrivals
+/// (lib/auto_copy.dart) takes only what this says yes to.
+bool copiesAsImage(ShelfItem item) {
+  final os = debugClipboardOs ?? Platform.operatingSystem;
+  if (!isCopyableImage(item) || os == 'linux') return false;
+  if (os == 'macos' || os == 'ios') return true;
   final ext = item.name.split('.').last.toLowerCase();
   return const {'png', 'jpg', 'jpeg', 'gif', 'bmp'}.contains(ext) &&
-      !(Platform.isAndroid && item.size > 25 * 1024 * 1024);
+      !(os == 'android' && item.size > 25 * 1024 * 1024);
 }
+
+/// Tests set this to an OS name (as [Platform.operatingSystem] gives it)
+/// to see what that OS's clipboard takes as a picture, and back.
+@visibleForTesting
+String? debugClipboardOs;
 
 /// The actions a row offers, default (tap) first.
 List<GrabAction> actionsFor(ShelfItem item) {
   if (item.kind == ItemKind.text) return const [GrabAction.copy];
   if (isDesktop) {
     if (item.kind == ItemKind.folder) return const [GrabAction.save];
-    if (_copiesAsImage(item)) return const [GrabAction.copy, GrabAction.save];
+    if (copiesAsImage(item)) return const [GrabAction.copy, GrabAction.save];
     return const [GrabAction.save, GrabAction.copy];
   }
-  if (_copiesAsImage(item)) return const [GrabAction.copy, GrabAction.share];
+  if (copiesAsImage(item)) return const [GrabAction.copy, GrabAction.share];
   return const [GrabAction.share];
 }
 
@@ -287,7 +295,7 @@ Future<String> copyItem(PlopNode node, ShelfItem item) async {
     await Clipboard.setData(ClipboardData(text: text));
     return 'copied';
   }
-  if (_copiesAsImage(item)) {
+  if (copiesAsImage(item)) {
     final bytes = await File(await node.fetch(item.key)).readAsBytes();
     try {
       await Pasteboard.writeImage(bytes);
