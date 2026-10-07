@@ -13,7 +13,7 @@
 
 ## Status (2026-10-07)
 
-- Done: core (`dart test` in `packages/core`, 89 tests), the macOS, iOS,
+- Done: core (`dart test` in `packages/core`, 90 tests), the macOS, iOS,
   Android, Windows and Linux apps (`flutter test` in `app`, 126 tests, the
   shelf and layout ones driving a real pair of nodes over loopback), and
   release builds for all but iOS via release.yml (Windows and Linux
