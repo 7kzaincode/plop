@@ -420,7 +420,9 @@ class ShelfStore {
       _addOwned(bytes, name, ItemKind.file, name);
 
   Future<ShelfItem> addText(String text) {
-    final firstLine = text.trim().split('\n').first;
+    // `\r` too: a Windows line ends in `\r\n`, and a `\r` left on the
+    // label would show as `_` on every peer.
+    final firstLine = text.trim().split(RegExp('[\r\n]')).first;
     final label = firstLine.length > 60
         ? '${_head(firstLine, 60)}…'
         : firstLine;

@@ -837,20 +837,30 @@ void main() {
     const iWant = '\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645';
     expect(safeLabel(iWant), iWant);
 
+    // A line break, C0 or C1, cuts a one-line row short.
+    expect(safeLabel('invoice.pdf\n.exe'), 'invoice.pdf_.exe');
+    expect(safeLabel('a\r\tb\x7f\x85c'), 'a__b__c');
+    expect(safeFileName('invoice.pdf\n.exe'), 'invoice.pdf_.exe');
+
     // The row shows what saving it would write.
-    final mirror = c.nodes.single.store.addRemote(
+    final s = c.nodes.single.store;
+    ShelfItem mirror(String name) => s.addRemote(
       'p',
       'p',
       RemoteItem(
         id: randomId(),
-        name: 'invoice\u202Efdp.exe',
+        name: name,
         size: 1,
         mime: 'application/pdf',
         kind: ItemKind.file,
         ttlMs: 1000,
       ),
     )!;
-    expect(mirror.name, 'invoice_fdp.exe');
+    expect(mirror('invoice\u202Efdp.exe').name, 'invoice_fdp.exe');
+    expect(mirror('invoice.pdf\n.exe').name, 'invoice.pdf_.exe');
+
+    // A Windows text's first line does not carry its `\r` to the label.
+    expect((await s.addText('hello\r\nworld')).name, 'hello');
   });
 
   test('a cut name never ends in half an emoji', () async {

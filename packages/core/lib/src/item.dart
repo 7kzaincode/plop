@@ -180,19 +180,24 @@ String mimeFor(String name) {
 /// without being seen itself with `_`, so a peer-supplied name reads as
 /// what it is. A right-to-left override makes `invoice\u202Efdp.exe` read
 /// as "invoice" then "exe.pdf" on every shelf and in Finder and Explorer,
-/// and a double click runs it. Covers the bidi marks, embeddings,
-/// overrides and isolates, zero-width space, word joiner and invisible
-/// operators, line and paragraph separators and the BOM. The joiners
-/// U+200C and U+200D stay: Persian and Hindi words and emoji sequences
-/// need them, and they cannot turn a run around.
+/// and a double click runs it; a newline in `invoice.pdf\n.exe` leaves a
+/// one-line row showing `invoice.pdf`. Covers the C0 and C1 controls, the
+/// bidi marks, embeddings, overrides and isolates, zero-width space, word
+/// joiner and invisible operators, line and paragraph separators and the
+/// BOM. The joiners U+200C and U+200D stay: Persian and Hindi words and
+/// emoji sequences need them, and they cannot turn a run around.
+///
+/// The one helper for this, for a name shown anywhere as well as saved.
 String safeLabel(String name) => name.replaceAll(_invisible, '_');
 
 final _invisible = RegExp(
-  r'[\u061c\u200b\u200e\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ufeff]',
+  r'[\x00-\x1f\x7f-\x9f\u061c\u200b\u200e\u200f\u2028-\u202e'
+  r'\u2060-\u2064\u2066-\u206f\ufeff]',
 );
 
 /// Makes a peer-supplied name safe to use as a single path segment on every
-/// platform plop runs on, and to show (see [safeLabel]). Dotfiles stay
+/// platform plop runs on, and to show: [safeLabel] first, which also
+/// takes out the control characters no file system wants. Dotfiles stay
 /// dotfiles (`.env` must not arrive as `env`); with the separators
 /// replaced, only the bare `.` and `..` names need refusing. Windows also
 /// drops trailing dots and spaces, so `notes.` would land on `notes`, and
@@ -200,7 +205,7 @@ final _invisible = RegExp(
 /// `_` after the stem.
 String safeFileName(String name) {
   var cleaned = safeLabel(name)
-      .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
+      .replaceAll(RegExp(r'[/\\:*?"<>|]'), '_')
       .trim()
       .replaceAll(RegExp(r'[. ]+$'), '');
   if (cleaned.isEmpty) return 'file';

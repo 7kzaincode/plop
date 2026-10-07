@@ -52,10 +52,10 @@ has simply gone, a phone locking, say, and is not.
   digits). Items with any other id are ignored.
 - `size` is 0 to the receiver's cap (100 GB); items outside that are
   ignored. A `name` longer than 255 characters is cut to that, and
-  invisible formatting characters in it (bidi controls such as U+202E,
-  zero-width space, BOM) are shown and saved as `_`, so `fdp.exe` cannot
-  pass for `exe.pdf`. `mime` is optional and defaults to
-  `application/octet-stream`.
+  control and invisible formatting characters in it (a newline, bidi
+  controls such as U+202E, zero-width space, BOM) are shown and saved as
+  `_`, so `fdp.exe` cannot pass for `exe.pdf`, nor `pdf\n.exe` for `pdf`.
+  `mime` is optional and defaults to `application/octet-stream`.
 - `kind` is `file`, `text` or `folder`. For `text`, the bytes are UTF-8 and
   `name` is a short label (the first line). For `folder`, the bytes are a zip
   of the folder's contents (stored, not compressed) and `name` is the folder
