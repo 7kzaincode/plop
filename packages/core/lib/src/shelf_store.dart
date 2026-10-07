@@ -398,17 +398,23 @@ class ShelfStore {
       _addOwned(bytes, name, ItemKind.file, name);
 
   /// Streams [body] to disk as an owned file named [name], so an upload
-  /// never has to fit in memory. An [expectedSize] over the cap is refused
-  /// before a byte is read, a body that grows past it is cut off where it
-  /// does (both [ItemTooLargeException]), and one that ends short of
+  /// never has to fit in memory. The cap is [maxItemBytes], or [maxBytes]
+  /// when that is lower. An [expectedSize] over it is refused before a
+  /// byte is read, a body that grows past it is cut off where it does
+  /// (both [ItemTooLargeException]), and one that ends short of
   /// [expectedSize] is dropped with a [FormatException]: a connection that
-  /// broke mid-upload must not leave half a file on the shelf.
+  /// broke mid-upload must not leave half a file on the shelf. An error
+  /// from [body] (a timeout, say) drops it as well.
   Future<ShelfItem> addStream(
     Stream<List<int>> body,
     String name, {
     int? expectedSize,
+    int? maxBytes,
   }) async {
-    if (expectedSize != null) _checkSize(expectedSize);
+    final cap = min(maxBytes ?? maxItemBytes, maxItemBytes);
+    if (expectedSize != null && expectedSize > cap) {
+      throw ItemTooLargeException(expectedSize, cap);
+    }
     final id = randomId();
     final file = File(_itemPath(nodeId, id, name));
     await file.parent.create(recursive: true);
@@ -419,9 +425,7 @@ class ShelfStore {
       // is how the sender gets cut off.
       await for (final chunk in body) {
         size += chunk.length;
-        if (size > maxItemBytes) {
-          throw ItemTooLargeException(size, maxItemBytes);
-        }
+        if (size > cap) throw ItemTooLargeException(size, cap);
         await out.writeFrom(chunk);
       }
       if (expectedSize != null && size != expectedSize) {

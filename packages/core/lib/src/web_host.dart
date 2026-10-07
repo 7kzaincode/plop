@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'item.dart';
@@ -45,10 +46,48 @@ class WebHost {
   /// tap itself.
   static const maxInlineText = 64 * 1024;
 
+  /// Inline text in one shelf answer, all items together; texts past it are
+  /// fetched on a tap instead. Peers can fill the shelf with small texts,
+  /// and every poll from every phone would carry all of them, as would the
+  /// cache behind it.
+  int maxInlineTotal = 1 << 20;
+
   /// Longest text /web/text takes; it is read into memory whole.
   static const maxTextBytes = 1 << 20;
 
-  final _texts = <String, String>{}; // key -> body of a ready text item
+  // Anyone on the LAN can upload here, so what uploads may take is bounded:
+  // descriptors (each upload holds a socket and an open file, and a GUI
+  // app starts with 256), the disk, and the shelf every peer mirrors.
+
+  /// Uploads, files and texts, in progress at once; more get 503 and the
+  /// page tries again shortly.
+  int maxUploads = 4;
+
+  /// Longest wait for the next piece of an upload's body before it is
+  /// dropped (408), so a stalled sender does not hold a slot for good.
+  Duration uploadIdle = const Duration(seconds: 30);
+
+  /// Largest single upload, under the node's own item cap: a phone's
+  /// longest video fits, a runaway or hostile sender stops early.
+  int maxUploadBytes = 8 << 30;
+
+  /// What uploads from the page may add up to while on the shelf, in
+  /// bytes and in items; past either, more get 507 until some expire.
+  int maxLiveBytes = 16 << 30;
+  int maxLiveItems = 200;
+
+  /// Uploads in progress now.
+  int get uploading => _uploading;
+  int _uploading = 0;
+
+  /// Bytes promised to uploads in progress: what each says it will send,
+  /// or for one that does not say, all it may.
+  int _reserved = 0;
+
+  /// Items the page put up that may still be on the shelf.
+  final _uploaded = <String>{};
+
+  final _texts = <String, String>{}; // key -> body of an inlined text item
 
   /// Answers one request to a path outside /v1. Always closes the response.
   Future<void> handle(HttpRequest req) async {
@@ -143,14 +182,17 @@ class WebHost {
       res.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
 
   /// Every item this node knows, newest first, with a text item's body
-  /// inline while it is small and already here.
+  /// inline while it is small and already here, up to [maxInlineTotal].
   Future<List<Map<String, Object>>> _shelf() async {
-    final items = node.items;
-    final live = {for (final i in items) i.key};
-    _texts.removeWhere((k, _) => !live.contains(k));
     final out = <Map<String, Object>>[];
-    for (final i in items) {
-      final text = await _textOf(i);
+    final inlined = <String>{};
+    var budget = maxInlineTotal;
+    for (final i in node.items) {
+      final text = i.size <= budget ? await _textOf(i) : null;
+      if (text != null) {
+        inlined.add(i.key);
+        budget -= i.size;
+      }
       out.add({
         'key': i.key,
         'name': i.name,
@@ -164,7 +206,38 @@ class WebHost {
         'text': ?text,
       });
     }
+    // Only what went out stays cached: what expired, and what no longer
+    // fits, goes.
+    _texts.removeWhere((k, _) => !inlined.contains(k));
     return out;
+  }
+
+  /// Takes one of the [maxUploads] slots, or answers 503 (or 507 when the
+  /// page's items fill [maxLiveItems] already) and returns false.
+  bool _startUpload(HttpResponse res) {
+    _uploaded.removeWhere((k) => node.store[k] == null);
+    if (_uploading >= maxUploads) {
+      res
+        ..statusCode = HttpStatus.serviceUnavailable
+        ..headers.set(HttpHeaders.retryAfterHeader, '2');
+      return false;
+    }
+    if (_uploaded.length + _uploading >= maxLiveItems) {
+      res.statusCode = HttpStatus.insufficientStorage;
+      return false;
+    }
+    _uploading++;
+    return true;
+  }
+
+  /// Bytes the page's items may still add, after those on the shelf and
+  /// those promised to uploads in progress.
+  int _room() {
+    var used = _reserved;
+    for (final k in _uploaded) {
+      used += node.store[k]?.size ?? 0;
+    }
+    return max(0, maxLiveBytes - used);
   }
 
   Future<String?> _textOf(ShelfItem i) async {
@@ -223,19 +296,42 @@ class WebHost {
       return;
     }
     final length = req.contentLength; // -1 when chunked
+    final sizeCap = min(maxUploadBytes, node.store.maxItemBytes);
+    if (length > sizeCap) {
+      res.statusCode = HttpStatus.requestEntityTooLarge;
+      return;
+    }
+    if (!_startUpload(res)) return;
+    final room = _room();
+    final cap = min(sizeCap, room);
+    final promised = length < 0 ? cap : length;
+    _reserved += promised;
     try {
+      if (length > room) {
+        throw ItemTooLargeException(length, room);
+      }
       final item = await node.store.addStream(
-        body,
+        body.timeout(uploadIdle),
         name,
         expectedSize: length < 0 ? null : length,
+        maxBytes: cap,
       );
+      _uploaded.add(item.key);
       res.headers.contentType = ContentType.json;
       res.write(jsonEncode({'key': item.key}));
-    } on ItemTooLargeException {
-      // The rest of the body stays unread; see claimBody.
-      res.statusCode = HttpStatus.requestEntityTooLarge;
+    } on ItemTooLargeException catch (e) {
+      // The rest of the body stays unread; see claimBody. Too big for any
+      // upload is 413; too big for what the page's items have left, 507.
+      res.statusCode = e.max < sizeCap
+          ? HttpStatus.insufficientStorage
+          : HttpStatus.requestEntityTooLarge;
     } on FormatException {
       res.statusCode = HttpStatus.badRequest; // ended short of its length
+    } on TimeoutException {
+      res.statusCode = HttpStatus.requestTimeout;
+    } finally {
+      _reserved -= promised;
+      _uploading--;
     }
   }
 
@@ -247,22 +343,34 @@ class WebHost {
       res.statusCode = HttpStatus.requestEntityTooLarge;
       return;
     }
-    final buf = BytesBuilder(copy: false);
-    await for (final chunk in body) {
-      buf.add(chunk);
-      if (buf.length > maxTextBytes) {
-        res.statusCode = HttpStatus.requestEntityTooLarge;
+    if (!_startUpload(res)) return;
+    try {
+      final buf = BytesBuilder(copy: false);
+      await for (final chunk in body.timeout(uploadIdle)) {
+        buf.add(chunk);
+        if (buf.length > maxTextBytes) {
+          res.statusCode = HttpStatus.requestEntityTooLarge;
+          return;
+        }
+      }
+      if (buf.length > _room()) {
+        res.statusCode = HttpStatus.insufficientStorage;
         return;
       }
+      final text = utf8.decode(buf.takeBytes(), allowMalformed: true);
+      if (text.trim().isEmpty) {
+        res.statusCode = HttpStatus.badRequest;
+        return;
+      }
+      final item = await node.addText(text);
+      _uploaded.add(item.key);
+      res.headers.contentType = ContentType.json;
+      res.write(jsonEncode({'key': item.key}));
+    } on TimeoutException {
+      res.statusCode = HttpStatus.requestTimeout;
+    } finally {
+      _uploading--;
     }
-    final text = utf8.decode(buf.takeBytes(), allowMalformed: true);
-    if (text.trim().isEmpty) {
-      res.statusCode = HttpStatus.badRequest;
-      return;
-    }
-    final item = await node.addText(text);
-    res.headers.contentType = ContentType.json;
-    res.write(jsonEncode({'key': item.key}));
   }
 }
 
@@ -469,14 +577,14 @@ function frac(key) {
 // Rebuilds the rows only when the shelf itself changed, so a tap never
 // lands on a row that was swapped out under it; tick() keeps the clocks.
 function render() {
-  const next = JSON.stringify([uploads.map(u => u.id), items.map(it => [it.key, it.name, it.from, mine.has(it.key)])]);
+  const next = JSON.stringify([uploads.map(u => [u.id, u.wait]), items.map(it => [it.key, it.name, it.from, mine.has(it.key)])]);
   if (next === sig) return tick();
   sig = next;
   const rows = [];
   for (const u of uploads) {
     rows.push('<div class="row" data-up="' + u.id + '"><div class="main"><div class="name">' + esc(u.name) +
-      '</div><div class="meta">' + size(u.size) + ' · uploading</div></div><div class="time">' + u.pct +
-      '%</div><div class="bar live"><i style="width:' + u.pct + '%"></i></div></div>');
+      '</div><div class="meta">' + size(u.size) + (u.wait ? ' · waiting' : ' · uploading') + '</div></div><div class="time">' +
+      (u.wait ? '' : u.pct + '%') + '</div><div class="bar live"><i style="width:' + (u.wait ? 0 : u.pct) + '%"></i></div></div>');
   }
   for (const it of items) {
     const meta = [it.kind === 'text' ? null : size(it.size), mine.has(it.key) ? 'you' : it.from].filter(Boolean).join(' · ');
@@ -628,10 +736,29 @@ addEventListener('paste', e => {
 });
 addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); closeView(); } });
 
-// XHR rather than fetch: only XHR reports upload progress.
+// Two at a time from this page: the desktop takes four uploads at once
+// from everyone and answers 503 past that. A 503, or a connection that
+// broke (which is how a refusal can look to a page still sending), is
+// tried again a few times, the row saying it waits meanwhile.
+const waiting = [];
+let sending = 0;
 function upload(file) {
-  const u = {id: ++seq, name: file.name || 'file', size: file.size, pct: 0};
+  const u = {id: ++seq, name: file.name || 'file', size: file.size, pct: 0, file, tries: 0, wait: true};
   uploads.push(u);
+  waiting.push(u);
+  render();
+  next();
+}
+function next() {
+  while (sending < 2 && waiting.length) send(waiting.shift());
+}
+const refusal = (status, name) =>
+  status === 413 ? name + ' is too big' : status === 507 ? 'no room for ' + name + ' right now' : "couldn't upload " + name;
+// XHR rather than fetch: only XHR reports upload progress.
+function send(u) {
+  sending++;
+  u.wait = false;
+  u.pct = 0;
   render();
   const x = new XMLHttpRequest();
   x.open('POST', '/web/items?name=' + encodeURIComponent(u.name));
@@ -645,22 +772,37 @@ function upload(file) {
       el.querySelector('.bar i').style.width = u.pct + '%';
     }
   };
+  const end = () => { sending--; next(); };
+  const retry = () => {
+    if (++u.tries > 3) return false;
+    u.wait = true;
+    render();
+    setTimeout(() => { waiting.unshift(u); next(); }, 2000 * u.tries);
+    return true;
+  };
   const done = () => { uploads = uploads.filter(v => v !== u); render(); };
   x.onload = () => {
+    end();
+    if (x.status === 503 && retry()) return;
     done();
-    if (x.status !== 200) return toast(x.status === 413 ? u.name + ' is too big' : "couldn't upload " + u.name);
+    if (x.status !== 200) return toast(refusal(x.status, u.name));
     try { mine.set(JSON.parse(x.responseText).key, Date.now()); saveMine(); } catch (e) {}
     poll();
   };
-  x.onerror = () => { done(); toast("couldn't upload " + u.name); };
-  x.send(file);
+  x.onerror = () => { end(); if (retry()) return; done(); toast("couldn't upload " + u.name); };
+  x.send(u.file);
 }
 async function sendText(t) {
   if (!t.trim()) return;
   closeSheet();
   try {
-    const r = await fetch('/web/text', {method: 'POST', headers: {'content-type': 'text/plain;charset=utf-8', 'x-plop-web': '1'}, body: t});
-    if (!r.ok) throw new Error(r.status);
+    let r;
+    for (let i = 0; ; i++) {
+      r = await fetch('/web/text', {method: 'POST', headers: {'content-type': 'text/plain;charset=utf-8', 'x-plop-web': '1'}, body: t});
+      if (r.status !== 503 || i >= 3) break;
+      await new Promise(ok => setTimeout(ok, 2000 * (i + 1)));
+    }
+    if (!r.ok) return toast(r.status === 507 ? 'no room for that right now' : "couldn't send that");
     mine.set((await r.json()).key, Date.now());
     saveMine();
     poll();

@@ -612,6 +612,125 @@ void main() {
     expect(ok.status, 200);
   });
 
+  /// Starts an upload that sends [sent] bytes of the [length] it promises,
+  /// then stalls.
+  Future<Socket> stall(String path, {int length = 100, int sent = 10}) async {
+    final s = await Socket.connect('127.0.0.1', p.a.port);
+    s.done.ignore();
+    s.add(
+      utf8.encode(
+        'POST $path HTTP/1.1\r\nHost: 127.0.0.1\r\n$webHeader: 1\r\n'
+        'Content-Length: $length\r\n\r\n',
+      ),
+    );
+    s.add(List.filled(sent, 1));
+    return s;
+  }
+
+  test('a stalled upload is dropped and gives back its slot', () async {
+    p = await Pair.start();
+    p.a.web.uploadIdle = const Duration(milliseconds: 300);
+    for (final path in ['/web/items?name=slow.bin', '/web/text']) {
+      final s = await stall(path);
+      final line = await utf8.decoder
+          .bind(s)
+          .transform(const LineSplitter())
+          .first
+          .timeout(const Duration(seconds: 5));
+      s.destroy();
+      expect(line, contains('408'), reason: path);
+      expect(p.a.web.uploading, 0, reason: path);
+    }
+    expect(p.a.items, isEmpty);
+    final own = Directory('${p.root.path}/mac/${p.a.id}');
+    await eventually(
+      () => !own.existsSync() || own.listSync().isEmpty,
+      reason: 'half an upload left behind',
+    );
+  });
+
+  test('past maxUploads at once, more wait with 503', () async {
+    p = await Pair.start();
+    p.a.web.uploadIdle = const Duration(seconds: 1);
+    final stalled = [
+      for (var i = 0; i < p.a.web.maxUploads; i++)
+        await stall('/web/items?name=s$i.bin'),
+    ];
+    await eventually(() => p.a.web.uploading == p.a.web.maxUploads);
+    final busy = await send('POST', p.url('/web/text'), body: [104, 105]);
+    expect(busy.status, 503);
+    expect(busy.headers.value('retry-after'), '2');
+    expect(
+      await rawStatus(
+        p.a.port,
+        'POST /web/items?name=big.bin HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+        '$webHeader: 1\r\nContent-Length: 100000000\r\n\r\n',
+      ),
+      contains('503'),
+      reason: 'answered without reading the body',
+    );
+    // The stalled ones time out, and then there is room.
+    await eventually(() => p.a.web.uploading == 0);
+    for (final s in stalled) {
+      s.destroy();
+    }
+    final ok = await send('POST', p.url('/web/text'), body: [104, 105]);
+    expect(ok.status, 200);
+    expect(p.a.items.length, 1);
+  });
+
+  test('uploads are capped one by one and all together', () async {
+    p = await Pair.start();
+    p.a.web
+      ..maxUploadBytes = 1000
+      ..maxLiveBytes = 1500
+      ..maxLiveItems = 3;
+    Future<int> up(int n, [String path = '/web/items?name=a.bin']) async =>
+        (await send('POST', p.url(path), body: List.filled(n, 120))).status;
+    String keyOf(ShelfItem? i) => i!.key;
+
+    expect(await up(1001), 413, reason: 'over the cap for one upload');
+    expect(await up(900), 200);
+    final first = keyOf(p.a.items.first);
+    // 900 more would pass what the page's items may add up to, 1500.
+    expect(await up(900), 507);
+    expect(
+      await rawStatus(
+        p.a.port,
+        'POST /web/items?name=c.bin HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+        '$webHeader: 1\r\nTransfer-Encoding: chunked\r\n\r\n',
+        chunkedBody(900, 100),
+      ),
+      contains('507'),
+      reason: 'chunked, so cut off where it crosses',
+    );
+    expect(await up(600), 200, reason: 'fits exactly');
+    expect(await up(1, '/web/text'), 507, reason: 'no room left');
+    expect(p.a.items.length, 2);
+
+    // Room comes back as items leave the shelf, whoever removes them.
+    p.a.remove(first);
+    expect(await up(1, '/web/text'), 200);
+    expect(await up(1, '/web/text'), 200);
+    expect(await up(1, '/web/text'), 507, reason: 'three items already');
+    // The desktop's own items count for nothing here.
+    await p.a.addText('from the desktop');
+    expect(p.a.items.length, 4);
+  });
+
+  test('inline text is capped for the whole shelf', () async {
+    p = await Pair.start();
+    p.a.web.maxInlineTotal = 100;
+    for (final c in ['a', 'b', 'c']) {
+      await p.a.addText(c * 60);
+    }
+    var list = shelfOf(await get(p.url('/web/shelf')));
+    expect([for (final i in list) i['text']], ['c' * 60, null, null]);
+    p.a.web.maxInlineTotal = 1 << 20;
+    list = shelfOf(await get(p.url('/web/shelf')));
+    expect([for (final i in list) i['text']], ['c' * 60, 'b' * 60, 'a' * 60]);
+  });
+
   test('addStream drops a body that ends short of its length', () async {
     p = await Pair.start();
     await expectLater(

@@ -164,11 +164,14 @@ or computer on the LAN visits cannot write here.
 | `GET /icon.png` | The app icon (a 1x1 black PNG on a node that was given none). |
 | `GET /web/shelf` | Every item the node knows, own and mirrored, newest first (see below). |
 | `GET /web/items/{originId}/{id}` | The bytes, with `Content-Type`, `Content-Length`, `Content-Security-Policy: sandbox` (nothing served here runs as a page of this origin) and `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…` (a folder's zip as `<name>.zip`, text as `text.txt`). A mirror not copied yet is fetched from its origin first. `404` once gone; `502` if the origin cannot be reached. |
-| `POST /web/items?name=<name>` | Raw file body, streamed to disk as this node's own item. `200 {"key": "<originId>/<id>"}`. `400` without a name or for a body that ends short of its `Content-Length`; `413` past the node's item cap (100 GB), before any of the body is read when `Content-Length` says so, else where the body crosses it, and the connection is closed. |
-| `POST /web/text` | UTF-8 body, up to 1 MB, as a text item. `200 {"key": …}`; `400` if blank; `413` if longer. |
+| `POST /web/items?name=<name>` | Raw file body, streamed to disk as this node's own item. `200 {"key": "<originId>/<id>"}`. `400` without a name or for a body that ends short of its `Content-Length`; `413` past 8 GB (or the node's item cap, if lower); `507` past what the page's items still on the shelf may add up to (16 GB, 200 items). Both are answered before any of the body is read when `Content-Length` says so, else where the body crosses the line, and the connection is closed. `408` when the body stalls for 30 s. |
+| `POST /web/text` | UTF-8 body, up to 1 MB, as a text item. `200 {"key": …}`; `400` if blank; `413` if longer; `507` and `408` as above. |
 | `DELETE /web/items/{originId}/{id}` | Removes one of this node's own items (`204`); `403` for a mirror, `404` if unknown. |
 
-Everything under `/web/` carries `Cache-Control: no-store`.
+Everything under `/web/` carries `Cache-Control: no-store`. At most 4
+uploads (files and texts together) run at once; past that the answer is
+`503` with `Retry-After: 2`, and the page sends two at a time and tries a
+refused one again a few times.
 
 `GET /web/shelf` entries:
 
@@ -183,7 +186,8 @@ Everything under `/web/` carries `Cache-Control: no-store`.
 only) counts the peers holding a copy. `text` is a ready text item's content
 when it is at most 64 KB, so the page can copy it inside the tap: on plain
 HTTP a browser gives the page no asynchronous clipboard, and the fallback it
-has works only within the user's gesture.
+has works only within the user's gesture. Inline texts add up to 1 MB per
+answer at most, newest first; the page fetches the rest on a tap.
 
 ### Trust
 
