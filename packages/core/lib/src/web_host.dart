@@ -368,7 +368,7 @@ input[type=file]{display:none}
 <input type="file" id="file" multiple>
 </header>
 <div id="list"></div>
-<div id="hint"><span>add plop to your home screen: <b>share ▸ add to home screen</b></span><button class="x" id="hintx" aria-label="dismiss">×</button></div>
+<div id="hint"><span>add plop to your home screen: <b>share › add to home screen</b></span><button class="x" id="hintx" aria-label="dismiss">×</button></div>
 <div id="sheet"><form id="textform"><textarea id="text" placeholder="paste or type, then plop"></textarea><div class="actions"><button type="button" class="ghost" id="cancel">cancel</button><button type="submit" class="btn">plop</button></div></form></div>
 <div id="view"><img id="pic" alt=""><div class="foot"><span>press and hold the picture to save it</span><button class="ghost" id="dl">download</button><button class="ghost" id="close">close</button></div></div>
 <div id="toast"></div>
@@ -540,7 +540,11 @@ async function fetchBlob(it) {
   }
   return new Blob(chunks, {type: it.mime});
 }
+// A new tab, which the attachment header turns into a download; from a
+// home-screen app it opens in the browser, which can save it. A link
+// click where popups are blocked.
 function download(it) {
+  if (window.open(url(it), '_blank')) return;
   const a = document.createElement('a');
   a.href = url(it);
   a.download = fileName(it);
@@ -678,9 +682,11 @@ ta.addEventListener('paste', () => {
   if (ta.readOnly || ta.value) return;
   setTimeout(() => sendText(ta.value), 0);
 });
+// Without the API (any plain-http page) the sheet opens inside the tap
+// itself: iOS raises the keyboard only for a focus() made there.
 $('paste').onclick = () => {
-  const read = navigator.clipboard && navigator.clipboard.readText ? navigator.clipboard.readText() : Promise.reject();
-  read.then(t => t && t.trim() ? sendText(t) : showSheet(''), () => showSheet(''));
+  if (!navigator.clipboard || !navigator.clipboard.readText) return showSheet('');
+  navigator.clipboard.readText().then(t => t && t.trim() ? sendText(t) : showSheet(''), () => showSheet(''));
 };
 
 // ------------------------------------------------------------- home screen
