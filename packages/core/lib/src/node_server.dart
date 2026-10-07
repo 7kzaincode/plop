@@ -69,14 +69,34 @@ class NodeServer {
     if (from != null) seenBy[from] = DateTime.now();
   }
 
+  /// How long a list waits on any one file's check. A stat on a dead mount
+  /// can hang for a minute; the list must still answer well inside a
+  /// peer's 5 s timeout, or every peer drops this node and its items, and
+  /// inside the 1 s probe of `PlopNode.revive`, or the server is restarted
+  /// under its transfers.
+  static const statBudget = Duration(milliseconds: 500);
+
+  /// Checks of files served in place that are still running, by item key,
+  /// so a hung stat is shared by every poll from every peer rather than
+  /// joined by one more each time.
+  final _checks = <String, Future<bool>>{};
+
   /// A file served in place can be deleted or rewritten after it was
   /// dropped. Listing it then leaves every peer a row it can never fetch,
   /// so instead it leaves the shelf, which nudges them to drop theirs.
   /// Asynchronous because this runs on every poll from every peer, and a
   /// stat of a file on an unmounted share or a cloud placeholder can hang
   /// for seconds; a synchronous one would stall the whole isolate with it.
-  Future<bool> _stillThere(ShelfItem i) async {
-    if (i.ownsFile || i.path == null) return true;
+  Future<bool> _stillThere(ShelfItem i) {
+    if (i.ownsFile || i.path == null) return Future.value(true);
+    // The callback must not return the removed future: whenComplete would
+    // wait on it, and it is the future being completed.
+    return _checks[i.key] ??= _check(i).whenComplete(() {
+      _checks.remove(i.key);
+    });
+  }
+
+  Future<bool> _check(ShelfItem i) async {
     final st = await File(i.path!).stat();
     // Size alone misses a rewrite that keeps it, so the modification time
     // counts too; a store that never recorded one only has the size.
@@ -94,14 +114,24 @@ class NodeServer {
     switch ((req.method, req.uri.pathSegments)) {
       case ('GET', ['v1', 'items']):
         _noteCaller(req);
-        final items = <Map<String, Object>>[];
-        for (final i in store.localItems.toList()) {
-          // The list is a snapshot: remove() mutates, and an item can
-          // expire while another's stat is in flight.
-          if (i.isReady && await _stillThere(i) && store[i.key] == i) {
-            items.add(i.toJson());
-          }
-        }
+        // A snapshot: remove() mutates, and an item can expire while a
+        // stat is in flight.
+        final ready = [
+          for (final i in store.localItems)
+            if (i.isReady) i,
+        ];
+        // All at once, each within [statBudget]. One that runs over lists
+        // its item: calling it gone would make every peer drop the row and
+        // add it back on the next poll. If the stat does come back with the
+        // file gone, the item still leaves then, and peers are nudged.
+        final present = await Future.wait([
+          for (final i in ready)
+            _stillThere(i).timeout(statBudget, onTimeout: () => true),
+        ]);
+        final items = [
+          for (final (n, i) in ready.indexed)
+            if (present[n] && store[i.key] == i) i.toJson(),
+        ];
         res.headers.contentType = ContentType.json;
         res.write(jsonEncode(items));
       case ('GET', ['v1', 'items', final id]):

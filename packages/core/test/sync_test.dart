@@ -106,6 +106,25 @@ class CountingClient extends NodeClient {
   }
 }
 
+/// Stats of [path] hang until [release] completes, as on a share whose
+/// server went away. Others go through.
+final class HangingStat extends IOOverrides {
+  HangingStat(this.path);
+
+  final String path;
+  final release = Completer<void>();
+
+  /// Stats of [path] asked for so far.
+  var hung = 0;
+
+  @override
+  Future<FileStat> stat(String path) {
+    if (path != this.path) return super.stat(path);
+    hung++;
+    return release.future.then((_) => super.stat(path));
+  }
+}
+
 Future<void> eventually(
   bool Function() check, {
   Duration timeout = const Duration(seconds: 5),
@@ -400,6 +419,40 @@ void main() {
     );
     expect(a.items.single.name, 'kept.txt');
     expect(b.items.single.name, 'kept.txt');
+  });
+
+  test('a stat that hangs neither holds up the list nor piles up', () async {
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      eagerCopyBytes: 1024,
+    );
+    final [a, b] = c.nodes;
+    // Too big for an eager copy, so only the list ever stats it.
+    final slow = await tempFile(c.root, 'on-a-dead-share.bin', 5000);
+    await a.addFile(slow.path);
+    final stat = HangingStat(slow.path);
+    IOOverrides.global = stat;
+    addTearDown(() {
+      IOOverrides.global = null;
+      if (!stat.release.isCompleted) stat.release.complete();
+    });
+    await a.addFile((await tempFile(c.root, 'fine.txt', 100)).path);
+
+    await eventually(
+      () => b.items.length == 2 && b.items.any((i) => i.isReady),
+      reason: 'the list waited on the stat',
+    );
+    await Future<void>.delayed(const Duration(seconds: 1)); // three polls
+    expect(b.peers.map((p) => p.id), [a.id], reason: 'A counted as gone');
+    expect(stat.hung, 1, reason: 'every poll started a stat of its own');
+    expect(a.items, hasLength(2));
+
+    // The stat comes back at last, with the file gone: it still leaves.
+    slow.deleteSync();
+    stat.release.complete();
+    await eventually(() => a.items.length == 1 && b.items.length == 1);
+    expect(b.items.single.name, 'fine.txt');
   });
 
   test(
