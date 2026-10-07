@@ -158,9 +158,10 @@ to renew it.
 - **From anywhere (Mac, Windows, Linux on X11):**
   - ⌃⌥P / Ctrl+Shift+Alt+P: select a region of the screen; it lands on plop.
   - ⌃⌥V / Ctrl+Shift+Alt+V: plop whatever is on the clipboard.
-  - ⌃⌥G / Ctrl+Shift+Alt+G: grab the newest item from another device. Text,
-    pictures and files go on the clipboard, ready to paste; a folder saves
-    to Downloads.
+  - ⌃⌥G / Ctrl+Shift+Alt+G: grab the newest item from another device (or
+    from a phone through the web shelf). Text, pictures and files go on the
+    clipboard, ready to paste; a folder saves to Downloads. If you had
+    already given ⌃⌥G to one of the others, it starts on ⌃⌥N instead.
   - Change any of them in the settings panel (sliders icon), where you can
     also make plop open at login (macOS 13 or later; if macOS holds the
     switch for approval, the panel says where) and switch off "show
@@ -175,11 +176,17 @@ to renew it.
   off the lock screen. What the other devices already had when plop started
   isn't announced, nor an item that comes back when its device does.
 - **Copy arrivals automatically** (desktop, off unless switched on in the
-  settings panel): text and pictures another device plops go straight to
-  your clipboard as soon as they are here, the newest winning. Files,
-  folders and anything over 25 MB never do, nor, as with the
-  notifications, what was already there when plop started. Anyone nearby
-  with plop can then fill your clipboard, which is why it starts off.
+  settings panel): text and pictures another device plops (or a phone puts
+  up through the web shelf) go straight to your clipboard as soon as they
+  are here, the newest winning. Files, folders, anything over 25 MB and
+  pictures the clipboard can't take as pictures never do (so on Linux only
+  text does). Nor does what a device already had: what was there when plop
+  started, or what a device brings back after more than a minute away or
+  after your computer slept. One that is slow to get here (past its
+  download deadline), or that finds you have copied something since it
+  arrived, is left on the shelf, so it never overwrites your own copy later
+  (on Linux, only a text you copied is noticed). Anyone nearby with plop can
+  fill your clipboard while this is on, which is why it starts off.
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
   folders save to Downloads (folders unpacked). Hover for the other option;
   tap a saved row again to show it in Finder or Explorer (its folder, on
