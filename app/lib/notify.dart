@@ -167,18 +167,39 @@ abstract final class Notify {
     if (items.length >= 3) {
       _show(
         title: '${items.length} items from ${b.sender}',
-        body: items.map((i) => i.name).join(' · '),
+        body: items
+            .map((i) => i.kind == ItemKind.text ? 'text' : i.name)
+            .join(' · '),
       );
       return;
     }
     for (final i in items) {
-      _show(
-        title: b.sender,
-        body: i.kind == ItemKind.text
-            ? i.name
-            : '${i.name} · ${formatSize(i.size)}',
-      );
+      _show(title: b.sender, body: describe(i));
     }
+  }
+
+  /// What a notification says of one item: its name and size, but of text
+  /// only how long it is. Its name is its first line, and a copied password
+  /// or sign-in code would otherwise sit in the notification centre and on
+  /// the lock screen long after the item expired.
+  @visibleForTesting
+  static String describe(ShelfItem i) {
+    if (i.kind != ItemKind.text) return '${i.name} · ${formatSize(i.size)}';
+    final n = _length(i);
+    return 'text · $n character${n == 1 ? '' : 's'}';
+  }
+
+  /// Characters as the reader counts them, from the copy on disk, which a
+  /// text has by the end of [burst] as a rule. Without one, or for a very
+  /// long text, the size: the same count for plain ASCII.
+  static int _length(ShelfItem i) {
+    final path = i.path;
+    if (path != null && i.size <= 64 * 1024) {
+      try {
+        return File(path).readAsStringSync().characters.length;
+      } catch (_) {}
+    }
+    return i.size;
   }
 
   static void _show({required String title, required String body}) {

@@ -97,13 +97,35 @@ void main() {
     await start(tester);
     await lifecycle(tester, AppLifecycleState.inactive);
     expect(Notify.windowFocused, isFalse);
-    Notify.arrived([item('a'), item('t', kind: ItemKind.text, name: 'hi')]);
+    Notify.arrived([
+      item('a'),
+      item('t', kind: ItemKind.text, name: 'hunter2', size: 7),
+    ]);
     expect(shown, isEmpty, reason: 'waits out the burst window');
     await tester.pump(Notify.burst);
     expect(shown, hasLength(2));
     expect(shown[0]['title'], "Zain's iPhone");
     expect(shown[0]['body'], 'IMG_4821.png · 1.5 KB');
-    expect(shown[1]['body'], 'hi', reason: 'text has no size worth saying');
+    expect(shown[1]['body'], 'text · 7 characters', reason: 'never the text');
+  });
+
+  test('a text is described by its length, counted as a reader would', () {
+    final dir = Directory.systemTemp.createTempSync('plop_notify');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}${Platform.pathSeparator}text.txt')
+      ..writeAsStringSync('héllo 👋🏽');
+    final text = item(
+      't',
+      kind: ItemKind.text,
+      name: 'héllo 👋🏽',
+      size: file.lengthSync(),
+    );
+    // Not copied yet: the size, which is the count for plain ASCII.
+    expect(Notify.describe(text), 'text · ${file.lengthSync()} characters');
+    text.path = file.path;
+    expect(Notify.describe(text), 'text · 7 characters');
+    file.writeAsStringSync('k');
+    expect(Notify.describe(text), 'text · 1 character');
   });
 
   testWidgets('three within two seconds are one notification', (tester) async {
@@ -116,12 +138,12 @@ void main() {
     Notify.arrived([
       item('a'),
       item('b', name: 'IMG_4822.png'),
-      item('c', name: 'IMG_4823.png'),
+      item('c', name: '123456', kind: ItemKind.text),
     ]);
     await tester.pump(Notify.burst);
     expect(shown, hasLength(1));
     expect(shown.single['title'], "3 items from Zain's iPhone");
-    expect(shown.single['body'], 'IMG_4821.png · IMG_4822.png · IMG_4823.png');
+    expect(shown.single['body'], 'IMG_4821.png · IMG_4822.png · text');
   });
 
   testWidgets('senders are kept apart', (tester) async {
