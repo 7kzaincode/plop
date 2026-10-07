@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'seen.dart';
+
 /// The macOS window draws its own title bar area (see MainFlutterWindow.swift).
 abstract final class MacWindow {
   static const _channel = MethodChannel('plop/window');
@@ -85,7 +87,10 @@ abstract final class AppWindow {
 /// portable equivalent.
 abstract final class Arrivals {
   static const _channel = MethodChannel('plop/window');
-  static final _seen = <String>{};
+
+  /// What was on a focused shelf, so an item that comes back with its peer
+  /// is not counted as fresh again.
+  static final _seen = SeenItems();
   static var _unseen = 0;
 
   /// Call after runApp: it needs the widgets binding, which also keeps the
@@ -96,20 +101,24 @@ abstract final class Arrivals {
     AppLifecycleListener(onResume: () => _update(node));
   }
 
-  static void _update(PlopNode node) {
-    final remote = {
-      for (final i in node.items)
-        if (i.originId != node.id) i.key,
-    };
+  static void _update(PlopNode node) =>
+      update(node.items.where((i) => i.originId != node.id));
+
+  /// The shelf's items from other devices as they are now.
+  @visibleForTesting
+  static void update(Iterable<ShelfItem> remote) {
+    final items = remote.toList();
+    final here = {for (final i in items) i.key};
     // Focused, or not told yet (startup): the shelf is in view, so all of it
     // counts as seen. On desktop, inactive means another window has focus
     // and hidden means closed or minimized.
     final state = WidgetsBinding.instance.lifecycleState;
-    if (state == null || state == AppLifecycleState.resumed) {
-      _seen.addAll(remote);
+    final inView = state == null || state == AppLifecycleState.resumed;
+    for (final i in items) {
+      if (inView || _seen.contains(i.key)) _seen.add(i);
     }
-    _seen.retainAll(remote); // forget expired items
-    final unseen = remote.difference(_seen).length;
+    _seen.prune(here);
+    final unseen = here.where((k) => !_seen.contains(k)).length;
     if (unseen == _unseen) return;
     final fresh = unseen > _unseen;
     _unseen = unseen;
@@ -121,5 +130,12 @@ abstract final class Arrivals {
     } else if (fresh) {
       _channel.invokeMethod<void>('flash').ignore();
     }
+  }
+
+  /// Tests: forget what was seen.
+  @visibleForTesting
+  static void reset() {
+    _seen.clear();
+    _unseen = 0;
   }
 }

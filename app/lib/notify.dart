@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'seen.dart';
 import 'settings.dart';
 import 'shelf_screen.dart' show formatSize;
 import 'window.dart';
@@ -31,11 +32,9 @@ abstract final class Notify {
   static Timer? _grace;
   static StreamSubscription<void>? _watching;
 
-  /// Every item from another device seen so far, with when it may be
-  /// forgotten: its expiry, once it has left the shelf too. A peer that
-  /// drops off for a moment (a missed poll, a phone asleep) takes its
-  /// uncopied items with it and brings them back; they are not new then.
-  static final _seen = <String, DateTime>{};
+  /// Every item from another device seen so far, so one that comes back
+  /// with its peer is not news.
+  static final _seen = SeenItems();
   static final _bursts = <String, _Burst>{};
 
   static bool get supported =>
@@ -134,15 +133,10 @@ abstract final class Notify {
   /// each or, from three up, one "3 items from Zain's iPhone".
   @visibleForTesting
   static void arrived(Iterable<ShelfItem> remote) {
-    final now = DateTime.now();
     final here = <String>{};
     for (final item in remote) {
       here.add(item.key);
-      final until = _seen[item.key];
-      if (until == null || item.expiresAt.isAfter(until)) {
-        _seen[item.key] = item.expiresAt;
-      }
-      if (until != null) continue;
+      if (!_seen.add(item)) continue;
       // The row just appeared on a focused shelf: in view already. Or plop
       // just started, and the shelf is being filled in.
       if (windowFocused || _grace != null) continue;
@@ -152,11 +146,7 @@ abstract final class Notify {
       );
       b.items.add(item);
     }
-    // Forget what has both expired and left. One still here past its expiry
-    // (a transfer holds it) stays seen.
-    _seen.removeWhere(
-      (key, until) => until.isBefore(now) && !here.contains(key),
-    );
+    _seen.prune(here);
   }
 
   static void _announce(String sender) {
