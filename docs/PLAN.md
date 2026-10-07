@@ -13,8 +13,8 @@
 
 ## Status (2026-10-06)
 
-- Done: core (`dart test` in `packages/core`, 52 tests), the macOS, iOS,
-  Android, Windows and Linux apps (`flutter test` in `app`, 33 tests, the
+- Done: core (`dart test` in `packages/core`, 67 tests), the macOS, iOS,
+  Android, Windows and Linux apps (`flutter test` in `app`, 37 tests, the
   shelf and layout ones driving a real pair of nodes over loopback), and
   release builds for all but iOS via release.yml (ad-hoc or debug signed;
   the README covers the first open on each system). CI runs the core tests,
@@ -32,15 +32,19 @@
   desktop serves a one-page web app on its own port, 7567 when free and
   remembered, that lists, grabs, uploads and pastes, and installs to the
   home screen. Settings › open on a phone shows its QR code and addresses.
-  Core tests cover every route over real HTTP; the page itself was checked
-  in a desktop browser at phone size against `plop --web` (copy, paste
-  sheet, upload, remove), not yet on an iPhone.
+  Other web pages are kept out (a Host allow-list against DNS rebinding, a
+  header and Origin check on writes, sandboxed downloads, peer `mime`
+  checked), uploads are bounded (4 at once, 8 GB each, 16 GB and 200 items
+  in all, 30 s stall timeout), and a browser takes back only what it put up,
+  by token. Core tests cover every route over real HTTP; the page itself was
+  checked in a desktop browser at phone size against loopback nodes (copy,
+  paste sheet, queued uploads, copying rows, remove), not yet on an iPhone.
 
 ## After v1
 
 1. **Room code and TLS.** Today anyone on the LAN running the app, or
-   opening a desktop's web shelf, can grab anything on the shelf, and
-   traffic is unencrypted HTTP. Fine at home, not elsewhere. Add an optional
+   opening a desktop's web shelf, can grab anything on the shelf (and,
+   through the web shelf, put things on it), and traffic is unencrypted HTTP. Fine at home, not elsewhere. Add an optional
    room code (shared secret that filters peers and authenticates requests)
    and TLS between nodes. TLS would also give the web shelf the share sheet
    and clipboard that browsers keep from plain-HTTP pages.

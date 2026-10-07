@@ -139,18 +139,19 @@ not, and the headless node does with `--web`. A disabled node answers `404`
 on all of these routes.
 
 **Port.** The desktop app asks for the port it remembers, else `7567`
-(p-l-o-p on a phone keypad), else any free port. It remembers the first
-port it serves on and keeps it: a launch that finds that port taken uses
-another for that run only, so an address saved on a phone's home screen
-works again on the next launch. A remembered value that is not a port
-(1–65535) counts as none. The addresses shown are `http://<ipv4>:<port>/` for each address, best first (private LAN
-ranges on real interfaces, then other addresses, then VPN, VM and container
-interfaces, then 100.64/10, then 169.254/16), and `http://<host>.local:<port>/`
-(the name mDNS answers for: on macOS the Sharing settings' local host name)
-where other devices can count on it: first on macOS, first on Linux when a
-lookup of it from the machine itself finds one of its addresses, second on
-Windows under the same check (a Public network profile can keep other
-devices' queries out even then), and not at all otherwise.
+(p-l-o-p on a phone keypad), else any free port. It remembers the first port
+it serves on and keeps it: a launch that finds that port taken uses another
+for that run only, so an address saved on a phone's home screen works again
+on the next launch. A remembered value that is not a port (1–65535) counts as
+none. The addresses shown are `http://<ipv4>:<port>/` for each address, best
+first (private LAN ranges on real interfaces, then other addresses, then VPN,
+VM and container interfaces, then 100.64/10, then 169.254/16), and
+`http://<host>.local:<port>/` (the name mDNS answers for: on macOS the
+Sharing settings' local host name) where other devices can count on it: first
+on macOS, first on Linux when a lookup of it from the machine itself finds
+one of its addresses, second on Windows under the same check (a Public
+network profile can keep other devices' queries out even then), and not at
+all otherwise.
 
 **Not part of the protocol.** No node calls these routes, so the rule that
 mirrors are never re-served between nodes holds. A browser on this page is a
@@ -192,26 +193,55 @@ refused one again a few times.
 ```
 
 `from` is the origin's device name (this node's own name for its own items).
+`ready` says whether the bytes are on this node yet; `progress` (0 to 1) is
+there while this node copies them over from the origin, which for an item
+over the eager-copy size starts only when someone asks for it, and the page
+shows such a row as copying. `receivedBy` (own items only) counts the peers
+holding a copy. `text` is a ready text item's content when it is at most 64
+KB, so the page can copy it inside the tap: on plain HTTP a browser gives the
+page no asynchronous clipboard, and the fallback it has works only within the
+user's gesture. Inline texts add up to 1 MB per answer at most, newest first;
+the page fetches the rest on a tap.
+
 The page takes C0/C1 controls and bidi marks out of `name` and `from` before
 showing them, as the upload route does, so a peer cannot make
 `invoice<U+202E>fdp.exe` read as `invoiceexe.pdf`; download file names are
 cleaned the same way.
-`ready` says whether the bytes are on this node yet; `progress` (0 to 1) is
-there while this node copies them over from the origin, which for an item
-over the eager-copy size starts only when someone asks for it. The page
-shows such a row as copying. `receivedBy` (own items
-only) counts the peers holding a copy. `text` is a ready text item's content
-when it is at most 64 KB, so the page can copy it inside the tap: on plain
-HTTP a browser gives the page no asynchronous clipboard, and the fallback it
-has works only within the user's gesture. Inline texts add up to 1 MB per
-answer at most, newest first; the page fetches the rest on a tap.
 
 ### Trust
 
-The same LAN trust as nodes: anyone on the network who can open the page
-can download everything on this device's shelf and upload to it, just as
-anyone running plop can. Like `/v1` it is plain HTTP without authentication
-(see PLAN.md, "Room code and TLS"). Being plain HTTP also means browsers deny
-the page their secure-context APIs (share sheet, clipboard, install prompt),
-so it falls back: text copies through a selection, images open full-screen to
-be saved with a long press, and other files download.
+There is no authentication, as on `/v1` (see PLAN.md, "Room code and
+TLS"), and the web shelf gives anyone who can reach this port on the network
+more than `/v1` gives a peer. A browser is not needed for any of it; `curl`
+will do.
+
+- **Everyone's items, through this device.** `/v1` serves only a node's own
+  items. The web shelf hands out everything this device's shelf shows,
+  mirrors included, and copies a mirror over from its origin on request. So
+  whatever any plop device on the network shares can be downloaded from a
+  desktop by anyone on the LAN, big items nobody has copied yet included.
+  The shelf list also carries small texts (up to 64 KB each, 1 MB in all)
+  from every device.
+- **Writing to this device's disk.** An upload is stored in this device's
+  temp folder as its own item until it expires. The limits above bound it:
+  8 GB per upload, 16 GB and 200 items from the page on the shelf at once,
+  4 uploads at a time, 30 s for a stalled one.
+- **Putting items on every device.** What is uploaded travels to every peer
+  as this desktop's own item, under its name, and peers copy what is small
+  enough at once. A receiver cannot tell it came from a browser.
+- **Removing.** Only what a browser uploaded, and only with the token that
+  upload was answered with: never what this device's user shared, and
+  never a mirror.
+
+What the web shelf does keep out is other web pages that a phone or
+computer on the LAN visits. A page cannot reach this port through a domain
+of its own (DNS rebinding: the `Host` check answers `421`), cannot write
+through a form or a no-cors `fetch` (`X-Plop-Web` and the `Origin` check),
+and cannot run script as this page by getting a peer to share an HTML file
+(`Content-Security-Policy: sandbox` on every download, and every `mime`
+checked before it reaches a header).
+
+Being plain HTTP also means browsers deny the page their secure-context APIs
+(share sheet, clipboard, install prompt), so it falls back: text copies
+through a selection, images open full-screen to be saved with a long press,
+and other files download.
