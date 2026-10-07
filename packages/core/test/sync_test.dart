@@ -656,6 +656,35 @@ void main() {
     expect(safeFileName('.env'), '.env', reason: 'leading dots are fine');
   });
 
+  test('a name cannot turn its extension around unseen', () async {
+    c = await Cluster.start(1);
+    // U+202E, right-to-left override: "a" then "exe.pdf" on screen.
+    expect(safeFileName('a\u202Efdp.exe'), 'a_fdp.exe');
+    // An isolate and its end, U+2067 and U+2069.
+    expect(safeFileName('a\u2067fdp\u2069.exe'), 'a_fdp_.exe');
+    expect(safeLabel('\u200Ba\uFEFF'), '_a_');
+    // The joiner in an emoji sequence, or in Persian, is left alone.
+    const family = '\u{1F468}\u200D\u{1F469}.png';
+    expect(safeFileName(family), family);
+    const iWant = '\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645';
+    expect(safeLabel(iWant), iWant);
+
+    // The row shows what saving it would write.
+    final mirror = c.nodes.single.store.addRemote(
+      'p',
+      'p',
+      RemoteItem(
+        id: randomId(),
+        name: 'invoice\u202Efdp.exe',
+        size: 1,
+        mime: 'application/pdf',
+        kind: ItemKind.file,
+        ttlMs: 1000,
+      ),
+    )!;
+    expect(mirror.name, 'invoice_fdp.exe');
+  });
+
   test('odd remote fields are refused or clamped', () async {
     c = await Cluster.start(1);
     final s = c.nodes.single.store;

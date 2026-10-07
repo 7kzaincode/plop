@@ -485,7 +485,9 @@ class ShelfStore {
   /// Records a peer's item. Returns the new mirror, or null if it was already
   /// known, has a size outside 0..cap, or an id that is not a plain token.
   /// An odd but honest peer still gets its item shown: a huge `ttlMs` is
-  /// clamped and a long name cut rather than refused.
+  /// clamped and a long name cut rather than refused. Invisible formatting
+  /// characters in the name are shown as `_` ([safeLabel]), as saving it
+  /// would write them, so a row cannot pass off `fdp.exe` as `exe.pdf`.
   ShelfItem? addRemote(String peerId, String peerName, RemoteItem r) {
     final key = itemKey(peerId, r.id);
     if (!isValidId(r.id) ||
@@ -499,9 +501,10 @@ class ShelfStore {
     final ttl = Duration(
       milliseconds: min(r.ttlMs, maxRemoteTtl.inMilliseconds),
     );
-    final name = r.name.length > maxNameLength
-        ? r.name.substring(0, maxNameLength)
-        : r.name;
+    final label = safeLabel(r.name);
+    final name = label.length > maxNameLength
+        ? label.substring(0, maxNameLength)
+        : label;
     final now = DateTime.now();
     final seen = _firstSeen.remove(key);
     final item = ShelfItem(

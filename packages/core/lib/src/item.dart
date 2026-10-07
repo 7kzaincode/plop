@@ -172,14 +172,30 @@ String mimeFor(String name) {
       'application/octet-stream';
 }
 
+/// Replaces each character that changes how the text around it is shown
+/// without being seen itself with `_`, so a peer-supplied name reads as
+/// what it is. A right-to-left override makes `invoice\u202Efdp.exe` read
+/// as "invoice" then "exe.pdf" on every shelf and in Finder and Explorer,
+/// and a double click runs it. Covers the bidi marks, embeddings,
+/// overrides and isolates, zero-width space, word joiner and invisible
+/// operators, line and paragraph separators and the BOM. The joiners
+/// U+200C and U+200D stay: Persian and Hindi words and emoji sequences
+/// need them, and they cannot turn a run around.
+String safeLabel(String name) => name.replaceAll(_invisible, '_');
+
+final _invisible = RegExp(
+  r'[\u061c\u200b\u200e\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ufeff]',
+);
+
 /// Makes a peer-supplied name safe to use as a single path segment on every
-/// platform plop runs on. Dotfiles stay dotfiles (`.env` must not arrive as
-/// `env`); with the separators replaced, only the bare `.` and `..` names
-/// need refusing. Windows also drops trailing dots and spaces, so `notes.`
-/// would land on `notes`, and reserves its device names (`CON`, `NUL.txt`,
-/// `com1.log`…), which get a `_` after the stem.
+/// platform plop runs on, and to show (see [safeLabel]). Dotfiles stay
+/// dotfiles (`.env` must not arrive as `env`); with the separators
+/// replaced, only the bare `.` and `..` names need refusing. Windows also
+/// drops trailing dots and spaces, so `notes.` would land on `notes`, and
+/// reserves its device names (`CON`, `NUL.txt`, `com1.log`…), which get a
+/// `_` after the stem.
 String safeFileName(String name) {
-  var cleaned = name
+  var cleaned = safeLabel(name)
       .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
       .trim()
       .replaceAll(RegExp(r'[. ]+$'), '');
