@@ -4,23 +4,30 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
+import 'package:plop_core/plop_core.dart';
 
 import 'hotkeys.dart';
 import 'login_item.dart';
 import 'settings.dart';
 import 'theme.dart';
+import 'web_shelf.dart';
 
-/// The one settings surface: global shortcuts and open-at-login.
-Future<void> showSettings(BuildContext context, Settings settings) =>
-    showDialog<void>(
-      context: context,
-      barrierColor: const Color(0x99000000),
-      builder: (_) => _SettingsPanel(settings),
-    );
+/// The one settings surface: global shortcuts and open-at-login, and the
+/// web shelf's address when [node] serves one.
+Future<void> showSettings(
+  BuildContext context,
+  Settings settings, {
+  PlopNode? node,
+}) => showDialog<void>(
+  context: context,
+  barrierColor: const Color(0x99000000),
+  builder: (_) => _SettingsPanel(settings, node: node),
+);
 
 class _SettingsPanel extends StatefulWidget {
-  const _SettingsPanel(this.settings);
+  const _SettingsPanel(this.settings, {this.node});
   final Settings settings;
+  final PlopNode? node;
 
   @override
   State<_SettingsPanel> createState() => _SettingsPanelState();
@@ -242,6 +249,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   ),
                   label,
                 ),
+              if (widget.node case final node? when node.web.enabled)
+                PhoneLink(node, recording: _recording != null),
               if (_note != null) ...[
                 const SizedBox(height: 8),
                 Text(_note!, style: monoStyle(size: 11, color: Palette.dim)),

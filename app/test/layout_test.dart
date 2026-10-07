@@ -15,6 +15,7 @@ import 'package:plop/main.dart';
 import 'package:plop/settings.dart';
 import 'package:plop/shelf_screen.dart';
 import 'package:plop_core/plop_core.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 Future<void> _loadFonts() async {
   Future<void> family(String name, List<String> files) async {
@@ -70,6 +71,7 @@ void main() {
           discovery: dMe,
           name: 'This Mac',
         );
+        me.web.enabled = true; // as on desktop: the panel shows its address
         other = await PlopNode.start(
           dir: Directory('${root.path}/other'),
           discovery: dOther,
@@ -250,6 +252,46 @@ void main() {
           'desktop-settings-${size.width.toInt()}x${size.height.toInt()}';
       await tester.runAsync(() => _shot(key, tag));
 
+      // The web shelf's address is looked up off the UI thread (scutil, the
+      // network interfaces); give it real time, then the QR code and the
+      // lines under it must fit the panel's width and scroll into view.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 400)),
+      );
+      await tester.pumpAndSettle();
+      final qr = find.byType(QrImageView);
+      expect(qr, findsOneWidget);
+      await tester.ensureVisible(qr);
+      await tester.pumpAndSettle();
+      final url = find.textContaining('http://');
+      expect(url, findsOneWidget);
+      expect(
+        tester.getSize(url).width,
+        lessThanOrEqualTo(tester.getSize(find.byType(Dialog)).width),
+      );
+      await tester.ensureVisible(find.text('then share › add to home screen'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'settings $size phone');
+      await tester.runAsync(() => _shot(key, '$tag-phone'));
+
+      // A tap copies the address, and the line says so for a moment.
+      final address = tester.widget<Text>(url).data!;
+      expect(address, (await tester.runAsync(() => me.webUrls))!.first);
+      String? copied;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String;
+        }
+        return null;
+      });
+      await tester.tap(url);
+      await tester.pump();
+      expect(copied, address);
+      expect(find.text('copied'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text(address), findsOneWidget);
+      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+
       // Only macOS goes through the mocked channel; elsewhere the toggle
       // would edit the real OS. With the note the panel is taller than the
       // smallest window: it must scroll to the note, not overflow.
@@ -267,6 +309,9 @@ void main() {
         expect(tester.takeException(), isNull, reason: 'settings $size note');
         await tester.runAsync(() => _shot(key, '$tag-note'));
       }
+      // Scrolled away by now, under the phone section.
+      await tester.ensureVisible(find.text('snip a screen region'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('snip a screen region').hitTestable().first);
       await tester.tapAt(const Offset(5, 5)); // close the dialog
       await tester.pumpAndSettle();

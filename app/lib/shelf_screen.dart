@@ -264,7 +264,7 @@ class ShelfScreenState extends State<ShelfScreen> {
               onAddFiles: () => run(() => _add(pickFiles)),
               onAddFolder: () => run(() => _add(pickFolder)),
               onSettings: () async {
-                await showSettings(context, widget.settings);
+                await showSettings(context, widget.settings, node: node);
                 if (mounted) setState(() {}); // shortcut labels may change
               },
             ),
@@ -395,6 +395,15 @@ class ShelfScreenState extends State<ShelfScreen> {
               Text(
                 '${Hotkeys.snipLabel} snip  ·  ${Hotkeys.clipLabel} clipboard'
                 '  ·  from any app',
+                textAlign: TextAlign.center,
+                style: monoStyle(size: 11, color: Palette.faint),
+              ),
+            ],
+            // iPhones cannot get the app; the web shelf is the way in.
+            if (isDesktop) ...[
+              SizedBox(height: Hotkeys.supported ? 6 : 14),
+              Text(
+                'phones without the app: settings › open on a phone',
                 textAlign: TextAlign.center,
                 style: monoStyle(size: 11, color: Palette.faint),
               ),
