@@ -49,7 +49,7 @@ settings panel can switch the island off ("show arrivals").
 2. Accept the admin prompt. The installer adds a firewall rule so the other
    devices can reach this PC; without it they see the PC but can't grab from it.
 
-No installer: unzip `plop-windows-x64.zip` and run `plop.exe`. When Windows
+No installer: unzip `plop-windows-x64.zip` and run `plop\plop.exe`. When Windows
 Firewall asks, tick both Private and Public. If you clicked Cancel, remove the
 plop entries under Windows Security > Firewall & network protection > Allow an
 app through firewall (or run the installer, which clears them).

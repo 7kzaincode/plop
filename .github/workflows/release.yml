@@ -102,8 +102,14 @@ jobs:
           # The VC++ runtime, so plop.exe starts on PCs without the Visual C++
           # Redistributable. Copies next to the exe take precedence.
           Copy-Item "$env:WINDIR\System32\msvcp140.dll", "$env:WINDIR\System32\vcruntime140.dll", "$env:WINDIR\System32\vcruntime140_1.dll" $out
-          Compress-Archive "$out\*" ..\dist\plop-windows-x64.zip
+          # The installer first: plop.iss reads the Release folder by name.
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" ..\packaging\windows\plop.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # Zip the folder, not its contents, so "Extract here" gives
+          # plop\plop.exe, as the Linux tarball gives plop/plop, rather than a
+          # dozen loose DLLs in Downloads.
+          Rename-Item $out plop
+          Compress-Archive build\windows\x64\runner\plop ..\dist\plop-windows-x64.zip
 
       # libkeybinder-3.0 (shortcuts), libnotify (notifications) and
       # libayatana-appindicator3 (the tray icon) are not default packages on
