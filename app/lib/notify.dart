@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'auto_copy.dart' show webSender;
 import 'island.dart';
 import 'seen.dart';
 import 'settings.dart';
@@ -153,9 +154,18 @@ abstract final class Notify {
   /// first hearing from it, so long as that is within [settle] of launch.
   static void watch(PlopNode node) => watchItems(
     node.changes,
-    () => node.items.where((i) => i.originId != node.id),
+    () => node.items.where(
+      (i) => i.originId != node.id || node.web.isUpload(i.key),
+    ),
     () => node.peers.map((p) => p.id),
+    isUpload: node.web.isUpload,
   );
+
+  /// Which of this device's own items a phone put up through the web shelf:
+  /// arrivals all the same, from [webSender], with no quiet period (the
+  /// phone was not on the shelf before plop started).
+  static bool Function(String key) _isUpload = _never;
+  static bool _never(String key) => false;
 
   /// [watch] with the node taken apart: [changes] fires whenever [remote],
   /// the shelf's items from other devices, or [peers], their ids, may have
@@ -165,9 +175,11 @@ abstract final class Notify {
   static void watchItems(
     Stream<void> changes,
     Iterable<ShelfItem> Function() remote,
-    Iterable<String> Function() peers,
-  ) {
+    Iterable<String> Function() peers, {
+    bool Function(String key)? isUpload,
+  }) {
     if (!supported) return;
+    _isUpload = isUpload ?? _never;
     _settling?.cancel();
     _settling = Timer(settle, () => _settling = null);
     void check() {
@@ -195,16 +207,18 @@ abstract final class Notify {
     final here = <String>{};
     for (final item in remote) {
       here.add(item.key);
-      _hear(item.originId);
+      final upload = _isUpload(item.key);
+      if (!upload) _hear(item.originId);
       if (!_seen.add(item)) continue;
       // The row just appeared on a focused shelf: in view already. Or plop
       // just started and this device's shelf is being filled in.
-      if (windowFocused || _quiet.containsKey(item.originId)) continue;
-      final b = _bursts[item.originId] ??= _Burst(
-        item.originName,
-        Timer(Island.active ? Island.burst : burst, () {
-          _announce(item.originId);
-        }),
+      if (windowFocused || (!upload && _quiet.containsKey(item.originId))) {
+        continue;
+      }
+      final from = upload ? 'web' : item.originId;
+      final b = _bursts[from] ??= _Burst(
+        upload ? webSender : item.originName,
+        Timer(Island.active ? Island.burst : burst, () => _announce(from)),
       );
       b.items.add(item);
     }
@@ -301,6 +315,7 @@ abstract final class Notify {
   /// Tests: forget what was seen and set up.
   @visibleForTesting
   static void reset() {
+    _isUpload = _never;
     for (final b in _bursts.values) {
       b.timer.cancel();
     }

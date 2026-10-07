@@ -103,7 +103,12 @@ abstract final class Arrivals {
   }
 
   static void _update(PlopNode node) =>
-      update(node.items.where((i) => i.originId != node.id));
+      // A phone's upload through the web shelf is news from elsewhere too.
+      update(
+        node.items.where(
+          (i) => i.originId != node.id || node.web.isUpload(i.key),
+        ),
+      );
 
   /// The shelf's items from other devices as they are now.
   @visibleForTesting

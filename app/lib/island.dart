@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'auto_copy.dart';
 import 'grab.dart';
 import 'notify.dart';
 import 'shelf_screen.dart' show formatSize;
@@ -121,7 +122,7 @@ abstract final class Island {
     Timer(burst * 2, () {
       if (_shown.any((i) => i.key == item.key)) return;
       if (Notify.islandWanted) {
-        say('copied ${_title(item)} from ${item.originName}');
+        say('copied ${_title(item)} from ${AutoCopy.senderOf(item)}');
       }
     });
   }

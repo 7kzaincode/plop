@@ -1,6 +1,7 @@
 // What lib/island.dart sends the macOS island (Island.swift), and that
 // lib/notify.dart hands it arrivals and shortcut results in place of
 // notifications, under the same rules.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -241,5 +242,41 @@ void main() {
     calls.clear();
     await Island.debugMark('k', 'copying…', settled: false);
     expect(calls.where((c) => c.method == 'say'), isEmpty);
+  });
+
+  testWidgets('a phone uploading through the web shelf shows as an arrival', (
+    tester,
+  ) async {
+    await start(tester);
+    await lifecycle(tester, AppLifecycleState.inactive);
+    final changes = StreamController<void>.broadcast();
+    addTearDown(changes.close);
+    // This Mac's own item, but a phone put it up through the web page.
+    final upload = ShelfItem(
+      id: 'u',
+      originId: 'mac',
+      originName: 'Zain’s MacBook',
+      name: 'IMG_0042.heic',
+      size: 2048,
+      mime: 'image/heic',
+      kind: ItemKind.file,
+      expiresAt: DateTime.now().add(const Duration(minutes: 2)),
+      ttl: const Duration(minutes: 2),
+    );
+    var items = <ShelfItem>[];
+    Notify.watchItems(
+      changes.stream,
+      () => items,
+      () => const [],
+      isUpload: (key) => key == upload.key,
+    );
+    // Right after launch: an upload has no quiet period to wait out.
+    items = [upload];
+    changes.add(null);
+    await tester.pump(Island.burst);
+    await settle(tester);
+    final show = calls.singleWhere((c) => c.method == 'show');
+    expect((show.arguments as Map)['sender'], 'a phone (web)');
+    Notify.reset(); // its settling-in timer
   });
 }
