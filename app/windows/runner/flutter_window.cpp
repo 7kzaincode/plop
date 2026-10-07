@@ -4,6 +4,7 @@
 #include <flutter/standard_method_codec.h>
 
 #include <optional>
+#include <variant>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -30,9 +31,12 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  // lib/window.dart asks for a taskbar flash when something from another
-  // device lands while plop is in the background. FLASHW_TIMERNOFG flashes
-  // until the window comes to the foreground, so nothing has to clear it.
+  // lib/window.dart's window channel. "flash" asks for a taskbar flash when
+  // something from another device lands while plop is in the background;
+  // FLASHW_TIMERNOFG flashes until the window comes to the foreground, so
+  // nothing has to clear it. "show", "hide", "hideOnClose" and "quit" are
+  // the tray icon's (lib/tray.dart): the window lives on hidden once the
+  // icon is up, and comes back from its menu or a notification.
   // The messenger keeps the handler; the channel object itself can go.
   flutter::MethodChannel<> channel(
       flutter_controller_->engine()->messenger(), "plop/window",
@@ -40,11 +44,25 @@ bool FlutterWindow::OnCreate() {
   channel.SetMethodCallHandler(
       [this](const flutter::MethodCall<>& call,
              std::unique_ptr<flutter::MethodResult<>> result) {
-        if (call.method_name() == "flash") {
+        const std::string& method = call.method_name();
+        if (method == "flash") {
           FLASHWINFO info = {sizeof(info), GetHandle(),
                              FLASHW_TRAY | FLASHW_TIMERNOFG, 0, 0};
           ::FlashWindowEx(&info);
           result->Success();
+        } else if (method == "show") {
+          ShowAndFocus();
+          result->Success();
+        } else if (method == "hide") {
+          ::ShowWindow(GetHandle(), SW_HIDE);
+          result->Success();
+        } else if (method == "hideOnClose") {
+          const bool* on = std::get_if<bool>(call.arguments());
+          SetHideOnClose(on != nullptr && *on);
+          result->Success();
+        } else if (method == "quit") {
+          result->Success();
+          Quit();
         } else {
           result->NotImplemented();
         }

@@ -53,6 +53,20 @@ class Win32Window {
   // If true, closing this window will quit the application.
   void SetQuitOnClose(bool quit_on_close);
 
+  // If true, closing this window hides it instead; plop lives on in the
+  // tray. lib/tray.dart turns it on once the tray icon is up, so a close can
+  // never leave plop running with no way back to it.
+  void SetHideOnClose(bool hide_on_close);
+
+  // Brings the window back: shown if hidden, restored if minimized, and in
+  // front. The same steps the single-instance check in main.cpp takes.
+  void ShowAndFocus();
+
+  // Closes the window for good, past SetHideOnClose, which ends the message
+  // loop (SetQuitOnClose). Posted, so it can be called from a Flutter
+  // callback: the engine is torn down with the window.
+  void Quit();
+
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
@@ -92,6 +106,8 @@ class Win32Window {
   static void UpdateTheme(HWND const window);
 
   bool quit_on_close_ = false;
+  bool hide_on_close_ = false;
+  bool quitting_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

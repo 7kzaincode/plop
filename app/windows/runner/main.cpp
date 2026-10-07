@@ -19,6 +19,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       // Window class from win32_window.cpp, title from below.
       HWND running = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"plop");
       if (running) {
+        // Hidden in the tray (win32_window.cpp WM_CLOSE), minimized, or
+        // just behind other windows: the same steps as its own "show".
+        if (!::IsWindowVisible(running)) {
+          ::ShowWindow(running, SW_SHOW);
+        }
         if (::IsIconic(running)) {
           ::ShowWindow(running, SW_RESTORE);
         }

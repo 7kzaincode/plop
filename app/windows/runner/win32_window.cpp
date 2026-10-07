@@ -178,6 +178,18 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_CLOSE:
+      // With the tray icon up, closing only hides the window: the shelf,
+      // its server and the shortcuts keep running, as on macOS. Flutter
+      // sees the message first and asks Dart whether the app may exit
+      // (lib/tray.dart answers with a hide while the icon is up); it comes
+      // back here on "exit", which is how Quit() ends plop.
+      if (hide_on_close_ && !quitting_) {
+        ShowWindow(hwnd, SW_HIDE);
+        return 0;
+      }
+      break;  // DefWindowProc destroys the window
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -266,6 +278,32 @@ HWND Win32Window::GetHandle() {
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
+}
+
+void Win32Window::SetHideOnClose(bool hide_on_close) {
+  hide_on_close_ = hide_on_close;
+}
+
+void Win32Window::ShowAndFocus() {
+  if (!window_handle_) {
+    return;
+  }
+  if (!IsWindowVisible(window_handle_)) {
+    ShowWindow(window_handle_, SW_SHOW);  // hidden in the tray
+  }
+  if (IsIconic(window_handle_)) {
+    ShowWindow(window_handle_, SW_RESTORE);
+  }
+  SetForegroundWindow(window_handle_);
+}
+
+void Win32Window::Quit() {
+  quitting_ = true;
+  if (window_handle_) {
+    PostMessage(window_handle_, WM_CLOSE, 0, 0);
+  } else {
+    PostQuitMessage(0);
+  }
 }
 
 bool Win32Window::OnCreate() {
