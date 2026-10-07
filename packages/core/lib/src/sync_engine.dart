@@ -45,8 +45,28 @@ class SyncEngine {
   /// After this many failed polls in a row, a peer counts as gone.
   static const maxFailures = 3;
 
+  /// Eager copies running at once. A burst of small items would otherwise
+  /// open a socket and a `.part` file each, all in the same tick, and run
+  /// a phone or a Mac app out of file descriptors (256 by default), failing
+  /// most of the copies and this node's own server with them.
+  static const maxEagerDownloads = 4;
+
+  /// Eager copies started per item. One that fails is queued again by the
+  /// next poll; after this many, the item waits for a tap like a large one.
+  static const maxEagerTries = 3;
+
   final _peers = <String, _PeerState>{};
   final _downloads = <String, Future<String>>{};
+
+  /// Keys of items waiting for an eager copy, oldest first; a set, since
+  /// every poll queues whatever is still uncopied.
+  final _eagerQueue = <String>{};
+  var _eagerRunning = 0;
+
+  /// Eager copies started per mirror. Kept beside the item, not by key, so
+  /// the count goes with it; a mirror that leaves and comes back is a new
+  /// item, with a fresh count.
+  final _eagerTries = Expando<int>();
   final _peerChanges = StreamController<void>.broadcast();
   final _subs = <StreamSubscription<void>>[];
 
@@ -155,10 +175,38 @@ class SyncEngine {
       }
     }
     for (final r in list) {
-      final item = store.addRemote(s.peer.id, s.peer.name, r);
-      if (item != null && item.size <= eagerCopyBytes) {
-        fetch(item.key).catchError((_) => '');
-      }
+      // Known mirrors too, so an eager copy that failed is tried again.
+      final item =
+          store.addRemote(s.peer.id, s.peer.name, r) ??
+          store[itemKey(s.peer.id, r.id)];
+      if (item != null && _wantsEagerCopy(item)) _eagerQueue.add(item.key);
+    }
+    _pumpEager();
+  }
+
+  bool _wantsEagerCopy(ShelfItem item) =>
+      item.size <= eagerCopyBytes &&
+      !item.isReady &&
+      item.progress == null &&
+      !_downloads.containsKey(item.key) &&
+      (_eagerTries[item] ?? 0) < maxEagerTries;
+
+  /// Starts queued eager copies while fewer than [maxEagerDownloads] run.
+  /// An item that expired, was dropped, landed or was tapped while it
+  /// waited is passed over. A tap ([fetch], [saveTo]) never queues: it
+  /// starts at once, and the queue then finds the copy already running.
+  void _pumpEager() {
+    while (_eagerRunning < maxEagerDownloads && _eagerQueue.isNotEmpty) {
+      final key = _eagerQueue.first;
+      _eagerQueue.remove(key);
+      final item = store[key];
+      if (item == null || !_wantsEagerCopy(item)) continue;
+      _eagerTries[item] = (_eagerTries[item] ?? 0) + 1;
+      _eagerRunning++;
+      fetch(key).catchError((_) => '').whenComplete(() {
+        _eagerRunning--;
+        _pumpEager();
+      });
     }
   }
 
@@ -269,6 +317,7 @@ class SyncEngine {
       s.poll?.cancel();
     }
     _peers.clear();
+    _eagerQueue.clear();
     client.close();
     await _peerChanges.close();
   }

@@ -19,6 +19,7 @@ class PlopNode {
   final PeerDiscovery discovery;
 
   /// [dir] is wiped on start; give each node on one machine its own.
+  /// [client] is for tests, to watch or fail this node's requests.
   static Future<PlopNode> start({
     required Directory dir,
     required PeerDiscovery discovery,
@@ -28,6 +29,7 @@ class PlopNode {
     int eagerCopyBytes = defaultEagerCopyBytes,
     int maxItemBytes = defaultMaxItemBytes,
     Duration pollInterval = const Duration(seconds: 3),
+    NodeClient? client,
   }) async {
     final store = ShelfStore(
       nodeId: randomId(),
@@ -40,6 +42,7 @@ class PlopNode {
     final engine = SyncEngine(
       store: store,
       discovery: discovery,
+      client: client,
       eagerCopyBytes: eagerCopyBytes,
       pollInterval: pollInterval,
     );

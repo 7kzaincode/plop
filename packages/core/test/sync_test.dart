@@ -21,6 +21,7 @@ class Cluster {
     Duration ttl = const Duration(seconds: 3),
     int eagerCopyBytes = defaultEagerCopyBytes,
     int maxItemBytes = defaultMaxItemBytes,
+    NodeClient? Function(int i)? client,
   }) async {
     final root = await Directory.systemTemp.createTemp('plop_test');
     final discoveries = List.generate(n, (_) => StaticDiscovery());
@@ -35,6 +36,7 @@ class Cluster {
           eagerCopyBytes: eagerCopyBytes,
           maxItemBytes: maxItemBytes,
           pollInterval: const Duration(milliseconds: 300),
+          client: client?.call(i),
         ),
       );
     }
@@ -62,6 +64,45 @@ class Cluster {
       await n.stop();
     }
     await root.delete(recursive: true);
+  }
+}
+
+/// A [NodeClient] that counts the downloads it has running at once, and
+/// fails those that [fails] picks by file name and attempt number.
+class CountingClient extends NodeClient {
+  CountingClient(this.fails);
+
+  final bool Function(String name, int attempt) fails;
+  var inFlight = 0, maxInFlight = 0;
+
+  /// Download attempts by file name.
+  final calls = <String, int>{};
+
+  @override
+  Future<void> download(
+    Uri base,
+    String id,
+    String destPath, {
+    required int expectedSize,
+    void Function(int received)? onProgress,
+  }) async {
+    final name = destPath.split(Platform.pathSeparator).last;
+    final attempt = calls[name] = (calls[name] ?? 0) + 1;
+    if (++inFlight > maxInFlight) maxInFlight = inFlight;
+    try {
+      // Long enough for downloads to overlap if nothing holds them back.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      if (fails(name, attempt)) throw const HttpException('failed by the test');
+      await super.download(
+        base,
+        id,
+        destPath,
+        expectedSize: expectedSize,
+        onProgress: onProgress,
+      );
+    } finally {
+      inFlight--;
+    }
   }
 }
 
@@ -250,6 +291,54 @@ void main() {
 
     final path = await b.fetch(key);
     expect(await File(path).length(), 10 * 1024);
+    expect(b.store[key]!.isReady, isTrue);
+  });
+
+  test('eager copies run a few at a time; a failed one is retried', () async {
+    var broken = true;
+    final client = CountingClient(
+      (name, attempt) => name == 'never.bin'
+          ? broken
+          : name.startsWith('once-') && attempt == 1,
+    );
+    c = await Cluster.start(
+      2,
+      ttl: const Duration(seconds: 30),
+      client: (i) => i == 1 ? client : null,
+    );
+    final [a, b] = c.nodes;
+    // A burst, as from one drop of many screenshots. Half fail their first
+    // copy, which the next poll must try again.
+    await Future.wait([
+      for (var i = 0; i < 40; i++)
+        a.addBytes([i], i.isEven ? 'once-$i.bin' : 'fine-$i.bin'),
+    ]);
+    final never = await a.addBytes([1], 'never.bin');
+    await eventually(
+      () =>
+          b.items.length == 41 && b.items.where((i) => i.isReady).length == 40,
+      timeout: const Duration(seconds: 10),
+      reason: 'not every eager copy landed',
+    );
+    expect(client.maxInFlight, greaterThan(1), reason: 'never overlapped');
+    expect(client.maxInFlight, lessThanOrEqualTo(SyncEngine.maxEagerDownloads));
+    for (var i = 0; i < 40; i++) {
+      expect(
+        client.calls[i.isEven ? 'once-$i.bin' : 'fine-$i.bin'],
+        i.isEven ? 2 : 1,
+      );
+    }
+
+    // One that keeps failing is left for a tap after its last try.
+    await eventually(
+      () => client.calls['never.bin'] == SyncEngine.maxEagerTries,
+    );
+    await Future<void>.delayed(const Duration(seconds: 1)); // three polls
+    expect(client.calls['never.bin'], SyncEngine.maxEagerTries);
+    final key = itemKey(a.id, never.id);
+    expect(b.store[key]?.isReady, isFalse, reason: 'still listed');
+    broken = false;
+    await b.fetch(key);
     expect(b.store[key]!.isReady, isTrue);
   });
 
