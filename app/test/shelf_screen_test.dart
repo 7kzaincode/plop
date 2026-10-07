@@ -781,12 +781,10 @@ void main() {
     addTearDown(() => debugDesktopOverride = null);
     await startNodes(tester);
     await addFile(tester, 'report.pdf');
-    // Downloads, as path_provider would name it, in the test's own folder.
-    const paths = MethodChannel('plugins.flutter.io/path_provider');
-    final messenger = tester.binding.defaultBinaryMessenger;
+    // Downloads, in the test's own folder.
     final downloads = '${root.path}/Downloads';
-    messenger.setMockMethodCallHandler(paths, (call) async => downloads);
-    addTearDown(() => messenger.setMockMethodCallHandler(paths, null));
+    debugDownloads = Directory(downloads);
+    addTearDown(() => debugDownloads = null);
     await pumpApp(tester);
 
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);

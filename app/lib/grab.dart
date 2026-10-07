@@ -387,7 +387,10 @@ Future<String> copyItem(
 
 /// Saves an item to Downloads (folders unpacked) and returns where it went.
 Future<String> saveItem(PlopNode node, ShelfItem item) async {
-  final dir = await getDownloadsDirectory() ?? await getTemporaryDirectory();
+  final dir =
+      debugDownloads ??
+      await getDownloadsDirectory() ??
+      await getTemporaryDirectory();
   await dir.create(recursive: true);
   if (item.kind == ItemKind.folder) {
     final zip = '${outDir.path}$_sep${randomId()}.zip';
@@ -404,6 +407,11 @@ Future<String> saveItem(PlopNode node, ShelfItem item) async {
   await node.saveTo(item.key, dest);
   return dest;
 }
+
+/// Tests set this to save into a folder of their own rather than the real
+/// Downloads, which path_provider finds on its own on some hosts (Linux).
+@visibleForTesting
+Directory? debugDownloads;
 
 /// Shows a saved file in Finder, Explorer or the file manager.
 Future<void> reveal(String path) async {
