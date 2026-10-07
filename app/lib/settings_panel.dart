@@ -7,6 +7,7 @@ import 'package:hotkey_manager/hotkey_manager.dart';
 
 import 'hotkeys.dart';
 import 'login_item.dart';
+import 'notify.dart';
 import 'settings.dart';
 import 'theme.dart';
 
@@ -242,6 +243,11 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   ),
                   label,
                 ),
+              if (Notify.supported)
+                _BackgroundSection(
+                  widget.settings,
+                  recording: _recording != null,
+                ),
               if (_note != null) ...[
                 const SizedBox(height: 8),
                 Text(_note!, style: monoStyle(size: 11, color: Palette.dim)),
@@ -424,6 +430,54 @@ class _LinkState extends State<_Link> {
 }
 
 const _loginLabel = 'open plop at login';
+
+/// What plop does while its window is closed, which it now outlives on
+/// every desktop (in the tray): the one switch for its OS notifications
+/// (lib/notify.dart).
+class _BackgroundSection extends StatefulWidget {
+  const _BackgroundSection(this.settings, {required this.recording});
+  final Settings settings;
+
+  /// See [_Key.recording].
+  final bool recording;
+
+  @override
+  State<_BackgroundSection> createState() => _BackgroundSectionState();
+}
+
+class _BackgroundSectionState extends State<_BackgroundSection> {
+  static const _label = 'notifications';
+  late bool _on = widget.settings.notifications;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Divider(height: 20, color: Palette.line),
+      Text('when plop is in the background', style: monoStyle(size: 11)),
+      const SizedBox(height: 6),
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(_label, style: monoStyle(color: Palette.text)),
+            ),
+            _Toggle(
+              label: _label,
+              value: _on,
+              recording: widget.recording,
+              onChanged: (on) {
+                setState(() => _on = on);
+                widget.settings.notifications = on;
+              },
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
 
 /// A hand-drawn on/off switch in the panel's hairline language: 34x18, the
 /// track fills with the text colour when on. Material's Switch is 48px tall

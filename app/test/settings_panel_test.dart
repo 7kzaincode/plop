@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:plop/grab.dart';
 import 'package:plop/hotkeys.dart';
+import 'package:plop/notify.dart';
 import 'package:plop/settings.dart';
 import 'package:plop/settings_panel.dart';
 
@@ -47,8 +48,20 @@ void main() {
     return s;
   }
 
+  /// The login toggle. Matching on `toggled` alone would also find the
+  /// notifications toggle, which is on by default.
   Finder toggled(bool on) => find.byWidgetPredicate(
-    (w) => w is Semantics && w.properties.toggled == on,
+    (w) =>
+        w is Semantics &&
+        w.properties.label == 'open plop at login' &&
+        w.properties.toggled == on,
+  );
+
+  Finder notifications(bool on) => find.byWidgetPredicate(
+    (w) =>
+        w is Semantics &&
+        w.properties.label == 'notifications' &&
+        w.properties.toggled == on,
   );
 
   testWidgets('the login toggle flips when the platform agrees', (
@@ -114,6 +127,28 @@ void main() {
     expect(find.textContaining('approve plop in System Settings'), findsOne);
     expect(find.textContaining("couldn't change"), findsNothing);
   }, skip: !Platform.isMacOS); // elsewhere the toggle would edit the real OS
+
+  testWidgets('the notifications toggle is on by default and remembers off', (
+    tester,
+  ) async {
+    final settings = await openPanel(tester);
+    expect(find.text('when plop is in the background'), findsOneWidget);
+    expect(notifications(true), findsOneWidget);
+    expect(settings.notifications, isTrue);
+
+    await tester.ensureVisible(notifications(true));
+    await tester.tap(notifications(true));
+    await tester.pumpAndSettle();
+    expect(notifications(false), findsOneWidget);
+    expect(settings.notifications, isFalse);
+
+    // Reopened, the panel shows what was saved.
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(notifications(false), findsOneWidget);
+  }, skip: !Notify.supported); // the section is desktop only
 
   testWidgets('Tab reaches the shortcut keys and reset; Enter presses them', (
     tester,

@@ -250,12 +250,26 @@ void main() {
           'desktop-settings-${size.width.toInt()}x${size.height.toInt()}';
       await tester.runAsync(() => _shot(key, tag));
 
+      // The background section sits below the fold at the smallest size:
+      // it must scroll into view, not overflow.
+      final notifications = find.byWidgetPredicate(
+        (w) => w is Semantics && w.properties.label == 'notifications',
+      );
+      expect(find.text('when plop is in the background'), findsOneWidget);
+      await tester.ensureVisible(notifications);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'settings $size bottom');
+      await tester.runAsync(() => _shot(key, '$tag-background'));
+
       // Only macOS goes through the mocked channel; elsewhere the toggle
       // would edit the real OS. With the note the panel is taller than the
       // smallest window: it must scroll to the note, not overflow.
       if (Platform.isMacOS) {
         final toggle = find.byWidgetPredicate(
-          (w) => w is Semantics && w.properties.toggled == false,
+          (w) =>
+              w is Semantics &&
+              w.properties.label == 'open plop at login' &&
+              w.properties.toggled == false,
         );
         await tester.ensureVisible(toggle);
         await tester.tap(toggle);
@@ -267,6 +281,10 @@ void main() {
         expect(tester.takeException(), isNull, reason: 'settings $size note');
         await tester.runAsync(() => _shot(key, '$tag-note'));
       }
+      // Scrolled to the bottom, the top row is off the smallest window; it
+      // must come back into reach.
+      await tester.ensureVisible(find.text('snip a screen region'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('snip a screen region').hitTestable().first);
       await tester.tapAt(const Offset(5, 5)); // close the dialog
       await tester.pumpAndSettle();
