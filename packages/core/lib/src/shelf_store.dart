@@ -542,10 +542,17 @@ class ShelfStore {
     _changes.add(null);
   }
 
+  /// Most peers an own item's [ShelfItem.receivedBy] records. A real shelf
+  /// has a handful; a peer making up ids must not grow it without end, and
+  /// under such a flood the list may miss a real peer, which is all.
+  static const maxReceivedBy = 64;
+
   /// Records that [peerId] holds a complete copy of an own item. Fires a
   /// change only when that is news.
   void markReceived(String key, String peerId) {
-    if (_items[key]?.receivedBy.add(peerId) ?? false) _changes.add(null);
+    final item = _items[key];
+    if (item == null || item.receivedBy.length >= maxReceivedBy) return;
+    if (item.receivedBy.add(peerId)) _changes.add(null);
   }
 
   void remove(String key) {

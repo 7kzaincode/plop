@@ -19,9 +19,15 @@ class NodeServer {
 
   HttpServer? _server;
 
-  /// When each peer last reached this node, by node id. A peer that we can
-  /// reach but that never shows up here is being blocked by a firewall.
+  /// When each peer last reached this node, by node id, least recent
+  /// first. A peer that we can reach but that never shows up here is being
+  /// blocked by a firewall. At most [maxSeenBy] entries.
   final seenBy = <String, DateTime>{};
+
+  /// Most callers [seenBy] remembers; past it, the one heard from longest
+  /// ago is let go. A real peer polls every 3 s, so it is never that one
+  /// unless something is inventing ids by the hundred.
+  static const maxSeenBy = 256;
 
   int _port = 0;
 
@@ -55,10 +61,11 @@ class NodeServer {
     }
   }
 
-  /// The caller's node id, if it sent one that passes [isValidId]. Anything
-  /// else is treated as no id: [seenBy] and an item's `receivedBy` grow by
-  /// one entry per distinct value, so a hostile peer must not be able to
-  /// supply an endless run of them.
+  /// The caller's node id, if it sent one that passes [isValidId], which
+  /// makes it safe as a map key and a path segment; anything else is
+  /// treated as no id. The check says nothing about how many there are: a
+  /// hostile peer can make up a fresh id for every request, so [seenBy] and
+  /// an item's `receivedBy` are capped rather than trusted to stay small.
   String? _callerId(HttpRequest req) {
     final from = req.headers.value(nodeIdHeader);
     return from != null && isValidId(from) ? from : null;
@@ -66,7 +73,10 @@ class NodeServer {
 
   void _noteCaller(HttpRequest req) {
     final from = _callerId(req);
-    if (from != null) seenBy[from] = DateTime.now();
+    if (from == null) return;
+    seenBy.remove(from); // to the end, so the first is the least recent
+    seenBy[from] = DateTime.now();
+    if (seenBy.length > maxSeenBy) seenBy.remove(seenBy.keys.first);
   }
 
   /// How long a list waits on any one file's check. A stat on a dead mount

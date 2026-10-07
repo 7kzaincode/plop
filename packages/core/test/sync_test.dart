@@ -1276,7 +1276,7 @@ void main() {
     );
   });
 
-  test('a caller id that is not a plain token is ignored', () async {
+  test('caller ids not plain tokens are ignored; the rest capped', () async {
     c = await Cluster.start(1, ttl: const Duration(seconds: 30));
     final [a] = c.nodes;
     final item = await a.addText('x');
@@ -1307,6 +1307,26 @@ void main() {
     await call('POST', '/v1/items/${item.id}/received', odd);
     expect(a.server.seenBy.keys, [odd]);
     expect(item.receivedBy, {odd});
+
+    // A plain token can still be made up afresh for every request.
+    for (var i = 0; i < NodeServer.maxSeenBy + 50; i++) {
+      await call('GET', '/v1/items', 'made-up-$i');
+      if (i < ShelfStore.maxReceivedBy) {
+        await call('POST', '/v1/items/${item.id}/received', 'made-up-$i');
+      }
+    }
+    expect(a.server.seenBy, hasLength(NodeServer.maxSeenBy));
+    expect(a.server.seenBy, isNot(contains(odd)), reason: 'oldest kept');
+    expect(item.receivedBy, hasLength(ShelfStore.maxReceivedBy));
+    // The least recently heard from goes first, so a peer that keeps
+    // polling stays however many others come and go.
+    final first = a.server.seenBy.keys.first;
+    await call('GET', '/v1/items', first);
+    await call('GET', '/v1/items', 'real');
+    expect(a.server.seenBy.keys.skip(NodeServer.maxSeenBy - 2), [
+      first,
+      'real',
+    ]);
   });
 
   test('a peer we reach that never reaches us is flagged one-way', () async {
