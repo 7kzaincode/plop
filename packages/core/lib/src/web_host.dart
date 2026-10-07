@@ -224,6 +224,8 @@ class WebHost {
         'ttlMs': i.remaining.inMilliseconds,
         'from': i.originName,
         'ready': i.isReady,
+        // 0..1 while this node copies it over from its sender.
+        'progress': ?i.progress,
         if (i.originId == node.id) 'receivedBy': i.receivedBy.length,
         'text': ?text,
       });
@@ -319,13 +321,40 @@ class WebHost {
           : HttpStatus.badGateway;
       return;
     }
-    final file = File(path);
-    if (!await file.exists()) {
+    // The item captured above is the one served, even if it expires the
+    // moment its copy lands, and its file is opened at once: should that
+    // expiry delete it, an open file still reads to its end on macOS and
+    // Linux, and on Windows the delete waits.
+    final RandomAccessFile f;
+    try {
+      f = await File(path).open();
+    } on FileSystemException {
       res.statusCode = HttpStatus.notFound;
       return;
     }
-    res.contentLength = await file.length();
-    await file.openRead().pipe(res);
+    final int length;
+    try {
+      length = await f.length();
+    } catch (_) {
+      await f.close();
+      rethrow;
+    }
+    res.contentLength = length;
+    await _chunks(f).pipe(res);
+  }
+
+  /// [f] from start to end, read as the response takes it, then closed;
+  /// closed too when the browser hangs up first.
+  static Stream<List<int>> _chunks(RandomAccessFile f) async* {
+    try {
+      for (;;) {
+        final chunk = await f.read(64 * 1024);
+        if (chunk.isEmpty) return;
+        yield chunk;
+      }
+    } finally {
+      await f.close();
+    }
   }
 
   Future<void> _upload(HttpRequest req) async {
@@ -550,7 +579,8 @@ const mine = new Map((() => {
 })().filter(([, v]) => v && typeof v.token === 'string' && typeof v.at === 'number'));
 const seen = new Map();  // key -> {expires, total}: countdowns between polls
 const blobs = new Map(); // key -> Blob fetched for share(), kept for a retry
-let items = [], uploads = [], seq = 0, sig = '', polling = false, again = false, pollTimer, toastTimer, viewing;
+const asked = new Set(); // keys tapped before their bytes were here
+let items = [], byKey = new Map(), uploads = [], seq = 0, sig = '', polling = false, again = false, pollTimer, toastTimer, viewing;
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
 const saveMine = () => store.set('plop.mine', JSON.stringify(Object.fromEntries(mine)));
@@ -589,6 +619,8 @@ async function poll() {
     const r = await fetch('/web/shelf', {cache: 'no-store'});
     if (!r.ok) throw new Error(r.status);
     items = await r.json();
+    byKey = new Map(items.map(it => [it.key, it]));
+    for (const k of [...asked]) if (!byKey.has(k) || byKey.get(k).ready) asked.delete(k);
     const now = Date.now(), live = new Set();
     for (const it of items) {
       live.add(it.key);
@@ -630,7 +662,7 @@ function render() {
   for (const it of items) {
     const meta = [it.kind === 'text' ? null : size(it.size), mine.has(it.key) ? 'you' : it.from].filter(Boolean).join(' · ');
     rows.push('<div class="row" data-key="' + esc(it.key) + '"><div class="main"><div class="name">' + esc(it.name) +
-      '</div><div class="meta">' + esc(meta) + '</div></div>' +
+      '</div><div class="meta">' + esc(meta) + '<span class="cp"></span></div></div>' +
       (mine.has(it.key) ? '<button class="x" data-x="' + esc(it.key) + '" aria-label="remove">×</button>' : '') +
       '<div class="time"></div><div class="bar"><i></i></div></div>');
   }
@@ -638,9 +670,17 @@ function render() {
     '<div class="empty">nothing here yet<br>add something or drop it on any device with plop</div>';
   tick();
 }
+// A row whose bytes are not on the desktop yet says so while the desktop
+// copies them over: an eager copy as it happens, a big item once tapped
+// (the desktop fetches it only then), with how far along when it knows.
+function copying(it) {
+  if (!it || it.ready || (it.progress == null && !asked.has(it.key))) return '';
+  return ' · copying' + (it.progress == null ? '…' : ' ' + Math.round(it.progress * 100) + '%');
+}
 function tick() {
   const now = Date.now();
   for (const el of list.querySelectorAll('[data-key]')) {
+    el.querySelector('.cp').textContent = copying(byKey.get(el.dataset.key));
     const s = seen.get(el.dataset.key);
     if (!s) continue;
     const left = s.expires - now, t = el.querySelector('.time'), bar = el.querySelector('.bar');
@@ -663,6 +703,7 @@ list.addEventListener('click', e => {
 async function grab(key) {
   const it = items.find(i => i.key === key);
   if (!it) return;
+  if (!it.ready) { asked.add(key); tick(); }
   if (it.kind === 'text') return copyText(it);
   const name = fileName(it);
   if (canShare(new File([], name, {type: it.mime}))) {
@@ -684,8 +725,13 @@ async function grab(key) {
     download(it);
   }
 }
+// The desktop answers once it has the bytes itself, so an answer, or a
+// failure, ends its copying.
+async function fetchItem(it) {
+  try { return await fetch(url(it)); } finally { asked.delete(it.key); tick(); }
+}
 async function fetchBlob(it) {
-  const r = await fetch(url(it));
+  const r = await fetchItem(it);
   if (!r.ok) throw new Error(r.status);
   if (!r.body) return r.blob();
   const bar = list.querySelector('[data-key="' + CSS.escape(it.key) + '"] .bar');
@@ -754,7 +800,7 @@ function copyLegacy(text) {
 async function copyText(it) {
   if (typeof it.text === 'string') return copyNow(it.text);
   try {
-    const r = await fetch(url(it));
+    const r = await fetchItem(it);
     if (!r.ok) throw new Error(r.status);
     copyNow(await r.text());
   } catch (e) {

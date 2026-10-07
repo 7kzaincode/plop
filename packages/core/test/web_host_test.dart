@@ -123,11 +123,13 @@ Future<String> rawResponse(int port, String head) async {
 }
 
 /// A peer that lists [items] and serves [bytes] by id, saying whatever a
-/// hostile one might.
+/// hostile one might, or slowly: with [stall], half of each body goes out,
+/// then the rest that much later.
 Future<HttpServer> fakePeer(
   List<Map<String, Object>> items,
-  Map<String, List<int>> bytes,
-) async {
+  Map<String, List<int>> bytes, {
+  Duration? stall,
+}) async {
   final s = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
   s.listen((req) async {
     final res = req.response;
@@ -135,8 +137,16 @@ Future<HttpServer> fakePeer(
       case ['v1', 'items']:
         res.write(jsonEncode(items));
       case ['v1', 'items', final id] when bytes.containsKey(id):
-        res.contentLength = bytes[id]!.length;
-        res.add(bytes[id]!);
+        final b = bytes[id]!;
+        res.contentLength = b.length;
+        if (stall != null) {
+          res.add(b.sublist(0, b.length ~/ 2));
+          await res.flush();
+          await Future<void>.delayed(stall);
+          res.add(b.sublist(b.length ~/ 2));
+        } else {
+          res.add(b);
+        }
       default:
         res.statusCode = 404;
     }
@@ -612,6 +622,47 @@ void main() {
             as Map;
     expect(await delete(desktop.key, file['token'] as String), 403);
     expect(await delete(file['key'] as String, file['token'] as String), 204);
+  });
+
+  test('a mirror being copied says how far; its time running out mid-copy '
+      'does not cost the download', () async {
+    p = await Pair.start(eagerCopyBytes: 1024);
+    final bytes = List.generate(40 * 1024, (i) => i % 241);
+    final peer = await fakePeer(
+      [
+        {
+          'id': 'slow1',
+          'name': 'slow.bin',
+          'size': bytes.length,
+          'kind': 'file',
+          'ttlMs': 900, // runs out while the copy waits on the second half
+        },
+      ],
+      {'slow1': bytes},
+      stall: const Duration(milliseconds: 1500),
+    );
+    addTearDown(() => peer.close(force: true));
+    p.da.add(
+      Peer(id: 'peer9', name: 'slow', hosts: ['127.0.0.1'], port: peer.port),
+    );
+    await eventually(() => p.a.store['peer9/slow1'] != null);
+    final first = shelfOf(await get(p.url('/web/shelf'))).single as Map;
+    expect(first['ready'], isFalse);
+    expect(
+      first.containsKey('progress'),
+      isFalse,
+      reason: 'over the eager cap',
+    );
+
+    final download = get(p.url('/web/items/peer9/slow1'));
+    await eventually(() => p.a.store['peer9/slow1']?.progress != null);
+    final mid = shelfOf(await get(p.url('/web/shelf'))).single as Map;
+    expect(mid['ready'], isFalse);
+    expect(mid['progress'], inInclusiveRange(0.0, 1.0));
+
+    final r = await download;
+    expect(r.status, 200);
+    expect(r.body, bytes);
   });
 
   test('a file shared in place and changed since leaves the shelf', () async {

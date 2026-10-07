@@ -192,7 +192,10 @@ refused one again a few times.
 ```
 
 `from` is the origin's device name (this node's own name for its own items).
-`ready` says whether the bytes are on this node yet. `receivedBy` (own items
+`ready` says whether the bytes are on this node yet; `progress` (0 to 1) is
+there while this node copies them over from the origin, which for an item
+over the eager-copy size starts only when someone asks for it. The page
+shows such a row as copying. `receivedBy` (own items
 only) counts the peers holding a copy. `text` is a ready text item's content
 when it is at most 64 KB, so the page can copy it inside the tap: on plain
 HTTP a browser gives the page no asynchronous clipboard, and the fallback it
