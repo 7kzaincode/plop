@@ -9,6 +9,10 @@ const defaultTtl = Duration(seconds: 120);
 /// Items at or under this size are copied as soon as they appear on a peer.
 const defaultEagerCopyBytes = 25 * 1024 * 1024;
 
+/// Wall-clock time an eager copy gets before it is abandoned, plus a second
+/// per 256 KB of the item.
+const defaultEagerDeadline = Duration(seconds: 30);
+
 /// Hard per-item cap. Large items are only ever downloaded on request, so
 /// this just guards against absurd sizes.
 const defaultMaxItemBytes = 100 * 1024 * 1024 * 1024;

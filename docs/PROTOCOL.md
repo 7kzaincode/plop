@@ -101,9 +101,10 @@ the header the receiver re-fetches all peers. Responds `204`.
 - Items at or under 25 MB are downloaded as soon as they are seen ("eager
   copy"), so they survive the sender's app being suspended. Larger items are
   fetched on tap. At most 4 eager copies run at once, at most 2 of them
-  from any one sender, smallest first. One that fails is tried again on
-  later polls, 3 tries in all, after which the item is fetched on tap like
-  a large one.
+  from any one sender, smallest first. One still running after 30 s plus
+  a second per 256 KB is dropped (a tap has no such limit). One that fails
+  or is dropped is tried again on later polls, 3 tries in all, after which
+  the item is fetched on tap like a large one.
 - Items over 100 GB are refused, both locally and from peers.
 - A download that has started is allowed to finish after the item expires
   (the origin keeps streaming an open file), so large transfers are not cut

@@ -27,6 +27,7 @@ class PlopNode {
     int port = 0,
     Duration ttl = defaultTtl,
     int eagerCopyBytes = defaultEagerCopyBytes,
+    Duration eagerDeadline = defaultEagerDeadline,
     int maxItemBytes = defaultMaxItemBytes,
     Duration pollInterval = const Duration(seconds: 3),
     NodeClient? client,
@@ -44,6 +45,7 @@ class PlopNode {
       discovery: discovery,
       client: client,
       eagerCopyBytes: eagerCopyBytes,
+      eagerDeadline: eagerDeadline,
       pollInterval: pollInterval,
     );
     final server = NodeServer(store, onNudge: engine.onNudge);

@@ -33,6 +33,7 @@ class SyncEngine {
     required this.discovery,
     NodeClient? client,
     this.eagerCopyBytes = defaultEagerCopyBytes,
+    this.eagerDeadline = defaultEagerDeadline,
     this.pollInterval = const Duration(seconds: 3),
   }) : client = client ?? NodeClient();
 
@@ -40,6 +41,13 @@ class SyncEngine {
   final PeerDiscovery discovery;
   final NodeClient client;
   final int eagerCopyBytes;
+
+  /// Wall-clock time an eager copy gets, plus a second per 256 KB of the
+  /// item. One that runs over is dropped and counts as a failed try: a
+  /// sender that trickles bytes never trips the stall timeout, and would
+  /// otherwise hold its slots for as long as it likes, past the item's
+  /// expiry and its own departure. A tap has no deadline.
+  final Duration eagerDeadline;
   final Duration pollInterval;
 
   /// After this many failed polls in a row, a peer counts as gone.
@@ -68,6 +76,9 @@ class SyncEngine {
   final _eagerQueue = <String>{};
   var _eagerRunning = 0;
   final _eagerByPeer = <String, int>{};
+
+  /// Deadlines of running eager copies, by key.
+  final _deadlines = <String, Timer>{};
 
   /// Eager copies started per mirror. Kept beside the item, not by key, so
   /// the count goes with it; a mirror that leaves and comes back is a new
@@ -235,7 +246,14 @@ class SyncEngine {
     _eagerTries[item] = (_eagerTries[item] ?? 0) + 1;
     _eagerRunning++;
     _eagerByPeer.update(peer, (n) => n + 1, ifAbsent: () => 1);
-    fetch(key).catchError((_) => '').whenComplete(() {
+    final cutOff = Completer<void>();
+    final deadline = _deadlines[key] = Timer(
+      eagerDeadline + Duration(milliseconds: item.size * 1000 ~/ (256 << 10)),
+      cutOff.complete,
+    );
+    _fetch(key, cutOff: cutOff.future).catchError((_) => '').whenComplete(() {
+      deadline.cancel();
+      if (_deadlines[key] == deadline) _deadlines.remove(key);
       _eagerRunning--;
       if (_eagerByPeer.update(peer, (n) => n - 1) == 0) {
         _eagerByPeer.remove(peer);
@@ -269,13 +287,20 @@ class SyncEngine {
 
   /// Returns the local path of an item, downloading it first if needed.
   /// The file is deleted when the item expires; use [saveTo] to keep it.
+  /// A tap waits as long as the transfer takes, so one that finds an eager
+  /// copy of the item running lifts that copy's deadline.
   Future<String> fetch(String key) {
+    _deadlines.remove(key)?.cancel();
+    return _fetch(key);
+  }
+
+  Future<String> _fetch(String key, {Future<void>? cutOff}) {
     final item = store[key];
     if (item == null) return Future.error(StateError('item expired'));
     if (item.isReady) return Future.value(item.path!);
     // The callback must not return the removed future: whenComplete would
     // wait on it, and it is the future being completed.
-    return _downloads[key] ??= _mirror(item).whenComplete(() {
+    return _downloads[key] ??= _mirror(item, cutOff).whenComplete(() {
       _downloads.remove(key);
       _dropUncopiedIfGone(item.originId);
     });
@@ -304,10 +329,10 @@ class SyncEngine {
     }
   }
 
-  Future<String> _mirror(ShelfItem item) async {
+  Future<String> _mirror(ShelfItem item, Future<void>? cutOff) async {
     final dest = store.downloadPath(item);
     try {
-      await _transfer(item, dest);
+      await _transfer(item, dest, cutOff: cutOff);
     } catch (_) {
       store.setProgress(item.key, null);
       rethrow;
@@ -321,7 +346,11 @@ class SyncEngine {
     return dest;
   }
 
-  Future<void> _transfer(ShelfItem item, String dest) async {
+  Future<void> _transfer(
+    ShelfItem item,
+    String dest, {
+    Future<void>? cutOff,
+  }) async {
     final s = _peers[item.originId];
     if (s == null) throw StateError('sender is gone');
     store.setProgress(item.key, 0);
@@ -334,6 +363,7 @@ class SyncEngine {
           item.id,
           dest,
           expectedSize: item.size,
+          cutOff: cutOff,
           onProgress: (n) {
             final step = item.size == 0 ? 100 : n * 100 ~/ item.size;
             if (step != lastStep) {
@@ -369,6 +399,10 @@ class SyncEngine {
     }
     _peers.clear();
     _eagerQueue.clear();
+    for (final t in _deadlines.values) {
+      t.cancel();
+    }
+    _deadlines.clear();
     client.close();
     await _peerChanges.close();
   }

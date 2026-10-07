@@ -20,6 +20,7 @@ class Cluster {
     int n, {
     Duration ttl = const Duration(seconds: 3),
     int eagerCopyBytes = defaultEagerCopyBytes,
+    Duration eagerDeadline = defaultEagerDeadline,
     int maxItemBytes = defaultMaxItemBytes,
     NodeClient? Function(int i)? client,
   }) async {
@@ -34,6 +35,7 @@ class Cluster {
           name: 'node$i',
           ttl: ttl,
           eagerCopyBytes: eagerCopyBytes,
+          eagerDeadline: eagerDeadline,
           maxItemBytes: maxItemBytes,
           pollInterval: const Duration(milliseconds: 300),
           client: client?.call(i),
@@ -88,6 +90,7 @@ class CountingClient extends NodeClient {
     String destPath, {
     required int expectedSize,
     void Function(int received)? onProgress,
+    Future<void>? cutOff,
   }) async {
     final name = destPath.split(Platform.pathSeparator).last;
     final attempt = calls[name] = (calls[name] ?? 0) + 1;
@@ -105,6 +108,7 @@ class CountingClient extends NodeClient {
         destPath,
         expectedSize: expectedSize,
         onProgress: onProgress,
+        cutOff: cutOff,
       );
     } finally {
       inFlight--;
@@ -194,6 +198,7 @@ class GatedClient extends NodeClient {
     String destPath, {
     required int expectedSize,
     void Function(int received)? onProgress,
+    Future<void>? cutOff,
   }) async {
     await gate;
     await super.download(
@@ -202,6 +207,7 @@ class GatedClient extends NodeClient {
       destPath,
       expectedSize: expectedSize,
       onProgress: onProgress,
+      cutOff: cutOff,
     );
   }
 }
@@ -489,6 +495,38 @@ void main() {
       reason: 'the text waited behind the trickle',
     );
     expect(client.maxInFlightByPort[trickler.port], SyncEngine.maxEagerPerPeer);
+  });
+
+  test('an eager copy runs out of time; a tap does not', () async {
+    // A second a copy, past a deadline of 400 ms.
+    final trickler = await Trickler.start({'slow': 10, 'joined': 10});
+    addTearDown(trickler.close);
+    c = await Cluster.start(
+      1,
+      ttl: const Duration(seconds: 30),
+      eagerDeadline: const Duration(milliseconds: 400),
+    );
+    final [b] = c.nodes;
+    c.discoveries[0].add(trickler.peer);
+
+    // A tap on a copy already running keeps it going.
+    await eventually(() => trickler.requests['joined'] == 1);
+    await b.fetch(itemKey('trickler', 'joined'));
+    expect(trickler.requests['joined'], 1);
+
+    // Without one, the copy is dropped each time, and after its last try
+    // the item waits for a tap like a large one.
+    await eventually(
+      () => trickler.requests['slow'] == SyncEngine.maxEagerTries,
+      reason: 'a deadline missed did not count as a failed try',
+    );
+    await Future<void>.delayed(const Duration(seconds: 1)); // three polls
+    expect(trickler.requests['slow'], SyncEngine.maxEagerTries);
+    final slow = itemKey('trickler', 'slow');
+    expect(b.store[slow]?.isReady, isFalse);
+    expect(b.store[slow]?.progress, isNull);
+    await b.fetch(slow);
+    expect(b.store[slow]?.isReady, isTrue);
   });
 
   test('text items arrive with their content', () async {
@@ -1161,6 +1199,28 @@ void main() {
       throwsA(isA<FileSystemException>()),
     );
     expect(File('${blocked.path}.part').existsSync(), isFalse);
+  });
+
+  test('a download is dropped when its cut-off comes', () async {
+    c = await Cluster.start(1);
+    final trickler = await Trickler.start({'x': 100});
+    addTearDown(trickler.close);
+    final client = NodeClient();
+    addTearDown(client.close);
+    final dest = '${c.root.path}/x.bin';
+    final clock = Stopwatch()..start();
+    await expectLater(
+      client.download(
+        Uri.parse('http://127.0.0.1:${trickler.port}'),
+        'x',
+        dest,
+        expectedSize: 100,
+        cutOff: Future.delayed(const Duration(milliseconds: 300)),
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(clock.elapsed, lessThan(const Duration(seconds: 2)));
+    expect(File('$dest.part').existsSync(), isFalse);
   });
 
   test('an endless item list is cut off, not buffered', () async {
