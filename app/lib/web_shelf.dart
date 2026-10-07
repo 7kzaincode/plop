@@ -26,11 +26,65 @@ Future<void> startWebShelf(
     ..iconPng = icon.buffer.asUint8List(icon.offsetInBytes, icon.lengthInBytes);
 }
 
+/// [url] as a QR code the way the standard has it and every scanner reads
+/// it: dark modules on white with a quiet zone of at least four modules,
+/// on a small rounded white card. A light-on-dark code, or one with a thin
+/// margin, is optional for scanners to read, and many in-app ones do not;
+/// this code is how phones find the web shelf, so it stays plain.
+class ShelfQr extends StatelessWidget {
+  const ShelfQr(this.url, {super.key});
+  final String url;
+
+  /// Edge of the card, quiet zone included.
+  static const size = 176.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final check = QrValidator.validate(
+      data: url,
+      version: QrVersions.auto,
+      errorCorrectionLevel: QrErrorCorrectLevel.L,
+    );
+    final qr = check.qrCode;
+    if (!check.isValid || qr == null) return const SizedBox.shrink();
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: QrImageView.withQr(
+        qr: qr,
+        size: size,
+        padding: EdgeInsets.all(qrQuietZone(qr.moduleCount, size)),
+        eyeStyle: const QrEyeStyle(
+          eyeShape: QrEyeShape.square,
+          color: Colors.black,
+        ),
+        dataModuleStyle: const QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Colors.black,
+        ),
+        semanticsLabel: 'qr code for $url',
+      ),
+    );
+  }
+}
+
+/// The margin around a code [modules] modules wide drawn on a [size]-wide
+/// card: each module is the largest half-pixel step that leaves room for
+/// four of them on every side, and the margin is what remains. Half-pixel
+/// steps, because that is what qr_flutter rounds a module to; any other
+/// edge would be rounded up into the margin.
+double qrQuietZone(int modules, double size) {
+  final module = (size / (modules + 8) * 2).floorToDouble() / 2;
+  return (size - module * modules) / 2;
+}
+
 /// The settings panel's "open on a phone" section: the web shelf's first
 /// address as a QR code to point a camera at, and as a line that copies on
-/// a tap, with what to do once it is open. The code is drawn in the text
-/// colour on the panel, which phone cameras read as readily as black on
-/// white; the panel itself is the quiet zone.
+/// a tap, with what to do once it is open.
 class PhoneLink extends StatefulWidget {
   const PhoneLink(this.node, {super.key, required this.recording});
   final PlopNode node;
@@ -49,9 +103,6 @@ class _PhoneLinkState extends State<PhoneLink> {
   bool _hover = false;
   bool _focused = false;
   Timer? _copiedTimer;
-
-  /// The drawn code is about 140px; the rest is quiet zone.
-  static const _size = 156.0;
 
   static final _pressKeys = [
     const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
@@ -95,30 +146,14 @@ class _PhoneLinkState extends State<PhoneLink> {
   List<Widget> _body() {
     final urls = _urls;
     // Looked up in a moment; hold the space so the panel does not jump.
-    if (urls == null) return const [SizedBox(height: _size)];
+    if (urls == null) return const [SizedBox(height: ShelfQr.size)];
     if (urls.isEmpty) {
       return [Text('not on a network right now', style: monoStyle(size: 11))];
     }
     final lit = _hover || _focused;
     return [
-      Align(
-        alignment: Alignment.centerLeft,
-        child: QrImageView(
-          data: urls.first,
-          size: _size,
-          padding: const EdgeInsets.all(8),
-          backgroundColor: Colors.transparent,
-          eyeStyle: const QrEyeStyle(
-            eyeShape: QrEyeShape.square,
-            color: Palette.text,
-          ),
-          dataModuleStyle: const QrDataModuleStyle(
-            dataModuleShape: QrDataModuleShape.square,
-            color: Palette.text,
-          ),
-          semanticsLabel: 'qr code for ${urls.first}',
-        ),
-      ),
+      Align(alignment: Alignment.centerLeft, child: ShelfQr(urls.first)),
+      const SizedBox(height: 8),
       // Tab reaches the address and Enter or Space copies it, with the
       // panel's hairline ring while focused.
       Align(
