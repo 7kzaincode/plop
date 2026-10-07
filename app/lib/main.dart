@@ -92,9 +92,10 @@ Future<void> _start() async {
   AutoCopy.watch(node, settings);
   if (Island.supported) AutoCopy.onCopied = Island.copied;
   // The shortcuts fire while the user is in another app or the window is
-  // closed (macOS keeps plop running), so a failure that needs the user, like
-  // the Screen Recording steps, waits until they look instead of fading out;
-  // one that hands them something to tap waits for the tap.
+  // closed (macOS keeps plop running), so a failure waits until they look
+  // instead of fading out unseen, then fades as any other; one that hands
+  // them something to tap, like the Screen Recording steps, waits for the
+  // tap.
   void say(
     String msg, {
     bool ok = true,
@@ -104,11 +105,8 @@ Future<void> _start() async {
     msg,
     action: action,
     onTap: onTap,
-    sticky:
-        !ok &&
-        (onTap != null ||
-            WidgetsBinding.instance.lifecycleState !=
-                AppLifecycleState.resumed),
+    sticky: !ok && onTap != null,
+    untilSeen: !ok,
   );
   Hotkeys.load(
     settings.hotkey,

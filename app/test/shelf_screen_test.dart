@@ -440,6 +440,65 @@ void main() {
     await stopNodes(tester);
   });
 
+  testWidgets('a failure said while plop was away fades once the user looks', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    await startNodes(tester);
+    final screen = GlobalKey<ShelfScreenState>();
+    await pumpApp(tester, screenKey: screen);
+    bool shown(String msg) =>
+        tester
+            .widget<AnimatedOpacity>(
+              find.ancestor(
+                of: find.textContaining(msg, findRichText: true),
+                matching: find.byType(AnimatedOpacity),
+              ),
+            )
+            .opacity >
+        0;
+    void look(AppLifecycleState s) =>
+        tester.binding.handleAppLifecycleStateChanged(s);
+    addTearDown(() => look(AppLifecycleState.resumed));
+
+    // ⌃⌥V pressed in another app with nothing to paste: still there when
+    // the user comes back, however long that takes; gone soon after.
+    look(AppLifecycleState.inactive);
+    screen.currentState!.toast('nothing to paste', untilSeen: true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+    expect(shown('nothing to paste'), isTrue);
+    look(AppLifecycleState.resumed);
+    await tester.pump(const Duration(milliseconds: 1700));
+    expect(shown('nothing to paste'), isTrue, reason: 'its reading time');
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(shown('nothing to paste'), isFalse);
+
+    // Said while the user is here, it fades as any message does.
+    screen.currentState!.toast('nothing to paste', untilSeen: true);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    expect(shown('nothing to paste'), isFalse);
+
+    // One with something to tap waits for the tap, back or not.
+    look(AppLifecycleState.inactive);
+    screen.currentState!.toast(
+      'allow plop for Screen Recording',
+      action: 'open settings',
+      onTap: () {},
+      sticky: true,
+      untilSeen: true,
+    );
+    await tester.pump();
+    look(AppLifecycleState.resumed);
+    await tester.pump(const Duration(seconds: 30));
+    expect(shown('allow plop for Screen Recording'), isTrue);
+
+    screen.currentState!.toast(null);
+    await stopNodes(tester);
+  });
+
   testWidgets('a long toast gives up its message, never its action word', (
     tester,
   ) async {

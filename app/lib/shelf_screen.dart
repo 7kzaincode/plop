@@ -77,6 +77,10 @@ class ShelfScreenState extends State<ShelfScreen> {
   VoidCallback? _toastTap;
   Timer? _toastTimer;
 
+  /// The toast was said while the window was away and waits for the user
+  /// to come back before its reading time starts.
+  bool _toastUnseen = false;
+
   /// Where each grabbed item was saved, so a second tap shows the file
   /// instead of saving another copy.
   final _saved = <String, String>{};
@@ -119,6 +123,11 @@ class ShelfScreenState extends State<ShelfScreen> {
     _lifecycle = AppLifecycleListener(
       onRestart: () =>
           node.revive(rebroadcast: Platform.isIOS).catchError((_) {}),
+      onResume: () {
+        if (!_toastUnseen || _toast == null) return;
+        _toastUnseen = false;
+        _fadeLater(_toastText, _toastTap);
+      },
     );
   }
 
@@ -134,12 +143,15 @@ class ShelfScreenState extends State<ShelfScreen> {
 
   /// Shows a short message. [onTap] makes it clickable and keeps it up
   /// longer, with [action] naming what the tap does; [sticky] keeps it until
-  /// the next message.
+  /// the next message. [untilSeen] is for one said while the window is
+  /// away (a shortcut pressed in another app): it stays until the user is
+  /// back in plop, and only then gets its reading time.
   void toast(
     String? msg, {
     String? action,
     VoidCallback? onTap,
     bool sticky = false,
+    bool untilSeen = false,
   }) {
     _toastTimer?.cancel();
     setState(() {
@@ -150,9 +162,19 @@ class ShelfScreenState extends State<ShelfScreen> {
       }
       _toastTap = msg == null ? null : onTap;
     });
-    if (msg == null || sticky) return;
-    // Reading time: 1.8 s plus 40 ms per character past the first 20, so
-    // "plopped clipboard" is brief and the Screen Recording steps get ~5 s.
+    _toastUnseen =
+        msg != null &&
+        !sticky &&
+        untilSeen &&
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed;
+    if (msg == null || sticky || _toastUnseen) return;
+    _fadeLater(msg, onTap);
+  }
+
+  /// Hides the toast once [msg] has had its reading time: 1.8 s plus 40 ms
+  /// per character past the first 20, so "plopped clipboard" is brief and
+  /// the Screen Recording steps get ~5 s; longer with something to tap.
+  void _fadeLater(String msg, VoidCallback? onTap) {
     final ms = min(6000, 1800 + 40 * (msg.length - 20));
     _toastTimer = Timer(
       Duration(milliseconds: max(onTap == null ? 1800 : 4000, ms)),
