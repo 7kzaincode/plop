@@ -66,9 +66,13 @@
 - Networks with client isolation block this entirely.
 - No encryption or access control in v1 (see above).
 - Global shortcuts are X11-only on Linux; on Wayland the settings panel
-  says so in place of the rows (`app/lib/hotkeys.dart`).
-- Images don't copy to the clipboard on Linux, and HEIC, WebP and RAW don't
-  on Windows or Android; they save or share instead (`app/lib/grab.dart`).
+  says so in place of the rows (`app/lib/hotkeys.dart`). GNOME has no X11
+  session from Ubuntu 25.10 and Fedora 43 on, so there the README points
+  to Print Screen and the window's own keys; the XDG GlobalShortcuts
+  portal would be the way back.
+- Images don't copy to the clipboard on Linux, nor SVGs anywhere; on
+  Windows and Android only PNG, JPEG, GIF and BMP do (on Android under
+  25 MB). The rest save or share instead (`app/lib/grab.dart`).
 - The Linux tray icon needs a panel that hosts StatusNotifier items (KDE
   does; GNOME with the AppIndicator extension); plop waits up to 30 s after
   launch for one. Without one, closing the window quits plop as it used to,
