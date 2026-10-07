@@ -17,20 +17,26 @@ void main() {
   late List<String> told; // names onCopied was called with
   late Settings settings;
 
+  /// The clipboard's change count, as the OS keeps it: every copy, plop's
+  /// or the user's, moves it on.
+  var clip = 0;
+
+  /// Copies of these names wait until their completer completes, as a big
+  /// picture's would; copies of names starting "bad" fail.
+  final slow = <String, Completer<void>>{};
+
   // Pictures copy as pictures here, as on a Mac, whatever runs the tests.
   setUp(() => debugClipboardOs = 'macos');
   tearDown(() => debugClipboardOs = null);
 
-  /// Starts watching an empty shelf, switched on unless [on] is false, with
-  /// the phone and the Mac already found and their first seconds over, so
-  /// what they plop from here on is an arrival.
-  Future<void> start(WidgetTester tester, {bool on = true}) async {
+  /// Starts watching what [shelf] holds, switched on unless [on] is false.
+  void watch({bool on = true}) {
     AutoCopy.reset();
     changes = StreamController<void>.broadcast();
-    shelf = [];
-    peers = ['phone', 'mac'];
     copied = [];
     told = [];
+    clip = 0;
+    slow.clear();
     settings = Settings.inMemory()..autoCopy = on;
     AutoCopy.onCopied = (item) => told.add(item.name);
     AutoCopy.watchItems(
@@ -40,8 +46,24 @@ void main() {
       self: 'me',
       settings: settings,
       maxBytes: 1 << 20,
-      copy: (item) async => copied.add(item.name),
+      deadline: (_) => const Duration(seconds: 30),
+      stamp: () async => clip,
+      copy: (item) async {
+        await slow[item.name]?.future;
+        if (item.name.startsWith('bad')) throw StateError('item expired');
+        copied.add(item.name);
+        clip++;
+      },
     );
+  }
+
+  /// Starts watching an empty shelf, switched on unless [on] is false, with
+  /// the phone and the Mac already found and their first seconds over, so
+  /// what they plop from here on is an arrival.
+  Future<void> start(WidgetTester tester, {bool on = true}) async {
+    shelf = [];
+    peers = ['phone', 'mac'];
+    watch(on: on);
     await tester.pump(Notify.grace);
   }
 
@@ -129,20 +151,9 @@ void main() {
 
   testWidgets("what was there at launch, or in a device's first seconds, "
       'stays put', (tester) async {
-    AutoCopy.reset();
-    changes = StreamController<void>.broadcast();
-    copied = [];
-    settings = Settings.inMemory()..autoCopy = true;
     shelf = [item('at launch', ready: true)];
     peers = ['phone'];
-    AutoCopy.watchItems(
-      changes.stream,
-      () => shelf,
-      () => peers,
-      self: 'me',
-      settings: settings,
-      copy: (item) async => copied.add(item.name),
-    );
+    watch();
     await tester.pump();
     expect(copied, isEmpty);
 
@@ -265,6 +276,100 @@ void main() {
     shelf = [item('two', ready: true), ...shelf];
     await changed(tester);
     expect(copied, ['one', 'two']);
+    await stop();
+  });
+
+  // A copy that only lands minutes later (a slow sender, a retry, a save
+  // from its row) would replace whatever the user copied since.
+  testWidgets('one not here within its deadline is let go', (tester) async {
+    await start(tester);
+    final late = item('late');
+    shelf = [late];
+    await changed(tester);
+    await tester.pump(const Duration(seconds: 31));
+    late.path = '/tmp/late';
+    await changed(tester);
+    expect(copied, isEmpty);
+
+    final onTime = item('on time');
+    shelf = [onTime, late];
+    await changed(tester);
+    await tester.pump(const Duration(seconds: 29));
+    onTime.path = '/tmp/on time';
+    await changed(tester);
+    expect(copied, ['on time']);
+    await stop();
+  });
+
+  testWidgets("what the user copied since it arrived stays; plop's own "
+      'copy does not count', (tester) async {
+    await start(tester);
+    final text = item('text');
+    shelf = [text];
+    await changed(tester);
+    clip++; // the user copies something of their own
+    text.path = '/tmp/text';
+    await changed(tester);
+    expect(copied, isEmpty);
+
+    // A picture is still being copied when a text arrives; the picture
+    // landing is auto-copy's doing, so the text goes on after it.
+    slow['IMG_1.png'] = Completer();
+    shelf = [item('IMG_1.png', kind: ItemKind.file, ready: true), ...shelf];
+    await changed(tester);
+    final next = item('next');
+    shelf = [next, ...shelf];
+    await changed(tester);
+    slow['IMG_1.png']!.complete();
+    await tester.pump();
+    next.path = '/tmp/next';
+    await changed(tester);
+    expect(copied, ['IMG_1.png', 'next']);
+    await stop();
+  });
+
+  testWidgets('a slow copy is not overtaken by a quick one after it', (
+    tester,
+  ) async {
+    await start(tester);
+    slow['IMG_2.png'] = Completer();
+    shelf = [item('IMG_2.png', kind: ItemKind.file, ready: true)];
+    await changed(tester);
+    shelf = [item('quick', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, isEmpty, reason: 'the text waits its turn');
+    slow['IMG_2.png']!.complete();
+    await tester.pump();
+    expect(copied, ['IMG_2.png', 'quick'], reason: 'the newer one ends up on');
+    await stop();
+  });
+
+  testWidgets('a failed copy says nothing and the next still goes', (
+    tester,
+  ) async {
+    await start(tester);
+    shelf = [item('bad one', ready: true)];
+    await changed(tester);
+    expect(told, isEmpty);
+    shelf = [item('good one', ready: true), ...shelf];
+    await changed(tester);
+    expect(copied, ['good one']);
+    expect(told, ['good one']);
+    await stop();
+  });
+
+  testWidgets('one removed before it got here is not copied on its return', (
+    tester,
+  ) async {
+    await start(tester);
+    final gone = item('gone');
+    shelf = [gone];
+    await changed(tester);
+    shelf = []; // its sender took it back, or its device dropped off
+    await changed(tester);
+    shelf = [item('gone', ready: true)];
+    await changed(tester);
+    expect(copied, isEmpty);
     await stop();
   });
 
