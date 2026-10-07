@@ -1511,8 +1511,14 @@ void main() {
     c = await Cluster.start(1);
     // ZipDecoder reads a link's target while decoding, before any check of
     // plop's could run, so a deflated one was inflated into memory whole.
-    final zeros = List.filled(1 << 20, 0);
-    final packed = ZLibCodec(raw: true).encode(zeros);
+    // These bytes are no deflate stream (the first block is of the reserved
+    // type), so a version that tried to inflate them before refusing would
+    // fail some other way: "compressed" means they were never read.
+    final garbage = List.filled(1024, 0xff);
+    expect(
+      () => ZLibCodec(raw: true).decode(garbage),
+      throwsA(isA<FormatException>()),
+    );
     final readme = (
       name: 'readme.txt',
       data: [1],
@@ -1526,9 +1532,9 @@ void main() {
           readme,
           (
             name: 'link',
-            data: packed,
+            data: garbage,
             method: 8, // deflate
-            size: zeros.length,
+            size: 1 << 20, // as claimed
             mode: 0xa1ff, // a symlink, 0777
           ),
         ]),
@@ -1549,7 +1555,7 @@ void main() {
           readme,
           (
             name: 'lzma.bin',
-            data: packed,
+            data: garbage,
             method: 14,
             size: 1 << 20,
             mode: 0x81a4,
