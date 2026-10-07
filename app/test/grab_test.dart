@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plop/grab.dart';
 import 'package:plop_core/plop_core.dart';
@@ -130,6 +130,56 @@ void main() {
     debugClipboardOs = 'android';
     expect(copiesAsImage(pic('big.png', 26 << 20)), isFalse);
     expect(copiesAsImage(pic('notes.pdf')), isFalse);
+  });
+
+  // On a Mac, pasteboard writes a blank picture for bytes ImageIO can't
+  // read and reports success; the copy must find out first.
+  testWidgets('a picture that does not decode is never copied as one', (
+    tester,
+  ) async {
+    debugClipboardOs = 'macos';
+    addTearDown(() => debugClipboardOs = null);
+    final images = <Object?>[], files = <Object?>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    const pasteboard = MethodChannel('pasteboard');
+    messenger.setMockMethodCallHandler(pasteboard, (call) async {
+      if (call.method == 'writeImage') images.add(call.arguments);
+      if (call.method == 'writeFiles') files.add(call.arguments);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(pasteboard, null));
+
+    await tester.runAsync(() async {
+      final root = await Directory.systemTemp.createTemp('plop_copy');
+      outDir = Directory('${root.path}/out')..createSync();
+      final node = await PlopNode.start(
+        dir: Directory('${root.path}/store'),
+        discovery: StaticDiscovery(),
+        name: 'me',
+      );
+      try {
+        final logo = await rootBundle.load('assets/brand/logo.png');
+        final good = await node.addBytes(logo.buffer.asUint8List(), 'a.png');
+        expect(await copyItem(node, good), 'image copied');
+
+        images.clear();
+        final bad = await node.addBytes(List.filled(64, 7), 'b.png');
+        expect(await copyItem(node, bad), 'copied · paste it anywhere');
+        expect(images, isEmpty, reason: 'no blank picture on the clipboard');
+        expect(files, hasLength(1), reason: 'the file instead');
+
+        // Copying arrivals puts no file on the clipboard: it fails.
+        await expectLater(
+          copyItem(node, bad, orFile: false),
+          throwsA(isA<PlopMessage>()),
+        );
+        expect(images, isEmpty);
+        expect(files, hasLength(1));
+      } finally {
+        await node.stop();
+        await root.delete(recursive: true);
+      }
+    });
   });
 
   // Android's clipboard hands over whatever the source app wrote; a wrong

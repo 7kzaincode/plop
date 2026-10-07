@@ -259,7 +259,10 @@ bool isCopyableImage(ShelfItem item) =>
 /// Whether this OS's clipboard can take the item as a picture. Windows goes
 /// through GDI+ and Android through BitmapFactory, which can't read HEIC,
 /// WebP or RAW; a failed attempt on Windows also empties the clipboard. Any
-/// other picture is copied as a file, as a file is. Copying arrivals
+/// other picture is copied as a file, as a file is. macOS and iOS read
+/// pictures through ImageIO, which takes most kinds but not all (AVIF
+/// before macOS 13 and iOS 16, some cameras' RAW, a corrupt file): no list
+/// here, [copyItem] checks each one as it copies. Copying arrivals
 /// (lib/auto_copy.dart) takes only what this says yes to.
 bool copiesAsImage(ShelfItem item) {
   final os = debugClipboardOs ?? Platform.operatingSystem;
@@ -324,7 +327,14 @@ Directory? _lastCopy;
 
 /// Puts [item] on the clipboard as the row's copy does: text as text, a
 /// picture as a picture, anything else as the file. Returns what to say.
-Future<String> copyItem(PlopNode node, ShelfItem item) async {
+/// A picture the clipboard turns out not to take goes as the file too on
+/// desktop, unless [orFile] is false: copying arrivals never puts a file
+/// on the clipboard, and fails instead.
+Future<String> copyItem(
+  PlopNode node,
+  ShelfItem item, {
+  bool orFile = true,
+}) async {
   if (item.kind == ItemKind.text) {
     final text = await File(await node.fetch(item.key)).readAsString();
     await Clipboard.setData(ClipboardData(text: text));
@@ -333,10 +343,19 @@ Future<String> copyItem(PlopNode node, ShelfItem item) async {
   if (copiesAsImage(item)) {
     final bytes = await File(await node.fetch(item.key)).readAsBytes();
     try {
+      // pasteboard never says a picture failed to decode on macOS or iOS:
+      // it empties the clipboard and writes a blank NSImage, or a nil
+      // UIImage. Flutter's codec falls back to the same ImageIO there for
+      // what it can't read itself, so ask it first (the header only; no
+      // frame is decoded). A codec that says no throws an Exception, as a
+      // PlatformException from the write does.
+      (await ui.instantiateImageCodec(bytes)).dispose();
       await Pasteboard.writeImage(bytes);
       return 'image copied';
-    } on PlatformException {
-      if (!isDesktop) throw const PlopMessage("couldn't copy that · try share");
+    } on Exception {
+      if (!isDesktop || !orFile) {
+        throw const PlopMessage("couldn't copy that · try share");
+      }
       // Fall back to copying it as a file below.
     }
   }

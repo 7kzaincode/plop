@@ -80,7 +80,7 @@ abstract final class AutoCopy {
     settings: settings,
     maxBytes: node.engine.eagerCopyBytes,
     deadline: node.engine.eagerDeadlineFor,
-    copy: (item) => copyItem(node, item),
+    copy: (item) => copyItem(node, item, orFile: false),
   );
 
   /// [watch] with the node taken apart: [changes] fires whenever [items],
