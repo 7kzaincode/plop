@@ -10,6 +10,13 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  // lib/window.dart's "plop/window" channel; kept for the life of the app.
+  FlMethodChannel* window_channel;
+  // Set over that channel once the tray icon is up (lib/tray.dart): closing
+  // the window then hides it and plop lives on in the tray, as on macOS.
+  // Until then a close quits as it always did, so a desktop without a tray
+  // can never be left with plop running and no way back to it.
+  gboolean hide_on_close;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -19,10 +26,68 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
+// The window's close button: hidden rather than destroyed while plop has a
+// tray icon to come back from. Flutter's view hooks this event first and
+// asks Dart whether the app may exit (lib/tray.dart answers with a hide while
+// the icon is up, and the engine quits on "exit"); this is for a close that
+// gets through to the window itself.
+static gboolean window_delete_cb(GtkWidget* window, GdkEvent* event,
+                                 gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  if (!self->hide_on_close) {
+    return FALSE;  // destroyed as usual, and plop quits with it
+  }
+  gtk_widget_hide(window);
+  return TRUE;
+}
+
+// "plop/window" from lib/window.dart: show (from the tray menu or a
+// notification), hide, hideOnClose and quit. The taskbar "flash" the Windows
+// runner answers has no portable equivalent here, so it is not implemented.
+static void window_method_cb(FlMethodChannel* channel, FlMethodCall* call,
+                             gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  const gchar* method = fl_method_call_get_name(call);
+  FlValue* args = fl_method_call_get_args(call);
+  GList* windows = gtk_application_get_windows(GTK_APPLICATION(self));
+  GtkWindow* window = windows != nullptr ? GTK_WINDOW(windows->data) : nullptr;
+  g_autoptr(FlMethodResponse) response = nullptr;
+  gboolean quit = FALSE;
+  if (g_strcmp0(method, "show") == 0) {
+    // Shows a hidden window too, and unminimizes and raises as the window
+    // manager allows (Wayland may only flag it as wanting attention).
+    if (window != nullptr) {
+      gtk_window_present(window);
+    }
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (g_strcmp0(method, "hide") == 0) {
+    if (window != nullptr) {
+      gtk_widget_hide(GTK_WIDGET(window));
+    }
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (g_strcmp0(method, "hideOnClose") == 0) {
+    self->hide_on_close = args != nullptr &&
+                          fl_value_get_type(args) == FL_VALUE_TYPE_BOOL &&
+                          fl_value_get_bool(args);
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else if (g_strcmp0(method, "quit") == 0) {
+    quit = TRUE;
+    response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  } else {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(call, response, nullptr);
+  if (quit) {
+    // Answered first; the main loop returns once this handler does.
+    g_application_quit(G_APPLICATION(self));
+  }
+}
+
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   // A second launch (see my_application_new) lands here in the running copy:
-  // bring its window forward instead of adding another.
+  // bring its window forward instead of adding another. gtk_window_present
+  // also shows a window that was hidden into the tray (window_delete_cb).
   GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
   if (windows != nullptr) {
     gtk_window_present(GTK_WINDOW(windows->data));
@@ -85,6 +150,14 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
+  g_signal_connect(window, "delete-event", G_CALLBACK(window_delete_cb), self);
+  g_autoptr(FlStandardMethodCodec) codec = fl_standard_method_codec_new();
+  self->window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)), "plop/window",
+      FL_METHOD_CODEC(codec));
+  fl_method_channel_set_method_call_handler(self->window_channel,
+                                            window_method_cb, self, nullptr);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
@@ -131,6 +204,7 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->window_channel);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
