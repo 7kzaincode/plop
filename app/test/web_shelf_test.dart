@@ -1,9 +1,45 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plop/settings.dart';
 import 'package:plop/web_shelf.dart';
+import 'package:plop_core/plop_core.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  // The first port is the address phones are given; a launch that found it
+  // taken and fell back must not replace it, or one bad launch moves
+  // every saved home-screen address for good.
+  test('the web shelf keeps the first port it was served on', () async {
+    final root = await Directory.systemTemp.createTemp('plop_web_port');
+    final node = await PlopNode.start(
+      dir: Directory('${root.path}/store'),
+      discovery: StaticDiscovery(),
+      name: 'me',
+    );
+    try {
+      final settings = Settings.inMemory();
+      await startWebShelf(node, settings, remember: false);
+      expect(node.web.enabled, isTrue);
+      expect(settings.webPort, isNull, reason: 'a second instance');
+      await startWebShelf(node, settings, remember: true);
+      expect(settings.webPort, node.port);
+      settings.webPort = node.port == 7567 ? 7568 : 7567;
+      final kept = settings.webPort;
+      await startWebShelf(node, settings, remember: true);
+      expect(settings.webPort, kept, reason: 'a fallback is for this run');
+      settings.webPort = 99999; // corrupt: as good as none
+      await startWebShelf(node, settings, remember: true);
+      expect(settings.webPort, node.port);
+    } finally {
+      await node.stop();
+      await root.delete(recursive: true);
+    }
+  });
+
   test('the quiet zone is four modules or more at every likely size', () {
     // Versions 1 to 10: 21 to 57 modules, far past any address plop shows.
     for (var modules = 21; modules <= 57; modules += 4) {

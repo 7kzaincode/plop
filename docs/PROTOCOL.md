@@ -138,10 +138,12 @@ port as `/v1`. Off unless the node enables it: the desktop apps do, phones do
 not, and the headless node does with `--web`. A disabled node answers `404`
 on all of these routes.
 
-**Port.** The desktop app asks for the port it had last time, else `7567`
-(p-l-o-p on a phone keypad), else any free port, and remembers what it got,
-so an address saved on a phone's home screen keeps working. The addresses
-shown are `http://<ipv4>:<port>/` for each address, best first (private LAN
+**Port.** The desktop app asks for the port it remembers, else `7567`
+(p-l-o-p on a phone keypad), else any free port. It remembers the first
+port it serves on and keeps it: a launch that finds that port taken uses
+another for that run only, so an address saved on a phone's home screen
+works again on the next launch. A remembered value that is not a port
+(1–65535) counts as none. The addresses shown are `http://<ipv4>:<port>/` for each address, best first (private LAN
 ranges on real interfaces, then other addresses, then VPN, VM and container
 interfaces, then 100.64/10, then 169.254/16), and `http://<host>.local:<port>/`
 (the name mDNS answers for: on macOS the Sharing settings' local host name)

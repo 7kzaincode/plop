@@ -63,8 +63,10 @@ Future<void> _start() async {
     name: name,
     ttl: settings.ttl,
     // Desktop serves the web shelf too, so its address should stay put:
-    // the memorable port, or the one that worked last time.
-    port: isDesktop ? settings.webPort ?? defaultWebPort : 0,
+    // the port phones were given, else the memorable one, else any.
+    ports: [
+      if (isDesktop) ...[?settings.webPort, defaultWebPort],
+    ],
   );
   if (isDesktop) await startWebShelf(node, settings, remember: suffix == '');
   if (kDebugMode) await _seed(node);

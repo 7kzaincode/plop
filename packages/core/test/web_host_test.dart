@@ -904,29 +904,43 @@ void main() {
     ]);
   });
 
-  test(
-    'start takes a preferred port, or any free one when it is taken',
-    () async {
-      p = await Pair.start();
-      final taken = await ServerSocket.bind(InternetAddress.anyIPv6, 0);
-      final dir = Directory('${p.root.path}/third');
-      final third = await PlopNode.start(
+  test('start tries each preferred port in turn, then any free one', () async {
+    p = await Pair.start();
+    final dir = Directory('${p.root.path}/other');
+    Future<int> portOf(List<int> ports) async {
+      final n = await PlopNode.start(
         dir: dir,
         discovery: StaticDiscovery(),
-        name: 'third',
-        port: taken.port,
+        name: 'other',
+        ports: ports,
       );
-      expect(third.port, isNot(taken.port));
-      await third.stop();
-      await taken.close();
-      final fourth = await PlopNode.start(
-        dir: dir,
-        discovery: StaticDiscovery(),
-        name: 'fourth',
-        port: taken.port,
-      );
-      expect(fourth.port, taken.port);
-      await fourth.stop();
-    },
-  );
+      final port = n.port;
+      await n.stop();
+      return port;
+    }
+
+    Future<int> freePort() async {
+      final s = await ServerSocket.bind(InternetAddress.anyIPv6, 0);
+      final port = s.port;
+      await s.close();
+      return port;
+    }
+
+    final saved = await ServerSocket.bind(InternetAddress.anyIPv6, 0);
+    final fallback = await freePort();
+    // The saved port is taken: the next one, not just any.
+    expect(await portOf([saved.port, fallback]), fallback);
+    // Both taken: any.
+    final both = await ServerSocket.bind(InternetAddress.anyIPv6, fallback);
+    final any = await portOf([saved.port, fallback]);
+    expect(any, isNot(anyOf(saved.port, fallback)));
+    await both.close();
+    // Free again: the saved one.
+    final port = saved.port;
+    await saved.close();
+    expect(await portOf([port, fallback]), port);
+    // Not ports at all, from a corrupt setting: skipped, not fatal.
+    expect(await portOf([70000, -1, 0, fallback]), fallback);
+    expect(await portOf([1 << 20]), isNot(0));
+  });
 }

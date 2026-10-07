@@ -56,10 +56,14 @@ class Settings {
     _save().ignore(); // the picker has nowhere to say it failed
   }
 
-  /// The port the node served on last time, asked for first on the next
-  /// launch so the web shelf's address on a phone's home screen keeps
-  /// working; null before the first launch.
-  int? get webPort => _data['webPort'] is int ? _data['webPort'] as int : null;
+  /// The port the web shelf was first served on, asked for first on every
+  /// launch so its address on a phone's home screen keeps working; null
+  /// before the first launch, and for anything that is not a port (a file
+  /// edited by hand, say), which binding would refuse with an error.
+  int? get webPort => switch (_data['webPort']) {
+    final int p when p >= 1 && p <= 65535 => p,
+    _ => null,
+  };
 
   set webPort(int? port) {
     _data['webPort'] = port;

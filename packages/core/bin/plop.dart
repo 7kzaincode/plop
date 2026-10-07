@@ -29,7 +29,7 @@ Future<void> main(List<String> args) async {
     discovery: discovery,
     name: name,
     ttl: Duration(seconds: int.parse(opt('ttl') ?? '120')),
-    port: web ? defaultWebPort : 0,
+    ports: [if (web) defaultWebPort],
   );
   print('node ${node.id} listening on ${node.port}');
   if (web) {

@@ -27,13 +27,14 @@ class PlopNode {
   late final WebHost web;
 
   /// [dir] is wiped on start; give each node on one machine its own.
-  /// [port] is a preference: when it is taken, any free port is used, so
-  /// a second node on the machine still comes up.
+  /// [ports] are preferences, tried in order; when each is taken, or is not
+  /// a port at all (a corrupt setting must not keep the app from starting),
+  /// any free port is used, so a second node on the machine still comes up.
   static Future<PlopNode> start({
     required Directory dir,
     required PeerDiscovery discovery,
     required String name,
-    int port = 0,
+    List<int> ports = const [],
     Duration ttl = defaultTtl,
     int eagerCopyBytes = defaultEagerCopyBytes,
     int maxItemBytes = defaultMaxItemBytes,
@@ -54,12 +55,18 @@ class PlopNode {
       pollInterval: pollInterval,
     );
     final server = NodeServer(store, onNudge: engine.onNudge);
-    try {
-      await server.start(port: port);
-    } on SocketException {
-      if (port == 0) rethrow;
-      await server.start();
+    var bound = false;
+    for (final port in ports) {
+      if (port < 1 || port > 65535) continue; // bind would throw ArgumentError
+      try {
+        await server.start(port: port);
+        bound = true;
+        break;
+      } on SocketException {
+        // Taken: the next one, or any.
+      }
     }
+    if (!bound) await server.start();
     engine.start();
     await discovery.start(
       LocalNode(

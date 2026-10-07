@@ -20,6 +20,21 @@ void main() {
     expect(settings.hotkey('snip'), isNotNull);
   });
 
+  // A saved port that is not one would make binding throw ArgumentError,
+  // which no fallback catches; it reads as nothing saved instead.
+  test('webPort reads back only a port', () {
+    final settings = Settings.inMemory();
+    expect(settings.webPort, isNull);
+    for (final bad in [0, -1, 65536, 70000, 1 << 40]) {
+      settings.webPort = bad;
+      expect(settings.webPort, isNull, reason: '$bad');
+    }
+    for (final good in [1, 7567, 65535]) {
+      settings.webPort = good;
+      expect(settings.webPort, good);
+    }
+  });
+
   test('a write that works reads back', () async {
     final dir = Directory.systemTemp.createTempSync('plop_settings');
     addTearDown(() => dir.deleteSync(recursive: true));

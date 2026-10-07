@@ -10,16 +10,19 @@ import 'theme.dart';
 
 /// Turns on the web shelf, for phones that cannot get the app (iPhones
 /// without a paid Apple account), with the app's icon for their home
-/// screens. [remember] keeps the node's port for the next launch, so the
-/// address saved on a phone keeps working; a second instance (a dev build
-/// beside the installed plop) shares the settings file and must not move
-/// the installed plop's address.
+/// screens. [remember] keeps the node's port for later launches when none
+/// is kept yet, so the address saved on a phone keeps working. Only then:
+/// a launch that found the kept port taken got another for this run only,
+/// and the next launch goes back to the kept one rather than strand every
+/// phone that saved it. A second instance (a dev build beside the
+/// installed plop) shares the settings file and must not move the
+/// installed plop's address.
 Future<void> startWebShelf(
   PlopNode node,
   Settings settings, {
   required bool remember,
 }) async {
-  if (remember) settings.webPort = node.port;
+  if (remember && settings.webPort == null) settings.webPort = node.port;
   final icon = await rootBundle.load('assets/icon/icon.png');
   node.web
     ..enabled = true
