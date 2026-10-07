@@ -206,8 +206,9 @@ to renew it.
   only ever from you, so keep plop open until every device nearby has it (the
   row says so). Smaller items copy to every device as soon as they appear.
   Your own rows say which devices have them. Phones only see the shelf while
-  plop is in the foreground; a download cut off by switching away starts
-  over by itself once plop is back in front.
+  plop is in the foreground; a download that broke off while plop was in
+  the background starts over once by itself when plop is back in front, if
+  the sender still answers.
 - **Phones without the app:** settings › open on a phone has a QR code for
   the web shelf (see iPhone and iPad above).
 

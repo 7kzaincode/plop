@@ -6,6 +6,23 @@ import 'dart:typed_data';
 import 'item.dart';
 import 'node_server.dart';
 
+/// A download that broke off part way through its body: the connection
+/// dropped or was reset, or no byte came for the stall timeout. The sender
+/// may well be fine, and asking again may work: this end may have been
+/// the one that stopped, a phone that put the app in the background, say.
+/// A refusal or a wrong size stays an [HttpException], and a download's
+/// cut-off a [TimeoutException].
+class TransferInterrupted implements Exception {
+  const TransferInterrupted(this.cause);
+
+  /// What dart:io said: an [HttpException], a [SocketException], or the
+  /// stall's [TimeoutException].
+  final Object cause;
+
+  @override
+  String toString() => 'transfer interrupted: $cause';
+}
+
 /// Talks to other nodes' [NodeServer]s.
 class NodeClient {
   final _http = HttpClient()
@@ -80,8 +97,9 @@ class NodeClient {
   /// Streams an item into [destPath]. Writes to a `.part` file and renames on
   /// success, so a half-written file is never mistaken for a complete one.
   /// On any failure, a full disk or a failed rename included, the `.part`
-  /// file is deleted. If [cutOff] completes first, the download is dropped
-  /// with a [TimeoutException], however the sender paces its bytes.
+  /// file is deleted. A body that breaks off fails with a
+  /// [TransferInterrupted]. If [cutOff] completes first, the download is
+  /// dropped with a [TimeoutException], however the sender paces its bytes.
   Future<void> download(
     Uri base,
     String id,
@@ -109,7 +127,12 @@ class NodeClient {
       // A stalled sender (e.g. an iOS app that got suspended) should fail the
       // download rather than hang it forever. That only catches a sender
       // that stops, not one that sends a byte now and then: [cutOff] does.
-      var body = res.timeout(const Duration(seconds: 15));
+      // Whatever breaks the body (the stall, a hang-up, a reset) is an
+      // interruption, told apart from what this end decides below (too
+      // many bytes, too few) and from [cutOff], added after.
+      var body = res
+          .timeout(const Duration(seconds: 15))
+          .handleError((Object e) => throw TransferInterrupted(e));
       if (cutOff != null) body = _until(body, cutOff);
       await for (final chunk in body) {
         received += chunk.length;

@@ -88,6 +88,10 @@ void main() {
     );
     expect(friendlyError(const SocketException('refused')), contains('sender'));
     expect(
+      friendlyError(const TransferInterrupted(HttpException('closed'))),
+      contains('sender'),
+    );
+    expect(
       friendlyError(const FileSystemException('x', '/tmp/a/report.pdf.part')),
       "can't access report.pdf",
     );

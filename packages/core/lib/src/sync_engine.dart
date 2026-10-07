@@ -362,13 +362,14 @@ class SyncEngine {
   }
 
   /// Copies [item] from its sender to [dest]. A tap's transfer (one with
-  /// no [cutOff]) that stalls or loses its connection while the sender
-  /// still answers this node's polls starts over once: what stopped was
-  /// this end, as a phone does when plop goes to the background for longer
-  /// than the 15 s stall timeout, and a second tap would have worked. A
-  /// sender that went quiet itself has missed a poll by then (one every
-  /// 3 s, 5 s to answer), so its error comes at once. Eager copies are
-  /// tried again by later polls instead.
+  /// no [cutOff]) that breaks off part way ([TransferInterrupted]: 15 s
+  /// without a byte, or the connection dropped) starts over once, from the
+  /// first byte, if the sender answered this node's latest poll of it:
+  /// what stopped was most likely this end, a phone that put plop in the
+  /// background, and a second tap would have worked. A sender that went
+  /// quiet itself fails its polls well inside those 15 s (one every 3 s,
+  /// 5 s to answer), so its error comes at once. Eager copies are tried
+  /// again by later polls instead.
   Future<void> _transfer(
     ShelfItem item,
     String dest, {
@@ -380,11 +381,8 @@ class SyncEngine {
     while (true) {
       try {
         return await _transferOnce(s, item, dest, cutOff: cutOff);
-      } catch (e) {
-        final stalled = e is TimeoutException || e is SocketException;
-        if (!again || !stalled || _peers[s.peer.id] != s || s.failures > 0) {
-          rethrow;
-        }
+      } on TransferInterrupted {
+        if (!again || _peers[s.peer.id] != s || s.failures > 0) rethrow;
         again = false;
       }
     }

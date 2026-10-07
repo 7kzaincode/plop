@@ -208,7 +208,7 @@ class StallingClient extends NodeClient {
     final n = attempts[id] = (attempts[id] ?? 0) + 1;
     if (n == 1) {
       await stall;
-      throw TimeoutException('no bytes for 15 s');
+      throw TransferInterrupted(TimeoutException('no bytes for 15 s'));
     }
     await super.download(
       base,
@@ -218,6 +218,114 @@ class StallingClient extends NodeClient {
       onProgress: onProgress,
       cutOff: cutOff,
     );
+  }
+}
+
+/// A peer on a raw socket, as [id], listing one item `x` of [size] bytes.
+/// Its first [drops] downloads send the headers and a quarter of the body,
+/// then hang up: a normal close, or with [reset] a reset (SO_LINGER 0).
+/// Later downloads are whole.
+class Dropper {
+  Dropper._(this._server, this.id, this.size, this.drops, this.reset);
+
+  static Future<Dropper> start(
+    String id,
+    int size, {
+    int drops = 1,
+    bool reset = false,
+  }) async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final d = Dropper._(server, id, size, drops, reset);
+    server.listen(d._handle);
+    return d;
+  }
+
+  final ServerSocket _server;
+  final String id;
+  final int size, drops;
+  final bool reset;
+  final _sockets = <Socket>{};
+
+  /// Download requests so far.
+  var downloads = 0;
+
+  int get port => _server.port;
+
+  Peer get peer =>
+      Peer(id: id, name: id, hosts: ['127.0.0.1'], port: _server.port);
+
+  void _handle(Socket s) {
+    _sockets.add(s);
+    final head = BytesBuilder();
+    var answered = false;
+    s.listen(
+      (data) {
+        head.add(data);
+        final text = latin1.decode(head.toBytes());
+        if (answered || !text.contains('\r\n\r\n')) return;
+        answered = true;
+        _answer(s, text.split(' ')[1]).catchError((_) {});
+      },
+      onError: (_) {},
+      onDone: () => _sockets.remove(s),
+    );
+  }
+
+  Future<void> _answer(Socket s, String path) async {
+    void head(int status, int length, String type) => s.add(
+      latin1.encode(
+        'HTTP/1.1 $status X\r\nContent-Type: $type\r\n'
+        'Content-Length: $length\r\nConnection: close\r\n\r\n',
+      ),
+    );
+    if (path == '/v1/items') {
+      final list = utf8.encode(
+        jsonEncode([
+          {'id': 'x', 'name': 'x.bin', 'size': size, 'ttlMs': 60000},
+        ]),
+      );
+      head(200, list.length, 'application/json');
+      s.add(list);
+    } else if (path == '/v1/items/x') {
+      head(200, size, 'application/octet-stream');
+      if (++downloads <= drops) {
+        s.add(List.filled(size ~/ 4, 9));
+        await s.flush();
+        if (reset) {
+          _lingerZero(s);
+          s.destroy();
+          return;
+        }
+      } else {
+        s.add(List.filled(size, 9));
+      }
+    } else {
+      head(404, 0, 'text/plain');
+    }
+    await s.flush();
+    s.close().ignore();
+  }
+
+  /// Makes closing [s] send a reset rather than a goodbye.
+  static void _lingerZero(Socket s) {
+    // struct linger: {int on, int seconds}; two u_shorts on Windows.
+    final linger = Platform.isWindows
+        ? (ByteData(4)..setUint16(0, 1, Endian.host))
+        : (ByteData(8)..setInt32(0, 1, Endian.host));
+    s.setRawOption(
+      RawSocketOption(
+        RawSocketOption.levelSocket,
+        Platform.isLinux ? 13 : 0x80, // SO_LINGER
+        linger.buffer.asUint8List(),
+      ),
+    );
+  }
+
+  Future<void> close() async {
+    for (final s in _sockets) {
+      s.destroy();
+    }
+    await _server.close();
   }
 }
 
@@ -1276,6 +1384,31 @@ void main() {
     },
   );
 
+  test(
+    'a tap whose connection drops while its sender answers starts over',
+    () async {
+      c = await Cluster.start(1, eagerCopyBytes: 1024);
+      final [b] = c.nodes;
+      // A reset as well as a plain hang-up: what a phone's reclaimed socket,
+      // or a sender's Wi-Fi blip, looks like from here.
+      for (final reset in [false, true]) {
+        final d = await Dropper.start(
+          'dropper-$reset',
+          100 * 1024,
+          reset: reset,
+        );
+        addTearDown(d.close);
+        c.discoveries[0].add(d.peer);
+        await eventually(() => b.items.any((i) => i.originId == d.id));
+        final key = b.items.singleWhere((i) => i.originId == d.id).key;
+        final dest = '${c.root.path}/x-$reset.bin';
+        await b.saveTo(key, dest);
+        expect(File(dest).readAsBytesSync(), List.filled(100 * 1024, 9));
+        expect(d.downloads, 2, reason: 'reset: $reset');
+      }
+    },
+  );
+
   test('a tap whose sender went quiet fails at once', () async {
     final quiet = Completer<void>();
     final client = StallingClient(quiet.future);
@@ -1290,7 +1423,7 @@ void main() {
     await eventually(() => b.items.isNotEmpty);
     final save = expectLater(
       b.saveTo(big.key, '${c.root.path}/big.bin'),
-      throwsA(isA<TimeoutException>()),
+      throwsA(isA<TransferInterrupted>()),
     );
     // The sender stops answering, and a poll misses before the stall
     // timeout fires: starting over would only wait on it again.
@@ -1335,6 +1468,28 @@ void main() {
       throwsA(isA<FileSystemException>()),
     );
     expect(File('${blocked.path}.part').existsSync(), isFalse);
+  });
+
+  test('a body cut off by a hang-up or a reset is an interruption', () async {
+    c = await Cluster.start(1);
+    final client = NodeClient();
+    addTearDown(client.close);
+    for (final reset in [false, true]) {
+      final d = await Dropper.start('dropper', 100 * 1024, reset: reset);
+      addTearDown(d.close);
+      final dest = '${c.root.path}/x-$reset.bin';
+      await expectLater(
+        client.download(
+          Uri.parse('http://127.0.0.1:${d.port}'),
+          'x',
+          dest,
+          expectedSize: 100 * 1024,
+        ),
+        throwsA(isA<TransferInterrupted>()),
+        reason: 'reset: $reset',
+      );
+      expect(File('$dest.part').existsSync(), isFalse);
+    }
   });
 
   test('a download is dropped when its cut-off comes', () async {
