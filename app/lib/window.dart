@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -26,8 +27,54 @@ abstract final class MacWindow {
 
   /// Brings the window to the front, reopening it if it was closed, for a
   /// message the user must act on while they are in another app.
+  static void show() => AppWindow.show();
+}
+
+/// The desktop window as a whole: brought back from the tray or a
+/// notification, hidden, or plop quit, through the runners' "plop/window"
+/// channel (MainFlutterWindow.swift, flutter_window.cpp, my_application.cc).
+abstract final class AppWindow {
+  static const _channel = MethodChannel('plop/window');
+
+  static bool get supported =>
+      Platform.isMacOS || Platform.isWindows || Platform.isLinux;
+
+  /// Brings the window to the front, reopening it if it was closed and out
+  /// of the Dock or taskbar if minimized.
   static void show() {
-    if (Platform.isMacOS) _channel.invokeMethod<void>('show').ignore();
+    if (supported) _channel.invokeMethod<void>('show').ignore();
+  }
+
+  /// Puts the window away with plop still running, as its close button
+  /// does once the tray icon is up.
+  static void hide() {
+    if (supported) _channel.invokeMethod<void>('hide').ignore();
+  }
+
+  /// Windows and Linux: whether closing the window hides it, with plop
+  /// living on in the tray, or quits plop as it did before there was a tray
+  /// icon. Off until lib/tray.dart has the icon up, so a close can never
+  /// leave plop running with no way back to it. macOS always keeps running
+  /// (AppDelegate.swift); its Dock icon reopens the window.
+  static Future<void> hideOnClose(bool on) async {
+    if (!Platform.isWindows && !Platform.isLinux) return;
+    try {
+      await _channel.invokeMethod<void>('hideOnClose', on);
+    } catch (_) {
+      // An older runner without the handler: closing quits, as before.
+    }
+  }
+
+  /// Ends plop: the runner quits from its own message loop once it has
+  /// answered. Should it have no handler, or plop still be running two
+  /// seconds later, the process exits anyway: "quit plop" must always quit.
+  static Future<void> quit() async {
+    try {
+      await _channel.invokeMethod<void>('quit');
+    } catch (_) {
+      exit(0);
+    }
+    Timer(const Duration(seconds: 2), () => exit(0));
   }
 }
 

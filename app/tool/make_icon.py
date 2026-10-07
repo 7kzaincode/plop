@@ -36,3 +36,22 @@ mac.save("assets/icon/icon_macos.png")
 # In-app mark.
 MARK.save("assets/brand/logo.png")
 print("ok", MARK.size)
+
+# Tray and menu-bar icons (lib/tray.dart): the bare mark, no tile. tray.png
+# is 36 px, twice the 18 pt the macOS menu bar draws it at, so Retina bars
+# get a sharp glyph; it is a template there (alpha only), so it follows a
+# light or dark bar, and Linux panels scale it to their own size. Windows
+# draws icons as they are, so it gets an .ico in white for the usual dark
+# taskbar and one in black for the light theme (lib/tray.dart picks), with
+# the sizes the notification area asks for from 100% to 200% scale.
+def mark_only(size, scale, color=(255, 255, 255)):
+    m = place(Image.new("RGBA", (size, size), (0, 0, 0, 0)), scale)
+    tinted = Image.new("RGBA", m.size, color + (0,))
+    tinted.putalpha(m.getchannel("A"))
+    return tinted
+
+
+mark_only(36, 0.9).save("assets/brand/tray.png")
+ICO_SIZES = [(16, 16), (20, 20), (24, 24), (32, 32)]
+mark_only(256, 0.92).save("assets/brand/tray.ico", sizes=ICO_SIZES)
+mark_only(256, 0.92, (0, 0, 0)).save("assets/brand/tray_light.ico", sizes=ICO_SIZES)

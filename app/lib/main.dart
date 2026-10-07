@@ -14,6 +14,7 @@ import 'settings.dart';
 import 'share_in.dart';
 import 'shelf_screen.dart';
 import 'theme.dart';
+import 'tray.dart';
 import 'window.dart';
 
 Future<void> main() async {
@@ -67,6 +68,8 @@ Future<void> _start() async {
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
   LoginItem.installLauncher();
   Arrivals.watch(node);
+  // Closing the window keeps plop in the tray once its icon is up.
+  Tray.init(node).ignore();
   // The shortcuts fire while the user is in another app or the window is
   // closed (macOS keeps plop running), so a failure that needs the user, like
   // the Screen Recording steps, waits until they look instead of fading out;

@@ -37,6 +37,9 @@ flutter:
   uses-material-design: true
   assets:
     - assets/brand/logo.png
+    - assets/brand/tray.png
+    - assets/brand/tray.ico
+    - assets/brand/tray_light.ico
   fonts:
     - family: Geist
       fonts:
