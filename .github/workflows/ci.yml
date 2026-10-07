@@ -1,18 +1,22 @@
 # macOS, iOS and Android are built and tested on the dev Mac. CI covers the
 # core tests, the app's widget tests and the desktop targets that machine
 # cannot build. The Windows build (billed at 2x) waits for the cheap core
-# tests and the Linux analyze/test/build, so a red commit never pays for it.
-# Installable builds come from release.yml.
+# tests and the Linux analyze/test/build, so a red commit never pays for it,
+# and runs only when something it compiles changed (see the core job) or
+# when run by hand (Actions > CI > Run workflow). Installable builds come
+# from release.yml.
 name: CI
 
 # Skip pushes that only touch files no job here builds or tests (minutes are
-# billed on a private repo; Windows counts double).
+# billed on a private repo; Windows counts double). site/ is the static
+# download page, which nothing here builds.
 on:
   push:
     branches: [main]
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      - 'site/**'
       - 'LICENSE'
       - 'packaging/**'
       - '.github/workflows/release.yml'
@@ -23,6 +27,7 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+      - 'site/**'
       - 'LICENSE'
       - 'packaging/**'
       - '.github/workflows/release.yml'
@@ -44,8 +49,32 @@ jobs:
   core:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # pull-requests: read lets paths-filter list a PR's files.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      windows: ${{ steps.paths.outputs.windows }}
     steps:
       - uses: actions/checkout@v7
+      # What the Windows build compiles: the Dart (the app's and the core
+      # package's), its runner, the plugin set and this file's Flutter pin.
+      # A push of only Linux runner files, tests or assets cannot break it
+      # once Linux is green. Here rather than in a job of its own, which
+      # would cost a billed minute per run. On a push to main the files are
+      # those of the commits pushed; on a PR, the PR's.
+      - uses: dorny/paths-filter@v4
+        id: paths
+        with:
+          filters: |
+            windows:
+              - 'app/lib/**'
+              - 'app/windows/**'
+              - 'app/pubspec.yaml'
+              - 'app/pubspec.lock'
+              - 'packages/core/lib/**'
+              - 'packages/core/pubspec.yaml'
+              - '.github/workflows/ci.yml'
       - uses: dart-lang/setup-dart@v1
       - working-directory: packages/core
         run: |
@@ -83,6 +112,7 @@ jobs:
 
   windows:
     needs: [core, linux]
+    if: github.event_name == 'workflow_dispatch' || needs.core.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -96,7 +126,8 @@ jobs:
           flutter pub get
           flutter build windows --release
       # The VC++ runtime, so this test build starts on PCs without the
-      # Visual C++ Redistributable.
+      # Visual C++ Redistributable. For a test build of a commit that skipped
+      # this job, run CI by hand on its branch.
       - working-directory: app
         run: Copy-Item "$env:WINDIR\System32\msvcp140.dll", "$env:WINDIR\System32\vcruntime140.dll", "$env:WINDIR\System32\vcruntime140_1.dll" build\windows\x64\runner\Release
       - uses: actions/upload-artifact@v7

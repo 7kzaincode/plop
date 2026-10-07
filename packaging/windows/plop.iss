@@ -49,6 +49,10 @@ Name: "{autoprograms}\plop"; Filename: "{app}\plop.exe"; AppUserModelID: "plop"
 ; start the deleted exe at every login. Like the firewall rule cleanup, this
 ; assumes the account elevating is the one that installed.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "plop"; ValueType: none; Flags: uninsdeletevalue
+; Where plop's window was last left (app/windows/runner/win32_window.cpp,
+; RememberFrame): plop writes it, never the installer, and uninstalling
+; removes it, with the same elevating-account caveat.
+Root: HKCU; Subkey: "Software\plop"; Flags: dontcreatekey uninsdeletekey
 
 [Run]
 ; Let the other devices reach plop's server (a random port) on any network

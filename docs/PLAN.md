@@ -16,9 +16,11 @@
 - Done: core (`dart test` in `packages/core`, 83 tests), the macOS, iOS,
   Android, Windows and Linux apps (`flutter test` in `app`, 104 tests, the
   shelf and layout ones driving a real pair of nodes over loopback), and
-  release builds for all but iOS via release.yml (ad-hoc or debug signed;
-  the README covers the first open on each system). CI runs the core tests,
-  the app's widget tests and the Linux and Windows builds.
+  release builds for all but iOS via release.yml (Windows and Linux
+  unsigned, macOS ad-hoc or self-signed, Android debug signed; the README
+  covers the first open on each system). CI runs the core tests,
+  the app's widget tests and the Linux build, and the Windows build when
+  the Dart, its runner or the plugins change.
 - Added beyond the brief: folders, per-item lifetime picker, copy vs save,
   100 GB cap with transfers that outlive expiry, rebindable snip/clipboard/
   grab-newest shortcuts, copying arrivals to the clipboard (opt-in), open
@@ -64,9 +66,13 @@
 - Networks with client isolation block this entirely.
 - No encryption or access control in v1 (see above).
 - Global shortcuts are X11-only on Linux; on Wayland the settings panel
-  says so in place of the rows (`app/lib/hotkeys.dart`).
-- Images don't copy to the clipboard on Linux, and HEIC, WebP and RAW don't
-  on Windows or Android; they save or share instead (`app/lib/grab.dart`).
+  says so in place of the rows (`app/lib/hotkeys.dart`). GNOME has no X11
+  session from Ubuntu 25.10 and Fedora 43 on, so there the README points
+  to Print Screen and the window's own keys; the XDG GlobalShortcuts
+  portal would be the way back.
+- Images don't copy to the clipboard on Linux, nor SVGs anywhere; on
+  Windows and Android only PNG, JPEG, GIF and BMP do (on Android under
+  25 MB). The rest save or share instead (`app/lib/grab.dart`).
 - The Linux tray icon needs a panel that hosts StatusNotifier items (KDE
   does; GNOME with the AppIndicator extension); plop waits up to 30 s after
   launch for one. Without one, closing the window quits plop as it used to,

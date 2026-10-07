@@ -111,6 +111,7 @@ h1 span { color: var(--dim); }
 .panel li::before { content: counter(step); font: 400 12px/1.9 var(--mono); color: var(--faint); }
 .panel b { font-weight: 500; color: var(--text); }
 .panel p { margin: 0; }
+.panel p.after { margin-top: 14px; font-size: 14px; }
 code, kbd { font: 400 0.86em var(--mono); color: var(--text); }
 pre {
   margin: 12px 0 0;
@@ -177,7 +178,7 @@ footer a:hover { color: var(--text); }
       </a>
       <a class="row" data-os="iphone" href="#setup" data-tab="iphone">
         <svg class="tile" viewBox="0 0 32 32" aria-hidden="true"><path class="bucket" d=""/><text x="16" y="17.6" text-anchor="middle">iOS</text></svg>
-        <span class="what"><span class="name">plop on iPhone</span><span class="meta">in Safari, from any computer running plop</span></span>
+        <span class="what"><span class="name">plop on iPhone</span><span class="meta">in Safari · iOS 15 or later</span></span>
         <span class="go">how<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
       </a>
     </div>
@@ -199,7 +200,9 @@ footer a:hover { color: var(--text); }
         <li><span>Open <code>plop-macos.dmg</code> and drag plop into Applications.</span></li>
         <li><span>On the first open macOS can't check who made it. Click Done, then <b>System Settings › Privacy &amp; Security › Open Anyway</b>.</span></li>
         <li><span>Let plop find devices on your local network when it asks.</span></li>
+        <li><span>The first snip (<kbd>⌃⌥P</kbd>) asks for Screen Recording. Allow it, then quit plop (<kbd>⌘Q</kbd>) and open it again.</span></li>
       </ol>
+      <p class="after">To update, quit plop and do 1 and 2 again with the new download. If a snip then says plop isn't allowed yet, open the settings from that message, remove plop there with −, press <kbd>⌃⌥P</kbd> again and allow it.</p>
     </div>
     <div class="panel" role="tabpanel" id="p-windows" aria-labelledby="t-windows" hidden>
       <ol>
@@ -211,10 +214,11 @@ footer a:hover { color: var(--text); }
       <p>Ubuntu 24.04, Debian 13 or newer, x64:</p>
       <pre><code>sudo apt install avahi-daemon
 tar xzf plop-linux-x64.tar.gz &amp;&amp; ./plop/plop</code></pre>
+      <p class="after">The shortcuts need an X11 session: on Ubuntu 24.04 and Debian 13, pick <b>… on Xorg</b> from the gear at the login screen. Ubuntu 25.10, Fedora 43 and later have only Wayland, so there press Print Screen, then <kbd>Ctrl+V</kbd> in plop to put the shot up.</p>
     </div>
     <div class="panel" role="tabpanel" id="p-iphone" aria-labelledby="t-iphone" hidden>
       <ol>
-        <li><span>Open plop on a Mac or PC on the same Wi-Fi and click its settings.</span></li>
+        <li><span>Open plop on a Mac, Windows or Linux computer on the same Wi-Fi and click its settings.</span></li>
         <li><span>Scan the code there with your iPhone's camera.</span></li>
         <li><span>In Safari, tap <b>Share › Add to Home Screen</b>. plop opens from its own icon from then on.</span></li>
       </ol>
@@ -230,7 +234,7 @@ tar xzf plop-linux-x64.tar.gz &amp;&amp; ./plop/plop</code></pre>
       <kbd>⌃⌥P</kbd><span>snip part of the screen onto plop</span>
       <kbd>⌃⌥V</kbd><span>plop what's on your clipboard</span>
       <kbd>⌃⌥G</kbd><span>copy the newest thing another device sent</span>
-      <kbd>Ctrl⇧Alt</kbd><span>the same letters on Windows and Linux</span>
+      <kbd>Ctrl⇧Alt</kbd><span>the same letters on Windows and Linux (X11)</span>
     </div>
   </section>
 </main>

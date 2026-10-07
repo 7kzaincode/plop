@@ -59,12 +59,13 @@ flutter_launcher_icons:
   android: true
   adaptive_icon_background: "#0A0A0A"
   adaptive_icon_foreground: assets/icon/foreground.png
+  # Android 13+ themed icons tint this layer's alpha; the white mark on
+  # transparent is already what it needs.
+  adaptive_icon_monochrome: assets/icon/foreground.png
   ios: true
   remove_alpha_ios: true
   macos:
     generate: true
     image_path: assets/icon/icon_macos.png
-  windows:
-    generate: true
-    image_path: assets/icon/icon_macos.png
-    icon_size: 256
+  # No windows: block: tool/make_icon.py writes app_icon.ico with every size,
+  # where this would overwrite it with a single 256 px one.
