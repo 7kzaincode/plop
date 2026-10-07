@@ -18,8 +18,14 @@ void main() {
   late StaticDiscovery dMe, dOther;
 
   /// Starts [me] seeing [other], which has one text item [me] has mirrored.
-  /// [other] does not see [me] back until a test adds it to [dOther].
-  Future<void> startNodes(WidgetTester tester) => tester.runAsync(
+  /// [other] does not see [me] back until a test adds it to [dOther]. With
+  /// [connect] false neither knows of the other, and [me] is alone. [poll]
+  /// is how often each node polls its peers.
+  Future<void> startNodes(
+    WidgetTester tester, {
+    bool connect = true,
+    Duration poll = const Duration(seconds: 3),
+  }) => tester.runAsync(
     // flutter_test stubs HttpClient to answer 400; the nodes need the real one.
     () => HttpOverrides.runWithHttpOverrides(() async {
       root = await Directory.systemTemp.createTemp('plop_shelf');
@@ -30,12 +36,15 @@ void main() {
         dir: Directory('${root.path}/me'),
         discovery: dMe,
         name: 'me',
+        pollInterval: poll,
       );
       other = await PlopNode.start(
         dir: Directory('${root.path}/other'),
         discovery: dOther,
         name: 'other',
+        pollInterval: poll,
       );
+      if (!connect) return;
       dMe.add(
         Peer(
           id: other.id,
@@ -104,6 +113,20 @@ void main() {
       reason: 'the tail starts on a whole character',
     );
     return (head, tail);
+  }
+
+  /// What the tooltip on the bar's count of devices says, by its [label].
+  String barTip(WidgetTester tester, String label) => tester
+      .widget<Tooltip>(
+        find.ancestor(of: find.text(label), matching: find.byType(Tooltip)),
+      )
+      .message!;
+
+  /// Search's over at once, so a test sees what the shelf says once nobody
+  /// has turned up.
+  void noGrace() {
+    peerGrace = Duration.zero;
+    addTearDown(() => peerGrace = const Duration(seconds: 6));
   }
 
   Future<void> pressEnter(WidgetTester tester, {int repeats = 0}) async {
@@ -559,6 +582,130 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(third.stop);
+    await stopNodes(tester);
+  });
+
+  testWidgets('with nobody nearby, the help is there with rows or without', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    noGrace();
+    await startNodes(tester, connect: false);
+    await pumpApp(tester);
+    const what = 'other device not showing up?';
+    expect(find.text('just you'), findsOneWidget);
+    expect(find.textContaining('$what\n'), findsOneWidget, reason: 'empty');
+    expect(barTip(tester, 'just you'), contains(what));
+
+    // Something on the shelf takes the empty state away; the help moves to
+    // a line under the bar rather than going with it.
+    await tester.runAsync(() => me.addText('mine'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('mine'), findsOneWidget);
+    expect(find.textContaining('$what · '), findsOneWidget);
+    expect(barTip(tester, 'just you'), contains(what));
+
+    await stopNodes(tester);
+  });
+
+  testWidgets('a device that went quiet sends nobody to their settings', (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    noGrace();
+    await startNodes(tester);
+    await pumpApp(tester);
+    expect(find.text('1 nearby'), findsOneWidget);
+
+    // Its phone locks: gone from discovery, its copied text stays.
+    await tester.runAsync(() async {
+      dMe.remove(other.id);
+      await _until(() => me.peers.isEmpty, 'peer down');
+    });
+    // The news reaches the shelf as a microtask of the test's zone, which
+    // the first pump runs; the second draws it.
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('just you'), findsOneWidget);
+    expect(find.text('hello'), findsOneWidget);
+    // No line under the bar that comes and goes with every lock, and no
+    // Local Network or firewall steps; the tooltip has the likely reason.
+    expect(find.textContaining('not showing up'), findsNothing);
+    expect(find.textContaining('asleep'), findsNothing);
+    expect(barTip(tester, 'just you'), contains('the other device asleep?'));
+
+    await stopNodes(tester);
+  });
+
+  testWidgets("a device that reaches this one but can't be reached is named", (
+    tester,
+  ) async {
+    debugDesktopOverride = true;
+    addTearDown(() => debugDesktopOverride = null);
+    noGrace();
+    await startNodes(
+      tester,
+      connect: false,
+      poll: const Duration(milliseconds: 100),
+    );
+    // A port nothing listens on stands in for other's firewall: other
+    // reaches me, but me never reaches other.
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        final closed = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final port = closed.port;
+        await closed.close();
+        dOther.add(
+          Peer(id: me.id, name: 'me', hosts: ['127.0.0.1'], port: me.port),
+        );
+        dMe.add(
+          Peer(id: other.id, name: 'other', hosts: ['127.0.0.1'], port: port),
+        );
+        await _until(() => me.unreachable.isNotEmpty, 'unreachable');
+      }, _RealHttp()),
+    );
+    await pumpApp(tester);
+    const what = "can't reach other · its firewall is blocking plop";
+    const fix = 'plop there says how to let it through';
+    expect(find.text('1 unreachable'), findsOneWidget);
+    expect(find.text('$what\n$fix'), findsOneWidget, reason: 'empty state');
+    expect(find.textContaining('not showing up'), findsNothing);
+    expect(barTip(tester, '1 unreachable'), contains('$what\n$fix'));
+
+    // Other goes to sleep: it stops reaching me too, and once its last
+    // visit is old it is no longer called blocked. Nothing announces that;
+    // the once-a-second check redraws the empty shelf.
+    await tester.runAsync(() async {
+      dOther.remove(me.id);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      me.server.seenBy[other.id] = DateTime.now().subtract(
+        PlopNode.oneWayAfter * 2,
+      );
+    });
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('just you'), findsOneWidget);
+    expect(find.textContaining("can't reach"), findsNothing);
+
+    // Back, and still behind its firewall; then something on the shelf:
+    // the same words, on a line under the bar.
+    await tester.runAsync(
+      () => HttpOverrides.runWithHttpOverrides(() async {
+        dOther.add(
+          Peer(id: me.id, name: 'me', hosts: ['127.0.0.1'], port: me.port),
+        );
+        await _until(() => me.unreachable.isNotEmpty, 'unreachable again');
+      }, _RealHttp()),
+    );
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('1 unreachable'), findsOneWidget);
+    await tester.runAsync(() => me.addText('mine'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('$what · $fix'), findsOneWidget);
+
     await stopNodes(tester);
   });
 

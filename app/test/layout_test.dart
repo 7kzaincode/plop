@@ -215,6 +215,9 @@ void main() {
 
     testWidgets('$kind: empty shelf fits at every size', (tester) async {
       debugDesktopOverride = desktop;
+      // Nobody turns up: the empty state ends with what to check.
+      peerGrace = Duration.zero;
+      addTearDown(() => peerGrace = const Duration(seconds: 6));
       await startNodes(tester, withItems: false);
       for (final size in desktop ? desktopSizes : phoneSizes) {
         final key = await pumpApp(tester, size);
@@ -223,6 +226,33 @@ void main() {
           () => _shot(
             key,
             '$kind-empty-${size.width.toInt()}x${size.height.toInt()}',
+          ),
+        );
+      }
+      await stopNodes(tester);
+    });
+  }
+
+  for (final desktop in [true, false]) {
+    final kind = desktop ? 'desktop' : 'phone';
+
+    // Once the shelf has rows, the empty state's help moves under the bar.
+    testWidgets('$kind: the line under the bar fits at every size', (
+      tester,
+    ) async {
+      debugDesktopOverride = desktop;
+      peerGrace = Duration.zero;
+      addTearDown(() => peerGrace = const Duration(seconds: 6));
+      await startNodes(tester, withItems: false);
+      await tester.runAsync(() => me.addText('short note'));
+      for (final size in desktop ? desktopSizes : phoneSizes) {
+        final key = await pumpApp(tester, size);
+        expect(tester.takeException(), isNull, reason: '$kind $size');
+        expect(find.textContaining('not showing up? · '), findsOneWidget);
+        await tester.runAsync(
+          () => _shot(
+            key,
+            '$kind-alone-${size.width.toInt()}x${size.height.toInt()}',
           ),
         );
       }
