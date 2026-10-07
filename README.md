@@ -51,12 +51,16 @@ app through firewall (or run the installer, which clears them).
 
 Closing the window keeps plop running in the tray (next to the clock; at
 first Windows may tuck it under the ^ arrow), so the shortcuts and your
-items stay live: click the tray icon to bring the window back, right-click
-it to quit. Its taskbar button flashes when something arrives while plop is
-in the background, and a notification says who sent what (a shortcut's
-result is one too); click it to open plop. The settings panel can switch
-them off. Windows only shows notifications from apps in the Start menu, so
-plop adds itself to yours the first time it runs.
+items stay live; the first time, a notification says so. Click the tray
+icon to bring the window back, right-click it for "quit plop"; Ctrl+Q in the
+window or "quit plop" in the settings panel quits too. Its taskbar button
+flashes when something arrives while plop is in the background, and a
+notification says who sent what (a shortcut's result is one too); click it
+to open plop. The settings panel can switch them off. Windows only shows
+notifications from apps in the Start menu: the installer's entry covers
+that, and a copy from the zip adds itself to your Start menu the first time
+it runs (uninstalling plop takes that entry too). Installing an update
+closes a running plop first.
 
 ### Android
 
@@ -73,18 +77,20 @@ tar xzf plop-linux-x64.tar.gz && ./plop/plop
 ```
 
 `avahi-daemon` does discovery and is already running on most desktops; GTK 3
-comes with the desktop, the shortcut and notification libraries with the
-tarball. The first launch registers plop with your desktop's launcher, so it
+comes with the desktop, the shortcut, notification and tray libraries with
+the tarball. The first launch registers plop with your desktop's launcher, so it
 can be pinned and found by search.
 
 Closing the window keeps plop running in the tray, so the shortcuts and your
-items stay live: click the tray icon and pick "open plop" to bring the window
-back, "quit plop" to quit. The tray needs a panel that shows them: KDE and
-most desktops do, GNOME only with the AppIndicator extension (on by default
-on Ubuntu). Without one, closing the window quits plop as it used to. A
-notification says who sent what while plop is in the background (a
-shortcut's result is one too); click it to open plop. The settings panel can
-switch them off.
+items stay live; the first time, a notification says so. Click the tray icon
+and pick "open plop" to bring the window back, "quit plop" to quit; Ctrl+Q
+in the window or "quit plop" in the settings panel quits too. The tray needs
+a panel that shows them: KDE and most desktops do, GNOME only with the
+AppIndicator extension (on by default on Ubuntu). Started at login, plop
+gives the panel 30 seconds to come up; without one, closing the window quits
+plop as it used to. A notification says who sent what while plop is in the
+background (a shortcut's result is one too); click it to open plop. The
+settings panel can switch them off.
 
 The global shortcuts work only in an X11 session. Ubuntu and Debian GNOME log
 in to Wayland by default: pick the "… on Xorg" option from the gear menu at
@@ -132,7 +138,10 @@ to renew it.
   in the menu bar or tray to bring it back or quit it. Items from other
   devices and the results of the shortcuts are then OS notifications, which
   open plop when clicked; three or more items from one device within a
-  couple of seconds are one notification.
+  couple of seconds are one notification. A text only says how long it is
+  ("text · 42 characters"), never what it says, so a copied password stays
+  off the lock screen. What the other devices already had when plop started
+  isn't announced, nor an item that comes back when its device does.
 - **Grab:** tap a row. Text and images copy to the clipboard; files and
   folders save to Downloads (folders unpacked). Hover for the other option;
   tap a saved row again to show it in Finder or Explorer (its folder, on
@@ -150,9 +159,8 @@ to renew it.
 ## From source
 
 Flutter 3.47.6, the version `.github/workflows/ci.yml` pins. Linux also needs
-`sudo apt install ninja-build libgtk-3-dev libkeybinder-3.0-dev libnotify-dev`.
-`flutter run`
-builds run as their own instance, named "… (dev)", so they never wipe the
+`sudo apt install ninja-build libgtk-3-dev libkeybinder-3.0-dev libnotify-dev
+libayatana-appindicator3-dev`. `flutter run` builds run as their own instance, named "… (dev)", so they never wipe the
 installed plop's scratch folders; `PLOP_INSTANCE=x` does the same for a
 release build, to run two copies side by side.
 
