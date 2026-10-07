@@ -1551,6 +1551,27 @@ void main() {
     }
   });
 
+  // The node's directory is wiped next (on stop and on the next launch); a
+  // transfer still cleaning up after stop returned wrote into it as it
+  // went, and failed the delete.
+  test('stop waits for running transfers to let go of their files', () async {
+    c = await Cluster.start(1, eagerCopyBytes: 10);
+    final [b] = c.nodes;
+    final trickler = await Trickler.start({'x': 100000});
+    addTearDown(trickler.close);
+    c.discoveries[0].add(trickler.peer);
+    await eventually(() => b.items.isNotEmpty);
+    final dest = '${c.root.path}/x.bin';
+    final save = expectLater(
+      b.saveTo(b.items.single.key, dest),
+      throwsA(anything),
+    );
+    await eventually(() => File('$dest.part').existsSync());
+    await b.engine.stop();
+    expect(File('$dest.part').existsSync(), isFalse, reason: 'cleaned up');
+    await save;
+  });
+
   test('a download is dropped when its cut-off comes', () async {
     c = await Cluster.start(1);
     final trickler = await Trickler.start({'x': 100});

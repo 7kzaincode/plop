@@ -89,6 +89,11 @@ class SyncEngine {
   /// Deadlines of running eager copies, by key.
   final _deadlines = <String, Timer>{};
 
+  /// Transfers running now. [stop] waits for each to let go of its files:
+  /// one still opening or deleting its `.part` after a stop would write
+  /// into a directory its node is about to wipe.
+  final _transfers = <Future<void>>{};
+
   /// Keys of mirror downloads someone asked for ([fetch]) while they run:
   /// a tap that finds an eager copy running joins it, and from then on it
   /// may start over as the tap's own would ([_transfer]).
@@ -380,7 +385,14 @@ class SyncEngine {
   /// polls instead. Both are decided when it breaks off, not when it
   /// started: a tap may have joined since, and the sender may have been
   /// found afresh meanwhile.
-  Future<void> _transfer(
+  Future<void> _transfer(ShelfItem item, String dest, {Future<void>? cutOff}) {
+    final run = _startOver(item, dest, cutOff: cutOff);
+    _transfers.add(run);
+    run.whenComplete(() => _transfers.remove(run)).ignore();
+    return run;
+  }
+
+  Future<void> _startOver(
     ShelfItem item,
     String dest, {
     Future<void>? cutOff,
@@ -465,7 +477,13 @@ class SyncEngine {
       t.cancel();
     }
     _deadlines.clear();
+    // Fails every transfer still running; none can start over, with no
+    // peers left. Each deletes its `.part` on the way out, and stop
+    // returns only once they all have.
     client.close();
+    await Future.wait([
+      for (final t in [..._transfers]) t.then((_) {}, onError: (_) {}),
+    ]);
     await _peerChanges.close();
   }
 }
