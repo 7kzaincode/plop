@@ -93,7 +93,10 @@ StreamSubscription<void>? _copyWatch;
 /// first error. Desktop paths are the user's own files, served in place;
 /// a phone's are plop's copies ([addCopy]). [packing] is told the name of
 /// a folder before it is zipped, which takes a while before its row
-/// appears, and null once all are done.
+/// appears, and null once all are done, however they went. A disk's root
+/// ("/", the startup disk dropped from the Finder sidebar) fails on its
+/// own, unzipped: zipping a whole disk would run for hours before the cap
+/// turned it away.
 Future<(int failed, Object? first)> addPaths(
   PlopNode node,
   List<String> paths, {
@@ -101,17 +104,25 @@ Future<(int failed, Object? first)> addPaths(
 }) async {
   Object? first;
   var failed = 0;
-  for (final p in paths) {
-    final name = p.split(RegExp(r'[/\\]')).where((s) => s.isNotEmpty).last;
-    if (await FileSystemEntity.isDirectory(p)) packing?.call(name);
-    try {
-      await (isDesktop ? node.addPath(p) : addCopy(node, p));
-    } catch (e) {
-      failed++;
-      first ??= e;
+  try {
+    for (final p in paths) {
+      final name = p
+          .split(RegExp(r'[/\\]'))
+          .lastWhere((s) => s.isNotEmpty, orElse: () => '');
+      try {
+        if (name.isEmpty) {
+          throw const PlopMessage("that's a whole disk · plop a folder on it");
+        }
+        if (await FileSystemEntity.isDirectory(p)) packing?.call(name);
+        await (isDesktop ? node.addPath(p) : addCopy(node, p));
+      } catch (e) {
+        failed++;
+        first ??= e;
+      }
     }
+  } finally {
+    packing?.call(null);
   }
-  packing?.call(null);
   return (failed, first);
 }
 

@@ -64,6 +64,25 @@ void main() {
       );
       expect(told, ['Photos', null], reason: 'a folder is packed, then done');
 
+      // The startup disk among them, after a folder: it fails on its own,
+      // without a look inside, the rest still land, and "packing" ends.
+      for (final i in [...node.items]) {
+        node.remove(i.key);
+      }
+      told.clear();
+      final (rootFailed, why) = await addPaths(node, [
+        folder.path,
+        '/',
+        a.path,
+      ], packing: told.add);
+      expect(rootFailed, 1);
+      expect(friendlyError(why!), contains('whole disk'));
+      expect(
+        node.items.map((i) => i.name),
+        unorderedEquals(['a.txt', 'Photos']),
+      );
+      expect(told, ['Photos', null]);
+
       expect(addedMessage(0, null), isNull);
       expect(addedMessage(1, first), "can't access gone.txt");
       expect(addedMessage(3, first), "can't access gone.txt · 2 more failed");
