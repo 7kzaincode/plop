@@ -28,14 +28,20 @@ class Win32Window {
   Win32Window();
   virtual ~Win32Window();
 
-  // Creates a win32 window with |title| that is positioned and sized using
-  // |origin| and |size|. New windows are created on the default monitor. Window
-  // sizes are specified to the OS in physical pixels, hence to ensure a
-  // consistent size this function will scale the inputted width and height as
-  // as appropriate for the default monitor. |size| is the client area; the
+  // Creates a win32 window with |title| where it was last left (see
+  // RememberFrame), as the macOS window remembers its frame. The first time,
+  // or when that spot is no longer on a monitor, it is positioned and sized
+  // using |origin| and |size| instead, on the default monitor. Window sizes
+  // are specified to the OS in physical pixels, hence to ensure a consistent
+  // size this function will scale the inputted width and height as
+  // appropriate for the default monitor. |size| is the client area; the
   // title bar and borders are added to it. The window is invisible until
   // |Show| is called. Returns true if the window was created successfully.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
+
+  // The |origin| that centres a window with |size| of content on the primary
+  // monitor's work area (the screen less the taskbar), for Create.
+  static Point CentredOrigin(const Size& size);
 
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();
@@ -105,6 +111,15 @@ class Win32Window {
 
   // Gives the window frame plop's dark look, whatever the system theme.
   static void UpdateTheme(HWND const window);
+
+  // Keeps the window's frame, in the registry under HKCU\Software\plop,
+  // for the next Create. Called when a move or resize ends and when the
+  // window goes (quitting, or Windows ending the session).
+  static void RememberFrame(HWND const window);
+
+  // The frame RememberFrame kept, in physical pixels, if its title bar is
+  // still on a monitor.
+  static bool RememberedFrame(RECT* frame);
 
   bool quit_on_close_ = false;
   bool hide_on_close_ = false;
