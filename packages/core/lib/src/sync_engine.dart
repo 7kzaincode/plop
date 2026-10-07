@@ -436,7 +436,10 @@ class SyncEngine {
       } on FileSystemException {
         rethrow; // e.g. a full disk: another address will not help
       } catch (e) {
-        lastError = e;
+        // A body that broke off on the address that answers polls says
+        // more than a stale one refusing afterwards: it is what may start
+        // over ([_transfer]).
+        if (lastError is! TransferInterrupted) lastError = e;
       }
     }
     throw lastError ?? StateError('no address for sender');

@@ -251,8 +251,14 @@ class Dropper {
 
   int get port => _server.port;
 
-  Peer get peer =>
-      Peer(id: id, name: id, hosts: ['127.0.0.1'], port: _server.port);
+  /// Advertised with a second address nothing answers on, as a stale
+  /// one often is, tried after the one that answers polls.
+  Peer get peer => Peer(
+    id: id,
+    name: id,
+    hosts: ['127.0.0.1', '127.0.0.2'],
+    port: _server.port,
+  );
 
   void _handle(Socket s) {
     _sockets.add(s);
