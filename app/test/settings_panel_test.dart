@@ -159,6 +159,35 @@ void main() {
     expect(notifications(false), findsOneWidget);
   }, skip: !Notify.supported); // the section is desktop only
 
+  testWidgets('copying arrivals is off by default, says why, remembers on', (
+    tester,
+  ) async {
+    Finder autoCopy(bool on) => find.byWidgetPredicate(
+      (w) =>
+          w is Semantics &&
+          w.properties.label == 'copy arrivals automatically' &&
+          w.properties.toggled == on,
+    );
+    final settings = await openPanel(tester);
+    expect(autoCopy(false), findsOneWidget);
+    expect(settings.autoCopy, isFalse);
+    expect(find.textContaining('anyone nearby can fill it'), findsOneWidget);
+
+    await tester.ensureVisible(autoCopy(false));
+    await tester.tap(autoCopy(false));
+    await tester.pumpAndSettle();
+    expect(autoCopy(true), findsOneWidget);
+    expect(settings.autoCopy, isTrue);
+    expect(notifications(true), findsOneWidget, reason: 'its own switch');
+
+    // Reopened, the panel shows what was saved.
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(autoCopy(true), findsOneWidget);
+  }, skip: !Notify.supported); // the section is desktop only
+
   testWidgets('with the tray icon up on Windows and Linux, the panel quits', (
     tester,
   ) async {

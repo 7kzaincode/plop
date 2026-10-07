@@ -481,9 +481,11 @@ class _LinkState extends State<_Link> {
 const _loginLabel = 'open plop at login';
 
 /// What plop does while its window is closed, which it now outlives on
-/// every desktop (in the tray): the one switch for its OS notifications
-/// (lib/notify.dart), and on Windows and Linux a way to quit from the
-/// window, should the tray's menu be out of reach.
+/// every desktop (in the tray), or while the user is in another app: the
+/// one switch for its OS notifications (lib/notify.dart), the one for
+/// copying arrivals to the clipboard (lib/auto_copy.dart), off unless
+/// switched on and saying why, and on Windows and Linux a way to quit from
+/// the window, should the tray's menu be out of reach.
 class _BackgroundSection extends StatefulWidget {
   const _BackgroundSection(
     this.settings, {
@@ -503,8 +505,28 @@ class _BackgroundSection extends StatefulWidget {
 }
 
 class _BackgroundSectionState extends State<_BackgroundSection> {
-  static const _label = 'notifications';
-  late bool _on = widget.settings.notifications;
+  static const _notifyLabel = 'notifications';
+  static const _copyLabel = 'copy arrivals automatically';
+  late bool _notify = widget.settings.notifications;
+  late bool _copy = widget.settings.autoCopy;
+
+  Widget _switch(String label, bool value, ValueChanged<bool> onChanged) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label, style: monoStyle(color: Palette.text)),
+            ),
+            _Toggle(
+              label: label,
+              value: value,
+              recording: widget.recording,
+              onChanged: onChanged,
+            ),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) => Column(
@@ -513,24 +535,19 @@ class _BackgroundSectionState extends State<_BackgroundSection> {
       const Divider(height: 20, color: Palette.line),
       Text('when plop is in the background', style: monoStyle(size: 11)),
       const SizedBox(height: 6),
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(_label, style: monoStyle(color: Palette.text)),
-            ),
-            _Toggle(
-              label: _label,
-              value: _on,
-              recording: widget.recording,
-              onChanged: (on) {
-                setState(() => _on = on);
-                widget.settings.notifications = on;
-              },
-            ),
-          ],
-        ),
+      _switch(_notifyLabel, _notify, (on) {
+        setState(() => _notify = on);
+        widget.settings.notifications = on;
+      }),
+      _switch(_copyLabel, _copy, (on) {
+        setState(() => _copy = on);
+        widget.settings.autoCopy = on;
+      }),
+      // What switching it on lets in, said before anyone does.
+      Text(
+        'text and pictures from other devices go straight to your '
+        'clipboard · anyone nearby can fill it',
+        style: monoStyle(size: 11, color: Palette.dim),
       ),
       if (widget.onQuit case final quit?)
         Align(
