@@ -544,20 +544,59 @@ void main() {
     );
   });
 
-  test('delete takes back an own item, not a mirror', () async {
+  test('delete takes back what this browser put up, with its token', () async {
     p = await Pair.start();
-    final mine = await p.a.addText('mine');
+    final up =
+        jsonDecode(
+              utf8.decode(
+                (await send(
+                  'POST',
+                  p.url('/web/text'),
+                  body: utf8.encode('mine'),
+                )).body,
+              ),
+            )
+            as Map;
+    final key = up['key'] as String, token = up['token'] as String;
+    expect(token, matches(RegExp(r'^[0-9a-f]{32}$')));
+    final desktop = await p.a.addText('the desktop user shared this');
     final theirs = await p.b.addText('theirs');
     await eventually(() => p.a.store[theirs.key] != null);
 
-    expect((await send('DELETE', p.url('/web/items/${mine.key}'))).status, 204);
-    expect(p.a.store[mine.key], isNull);
-    expect(
-      (await send('DELETE', p.url('/web/items/${theirs.key}'))).status,
-      403,
-    );
+    Future<int> delete(String key, [String? token]) async => (await send(
+      'DELETE',
+      p.url('/web/items/$key'),
+      headers: {webHeader: '1', webTokenHeader: ?token},
+    )).status;
+
+    expect(await delete(key), 403, reason: 'no token');
+    expect(await delete(key, token.replaceRange(0, 1, 'x')), 403);
+    expect(await delete(key, '$token$token'), 403);
+    expect(p.a.store[key], isNotNull);
+    // Not the desktop's own items, nor a mirror, whatever the token.
+    expect(await delete(desktop.key, token), 403);
+    expect(await delete(theirs.key, token), 403);
+    expect(p.a.store[desktop.key], isNotNull);
     expect(p.a.store[theirs.key], isNotNull);
-    expect((await send('DELETE', p.url('/web/items/${mine.key}'))).status, 404);
+
+    expect(await delete(key, token), 204);
+    expect(p.a.store[key], isNull);
+    expect(await delete(key, token), 404);
+
+    // An upload's answer carries one too, and it takes back that item only.
+    final file =
+        jsonDecode(
+              utf8.decode(
+                (await send(
+                  'POST',
+                  p.url('/web/items?name=a.bin'),
+                  body: [1],
+                )).body,
+              ),
+            )
+            as Map;
+    expect(await delete(desktop.key, file['token'] as String), 403);
+    expect(await delete(file['key'] as String, file['token'] as String), 204);
   });
 
   test('a file shared in place and changed since leaves the shelf', () async {

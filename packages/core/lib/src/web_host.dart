@@ -15,6 +15,9 @@ import 'shelf_store.dart';
 /// a CORS preflight, which this server never answers.
 const webHeader = 'x-plop-web';
 
+/// Header a DELETE carries the token its upload was answered with.
+const webTokenHeader = 'x-plop-token';
+
 /// Port the app asks for first: p-l-o-p on a phone keypad, so the address a
 /// phone has to type is one worth remembering. Any free port when taken.
 const defaultWebPort = 7567;
@@ -84,8 +87,12 @@ class WebHost {
   /// or for one that does not say, all it may.
   int _reserved = 0;
 
-  /// Items the page put up that may still be on the shelf.
-  final _uploaded = <String>{};
+  /// Items the page put up that may still be on the shelf, by key, with
+  /// the token that takes each back. Only the browser that uploaded an
+  /// item gets its token, so a phone can take back what it put up and
+  /// nothing else: not another phone's, and not what the desktop's own user
+  /// shared, which nothing on /v1 can remove either.
+  final _uploaded = <String, String>{};
 
   final _texts = <String, String>{}; // key -> body of an inlined text item
 
@@ -151,13 +158,16 @@ class WebHost {
         await _text(req);
       case ('DELETE', ['web', 'items', final origin, final id]):
         _noStore(res);
-        final item = node.store[itemKey(origin, id)];
-        if (item == null) {
+        final key = itemKey(origin, id);
+        final token = _uploaded[key];
+        if (node.store[key] == null) {
           res.statusCode = HttpStatus.notFound;
-        } else if (item.originId != node.id) {
-          res.statusCode = HttpStatus.forbidden; // only the sender removes
+        } else if (token == null ||
+            !_same(req.headers[webTokenHeader]?.singleOrNull, token)) {
+          res.statusCode = HttpStatus.forbidden; // only its uploader removes
         } else {
-          node.remove(item.key);
+          _uploaded.remove(key);
+          node.remove(key);
           res.statusCode = HttpStatus.noContent;
         }
       default:
@@ -176,6 +186,16 @@ class WebHost {
     return origin.length == 1 &&
         host?.length == 1 &&
         origin.single.toLowerCase() == 'http://${host!.single.toLowerCase()}';
+  }
+
+  /// [a] == [b], in a time that does not depend on where they differ.
+  static bool _same(String? a, String b) {
+    if (a == null || a.length != b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < b.length; i++) {
+      diff |= a.codeUnitAt(i) ^ b.codeUnitAt(i);
+    }
+    return diff == 0;
   }
 
   static void _noStore(HttpResponse res) =>
@@ -217,7 +237,7 @@ class WebHost {
   /// Takes one of the [maxUploads] slots, or answers 503 (or 507 when the
   /// page's items fill [maxLiveItems] already) and returns false.
   bool _startUpload(HttpResponse res) {
-    _uploaded.removeWhere((k) => node.store[k] == null);
+    _uploaded.removeWhere((k, _) => node.store[k] == null);
     if (_uploading >= maxUploads) {
       res
         ..statusCode = HttpStatus.serviceUnavailable
@@ -232,11 +252,19 @@ class WebHost {
     return true;
   }
 
+  /// `{"key": …, "token": …}`, the token being what a DELETE needs.
+  void _answerUpload(HttpResponse res, ShelfItem item) {
+    final token = randomId(16);
+    _uploaded[item.key] = token;
+    res.headers.contentType = ContentType.json;
+    res.write(jsonEncode({'key': item.key, 'token': token}));
+  }
+
   /// Bytes the page's items may still add, after those on the shelf and
   /// those promised to uploads in progress.
   int _room() {
     var used = _reserved;
-    for (final k in _uploaded) {
+    for (final k in _uploaded.keys) {
       used += node.store[k]?.size ?? 0;
     }
     return max(0, maxLiveBytes - used);
@@ -321,9 +349,7 @@ class WebHost {
         expectedSize: length < 0 ? null : length,
         maxBytes: cap,
       );
-      _uploaded.add(item.key);
-      res.headers.contentType = ContentType.json;
-      res.write(jsonEncode({'key': item.key}));
+      _answerUpload(res, item);
     } on ItemTooLargeException catch (e) {
       // The rest of the body stays unread; see claimBody. Too big for any
       // upload is 413; too big for what the page's items have left, 507.
@@ -368,9 +394,7 @@ class WebHost {
         return;
       }
       final item = await node.addText(text);
-      _uploaded.add(item.key);
-      res.headers.contentType = ContentType.json;
-      res.write(jsonEncode({'key': item.key}));
+      _answerUpload(res, item);
     } on TimeoutException {
       res.statusCode = HttpStatus.requestTimeout;
     } finally {
@@ -509,9 +533,12 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 };
-// Items this browser put up, by key, with when: they get a × here, and a
-// key is forgotten only once the shelf has gone a while without it.
-const mine = new Map(Object.entries(JSON.parse(store.get('plop.mine') || '{}')));
+// Items this browser put up, by key, with when and the token that takes
+// each back: they get a × here, and a key is forgotten only once the shelf
+// has gone a while without it.
+const mine = new Map((() => {
+  try { return Object.entries(JSON.parse(store.get('plop.mine') || '{}')); } catch (e) { return []; }
+})().filter(([, v]) => v && typeof v.token === 'string' && typeof v.at === 'number'));
 const seen = new Map();  // key -> {expires, total}: countdowns between polls
 const blobs = new Map(); // key -> Blob fetched for share(), kept for a retry
 let items = [], uploads = [], seq = 0, sig = '', polling = false, again = false, pollTimer, toastTimer, viewing;
@@ -561,7 +588,7 @@ async function poll() {
       seen.set(it.key, s);
     }
     for (const k of [...seen.keys()]) if (!live.has(k)) { seen.delete(k); blobs.delete(k); }
-    for (const [k, t] of mine) if (!live.has(k) && now - t > 10000) mine.delete(k);
+    for (const [k, m] of mine) if (!live.has(k) && now - m.at > 10000) mine.delete(k);
     saveMine();
     document.body.classList.remove('off');
     render();
@@ -791,7 +818,7 @@ function send(u) {
     if (x.status === 503 && retry()) return;
     done();
     if (x.status !== 200) return toast(refusal(x.status, u.name));
-    try { mine.set(JSON.parse(x.responseText).key, Date.now()); saveMine(); } catch (e) {}
+    try { keep(JSON.parse(x.responseText)); } catch (e) {}
     poll();
   };
   x.onerror = () => { end(); if (retry()) return; done(); toast("couldn't upload " + u.name); };
@@ -808,15 +835,20 @@ async function sendText(t) {
       await new Promise(ok => setTimeout(ok, 2000 * (i + 1)));
     }
     if (!r.ok) return toast(r.status === 507 ? 'no room for that right now' : "couldn't send that");
-    mine.set((await r.json()).key, Date.now());
-    saveMine();
+    keep(await r.json());
     poll();
   } catch (e) {
     toast("couldn't send that");
   }
 }
+function keep(up) {
+  mine.set(up.key, {at: Date.now(), token: up.token});
+  saveMine();
+}
 async function remove(key) {
-  const r = await fetch('/web/items/' + key, {method: 'DELETE', headers: {'x-plop-web': '1'}}).catch(() => null);
+  const m = mine.get(key);
+  if (!m) return;
+  const r = await fetch('/web/items/' + key, {method: 'DELETE', headers: {'x-plop-web': '1', 'x-plop-token': m.token}}).catch(() => null);
   if (!r || !r.ok) return toast("couldn't remove that");
   mine.delete(key);
   saveMine();
