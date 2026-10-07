@@ -4,23 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>plop</title>
-<meta name="description" content="A shelf your devices share. Drop a file, a screenshot or some text on it, and every device on the same Wi-Fi can grab it.">
+<meta name="description" content="A shelf every device on your Wi-Fi can see. Drop a file, a screenshot or some text; grab it anywhere nearby.">
 <meta name="theme-color" content="#0a0a0a">
 <link rel="icon" href="logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Geist:wght@400;500&family=Geist+Mono&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap">
 <style>
-/* One left-aligned column like a letter, in a reading serif, on the black
-   the app itself sits on. Everything else stays out of the way. */
+/* The page is the app: one narrow column on the app's black, the
+   downloads drawn as shelf rows (bucket tiles, mono meta, hairlines). */
 :root {
   --bg: #0a0a0a;
   --text: #ededed;
   --dim: #8f8f8f;
-  --faint: #5c5c5c;
-  --rule: rgba(255, 255, 255, 0.26);
-  --mark: #2b2b2b;
-  --serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --faint: #5a5a5a;
+  --line: rgba(255, 255, 255, 0.08);
+  --bar: #7a7a7a;
+  --hover: rgba(255, 255, 255, 0.04);
+  --tile: #f5f5f5;
+  --ink: #0a0a0a;
   --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
@@ -32,160 +34,228 @@ body {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  align-items: center;
   padding-inline: max(20px, env(safe-area-inset-left, 0px)) max(20px, env(safe-area-inset-right, 0px));
-  padding-block: clamp(28px, 5vw, 44px) 28px;
-  font: 400 clamp(19px, 1.2vw + 13px, 26px)/1.38 var(--serif);
-  font-optical-sizing: auto;
+  padding-block: clamp(40px, 9vh, 96px) 32px;
+  font: 400 16px/1.6 var(--sans);
   -webkit-font-smoothing: antialiased;
 }
-main, footer { width: 100%; max-width: 760px; }
-main { flex: 1; display: flex; flex-direction: column; gap: 1.35em; }
-.logo { width: 38px; height: auto; margin-bottom: 1.6em; display: block; }
-p { margin: 0; text-wrap: pretty; }
-.lede { font-weight: 500; }
-a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule); text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
-a:hover { text-decoration-color: var(--text); }
-a:focus-visible { outline: 1px solid var(--text); outline-offset: 3px; }
+.col { width: 100%; max-width: 540px; display: flex; flex-direction: column; }
+main.col { flex: 1; gap: 48px; }
+a { color: inherit; }
+a:focus-visible, button:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }
 
-/* The one call to action: a soft band under the words, as a pen would. */
-.get { display: flex; flex-direction: column; gap: 0.35em; margin-top: 0.4em; }
-.cta {
-  align-self: flex-start;
+/* -- top */
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+.brand img { width: 26px; height: auto; display: block; }
+.brand span { font: 500 17px/1 var(--sans); letter-spacing: -0.01em; }
+h1 {
+  margin: 28px 0 0;
+  font: 500 clamp(28px, 4.2vw + 12px, 38px)/1.12 var(--sans);
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+h1 span { color: var(--dim); }
+.lead { margin: 18px 0 0; color: var(--dim); max-width: 46ch; text-wrap: pretty; }
+
+/* -- labels over each part, as the app's settings panel has them */
+.label { font: 400 11px/1 var(--mono); color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 12px; }
+
+/* -- the shelf: one row per download */
+.shelf { border-top: 1px solid var(--line); }
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 10px 13px 4px;
   text-decoration: none;
-  background: linear-gradient(transparent 58%, var(--mark) 58%, var(--mark) 92%, transparent 92%);
 }
-.cta::after { content: "  ›"; color: var(--dim); white-space: pre; }
-.cta:hover { background: linear-gradient(transparent 58%, #3a3a3a 58%, #3a3a3a 92%, transparent 92%); }
-.also { font-size: 0.72em; color: var(--dim); }
-.also a { color: var(--dim); }
-.also a:hover { color: var(--text); }
+.row::after {
+  /* the row's hairline; the visitor's own system gets it lit, as the app
+     lights a row whose bytes are moving */
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: var(--line);
+}
+.row.yours::after { background: linear-gradient(90deg, var(--text), var(--bar) 70%, var(--line)); }
+.row:hover { background: var(--hover); }
+.tile { flex: none; width: 32px; height: 32px; display: block; }
+.what { flex: 1; min-width: 0; }
+.name { display: block; font-size: 15px; line-height: 1.3; }
+.meta { display: block; font: 400 12px/1.4 var(--mono); color: var(--dim); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.go { flex: none; font: 400 12px/1 var(--mono); color: var(--dim); display: flex; align-items: center; gap: 6px; }
+.go svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.row:hover .go, .row.yours .go { color: var(--text); }
+.note { margin-top: 12px; font: 400 12px/1.6 var(--mono); color: var(--faint); }
 
-/* Setup: four short notes, one per kind of device. */
-.setup { margin-top: 2.2em; display: flex; flex-direction: column; gap: 1.6em; }
-.setup h2 { font: 500 1em/1.3 var(--serif); margin: 0; }
-.os { display: grid; grid-template-columns: 7.2em 1fr; gap: 0.2em 1em; font-size: 0.8em; }
-.os h3 { font: 500 1em/1.38 var(--serif); margin: 0; color: var(--text); }
-.os ol, .os p { margin: 0; color: var(--dim); }
-.os ol { padding-left: 1.15em; display: flex; flex-direction: column; gap: 0.3em; }
-.os li::marker { color: var(--faint); font-family: var(--mono); font-size: 0.8em; }
-.os b { font-weight: 500; color: var(--text); }
-.os > div { min-width: 0; }
-code, kbd {
-  font-family: var(--mono);
-  font-size: 0.74em;
-  color: var(--text);
+/* -- setup: one system at a time */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px 18px; border-bottom: 1px solid var(--line); }
+.tabs button {
+  font: 400 13px/1 var(--mono);
+  color: var(--dim);
+  background: none;
+  border: 0;
+  padding: 0 0 11px;
+  margin-bottom: -1px;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
 }
+.tabs button:hover { color: var(--text); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+.panel { padding-top: 18px; color: var(--dim); font-size: 15px; }
+.panel ol { margin: 0; padding: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 10px; }
+.panel li { counter-increment: step; display: grid; grid-template-columns: 26px 1fr; }
+.panel li::before { content: counter(step); font: 400 12px/1.9 var(--mono); color: var(--faint); }
+.panel b { font-weight: 500; color: var(--text); }
+.panel p { margin: 0; }
+code, kbd { font: 400 0.86em var(--mono); color: var(--text); }
 pre {
-  margin: 0.5em 0 0;
-  padding: 0.8em 1em;
-  border: 1px solid #222;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
   border-radius: 8px;
   overflow-x: auto;
-  font: 0.74em/1.6 var(--mono);
+  font: 400 13px/1.7 var(--mono);
   color: var(--text);
 }
-.keys { font-size: 0.8em; color: var(--dim); }
-.keys kbd { color: var(--text); }
+.keys { margin-top: 26px; display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 14px; color: var(--dim); }
+.keys kbd { font-size: 12px; color: var(--text); white-space: nowrap; }
 
-footer {
-  margin-top: 4.5em;
-  display: flex;
+footer.col {
+  margin-top: 72px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  flex-direction: row;
   flex-wrap: wrap;
-  gap: 0.4em 1.6em;
-  font: 400 13px/1.4 var(--sans);
-  color: var(--dim);
+  gap: 6px 20px;
+  font: 400 12px/1.4 var(--mono);
+  color: var(--faint);
 }
 footer a { color: var(--dim); text-decoration: none; }
 footer a:hover { color: var(--text); }
 
-@media (max-width: 560px) {
-  .os { grid-template-columns: 1fr; }
-  .os h3 { margin-bottom: 0.2em; }
-}
 @media (prefers-reduced-motion: no-preference) {
-  .cta, a { transition: text-decoration-color 0.15s, background 0.15s, color 0.15s; }
+  .row, .tabs button, .go { transition: background 0.15s, color 0.15s, border-color 0.15s; }
 }
 </style>
 </head>
 <body>
-<main>
-  <img class="logo" src="logo.png" alt="plop" width="38" height="51">
+<main class="col">
+  <header>
+    <a class="brand" href="#" aria-label="plop">
+      <img src="logo.png" alt="" width="26" height="35"><span>plop</span>
+    </a>
+    <h1>Drop it on the shelf. <span>Grab it on any device nearby.</span></h1>
+    <p class="lead">plop is a shelf every device on your Wi-Fi can see. Put a file, a folder, a screenshot or some text on it, and it waits there for two minutes for whoever needs it. No account, no cloud, no pairing.</p>
+  </header>
 
-  <p class="lede">plop is a shelf your devices share. Drop a file, a screenshot or some text on it, and every computer and phone on the same Wi-Fi can grab it until its timer runs out.</p>
+  <section aria-labelledby="get">
+    <div class="label" id="get">get plop</div>
+    <div class="shelf" id="shelf">
+      <a class="row" data-os="mac" href="https://github.com/7kzaincode/plop/releases/latest/download/plop-macos.dmg">
+        <svg class="tile" viewBox="0 0 32 32" aria-hidden="true"><path class="bucket" d=""/><text x="16" y="17.6" text-anchor="middle">MAC</text></svg>
+        <span class="what"><span class="name">plop for Mac</span><span class="meta">plop-macos.dmg · macOS 12 or later</span></span>
+        <span class="go">download<svg viewBox="0 0 24 24"><path d="M12 5v13M6.5 12.5 12 18l5.5-5.5"/></svg></span>
+      </a>
+      <a class="row" data-os="windows" href="https://github.com/7kzaincode/plop/releases/latest/download/plop-windows-setup.exe">
+        <svg class="tile" viewBox="0 0 32 32" aria-hidden="true"><path class="bucket" d=""/><text x="16" y="17.6" text-anchor="middle">WIN</text></svg>
+        <span class="what"><span class="name">plop for Windows</span><span class="meta">plop-windows-setup.exe · Windows 10 or 11</span></span>
+        <span class="go">download<svg viewBox="0 0 24 24"><path d="M12 5v13M6.5 12.5 12 18l5.5-5.5"/></svg></span>
+      </a>
+      <a class="row" data-os="linux" href="https://github.com/7kzaincode/plop/releases/latest/download/plop-linux-x64.tar.gz">
+        <svg class="tile" viewBox="0 0 32 32" aria-hidden="true"><path class="bucket" d=""/><text x="16" y="17.6" text-anchor="middle">LNX</text></svg>
+        <span class="what"><span class="name">plop for Linux</span><span class="meta">plop-linux-x64.tar.gz · Ubuntu 24.04 or newer</span></span>
+        <span class="go">download<svg viewBox="0 0 24 24"><path d="M12 5v13M6.5 12.5 12 18l5.5-5.5"/></svg></span>
+      </a>
+      <a class="row" data-os="android" href="https://github.com/7kzaincode/plop/releases/latest/download/plop-android.apk">
+        <svg class="tile" viewBox="0 0 32 32" aria-hidden="true"><path class="bucket" d=""/><text x="16" y="17.6" text-anchor="middle">APK</text></svg>
+        <span class="what"><span class="name">plop for Android</span><span class="meta">plop-android.apk · Android 7 or later</span></span>
+        <span class="go">download<svg viewBox="0 0 24 24"><path d="M12 5v13M6.5 12.5 12 18l5.5-5.5"/></svg></span>
+      </a>
+      <a class="row" data-os="iphone" href="#setup" data-tab="iphone">
+        <svg class="tile" viewBox="0 0 32 32" aria-hidden="true"><path class="bucket" d=""/><text x="16" y="17.6" text-anchor="middle">iOS</text></svg>
+        <span class="what"><span class="name">plop on iPhone</span><span class="meta">in Safari, from any computer running plop</span></span>
+        <span class="go">how<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
+      </a>
+    </div>
+    <p class="note">Free and open source. Not signed by Apple or Microsoft yet, so each system asks once; setup shows where to click.</p>
+  </section>
 
-  <p>There is nothing to set up: no account, no cloud, no pairing. It works between Macs, Windows and Linux PCs and Android phones, and on any iPhone through the browser.</p>
-
-  <p>Send a photo from your phone to your laptop, move a folder between two PCs, or snip part of your screen straight onto every device in the room.</p>
-
-  <div class="get">
-    <a class="cta" id="cta" href="https://github.com/7kzaincode/plop/releases/latest/download/plop-macos.dmg">Download for Mac</a>
-    <span class="also" id="also">Also for <a href="https://github.com/7kzaincode/plop/releases/latest/download/plop-windows-setup.exe">Windows</a>, <a href="https://github.com/7kzaincode/plop/releases/latest/download/plop-linux-x64.tar.gz">Linux</a> and <a href="https://github.com/7kzaincode/plop/releases/latest/download/plop-android.apk">Android</a>. Free and open source.</span>
-  </div>
-
-  <section class="setup" aria-labelledby="setup">
-    <h2 id="setup">Setup</h2>
-
-    <div class="os" id="mac">
-      <h3>Mac</h3>
-      <div>
-        <ol>
-          <li>Open <code>plop-macos.dmg</code> and drag plop to Applications.</li>
-          <li>The first time, macOS can't verify plop. Click Done, open <b>System Settings › Privacy &amp; Security</b> and click <b>Open Anyway</b>.</li>
-          <li>Allow plop to find devices on your local network.</li>
-        </ol>
-      </div>
+  <section aria-labelledby="setup">
+    <div class="label" id="setup">setup</div>
+    <div class="tabs" role="tablist" aria-labelledby="setup">
+      <button role="tab" id="t-mac" aria-controls="p-mac" aria-selected="true">mac</button>
+      <button role="tab" id="t-windows" aria-controls="p-windows" aria-selected="false">windows</button>
+      <button role="tab" id="t-linux" aria-controls="p-linux" aria-selected="false">linux</button>
+      <button role="tab" id="t-iphone" aria-controls="p-iphone" aria-selected="false">iphone</button>
+      <button role="tab" id="t-android" aria-controls="p-android" aria-selected="false">android</button>
     </div>
 
-    <div class="os" id="windows">
-      <h3>Windows</h3>
-      <div>
-        <ol>
-          <li>Run <code>plop-windows-setup.exe</code>. If Windows protected your PC, click <b>More info › Run anyway</b>.</li>
-          <li>Accept the admin prompt. It lets your other devices reach this PC.</li>
-        </ol>
-      </div>
+    <div class="panel" role="tabpanel" id="p-mac" aria-labelledby="t-mac">
+      <ol>
+        <li><span>Open <code>plop-macos.dmg</code> and drag plop into Applications.</span></li>
+        <li><span>On the first open macOS can't check who made it. Click Done, then <b>System Settings › Privacy &amp; Security › Open Anyway</b>.</span></li>
+        <li><span>Let plop find devices on your local network when it asks.</span></li>
+      </ol>
     </div>
-
-    <div class="os" id="linux">
-      <h3>Linux</h3>
-      <div>
-        <p>Ubuntu 24.04, Debian 13 or newer:</p>
-        <pre><code>sudo apt install avahi-daemon
+    <div class="panel" role="tabpanel" id="p-windows" aria-labelledby="t-windows" hidden>
+      <ol>
+        <li><span>Run <code>plop-windows-setup.exe</code>. When SmartScreen steps in, pick <b>More info › Run anyway</b>.</span></li>
+        <li><span>Say yes to the admin prompt: it opens the firewall so your other devices can reach this PC.</span></li>
+      </ol>
+    </div>
+    <div class="panel" role="tabpanel" id="p-linux" aria-labelledby="t-linux" hidden>
+      <p>Ubuntu 24.04, Debian 13 or newer, x64:</p>
+      <pre><code>sudo apt install avahi-daemon
 tar xzf plop-linux-x64.tar.gz &amp;&amp; ./plop/plop</code></pre>
-      </div>
+    </div>
+    <div class="panel" role="tabpanel" id="p-iphone" aria-labelledby="t-iphone" hidden>
+      <ol>
+        <li><span>Open plop on a Mac or PC on the same Wi-Fi and click its settings.</span></li>
+        <li><span>Scan the code there with your iPhone's camera.</span></li>
+        <li><span>In Safari, tap <b>Share › Add to Home Screen</b>. plop opens from its own icon from then on.</span></li>
+      </ol>
+    </div>
+    <div class="panel" role="tabpanel" id="p-android" aria-labelledby="t-android" hidden>
+      <ol>
+        <li><span>Download <code>plop-android.apk</code> on the phone and open it.</span></li>
+        <li><span>Allow your browser to install apps, and pick <b>Install anyway</b> if Play Protect asks.</span></li>
+      </ol>
     </div>
 
-    <div class="os" id="iphone">
-      <h3>iPhone</h3>
-      <div>
-        <ol>
-          <li>On a computer running plop, open settings and point your camera at the code.</li>
-          <li>In Safari, tap <b>Share › Add to Home Screen</b>.</li>
-        </ol>
-      </div>
+    <div class="keys" aria-label="shortcuts on a computer">
+      <kbd>⌃⌥P</kbd><span>snip part of the screen onto plop</span>
+      <kbd>⌃⌥V</kbd><span>plop what's on your clipboard</span>
+      <kbd>⌃⌥G</kbd><span>copy the newest thing another device sent</span>
+      <kbd>Ctrl⇧Alt</kbd><span>the same letters on Windows and Linux</span>
     </div>
-
-    <div class="os" id="android">
-      <h3>Android</h3>
-      <div>
-        <p>Open <code>plop-android.apk</code> on the phone and allow your browser to install it.</p>
-      </div>
-    </div>
-
-    <p class="keys">On a computer, <kbd>⌃⌥P</kbd> snips part of your screen onto plop, <kbd>⌃⌥V</kbd> plops your clipboard and <kbd>⌃⌥G</kbd> copies the newest thing another device sent. On Windows and Linux it's <kbd>Ctrl+Shift+Alt</kbd> with the same letter.</p>
   </section>
 </main>
 
-<footer>
-  <span>plop · MIT license</span>
-  <a href="https://github.com/7kzaincode/plop">Source</a>
-  <a href="https://github.com/7kzaincode/plop/releases">All releases</a>
+<footer class="col">
+  <span>plop · MIT</span>
+  <a href="https://github.com/7kzaincode/plop">source</a>
+  <a href="https://github.com/7kzaincode/plop/releases">releases</a>
 </footer>
 
 <script>
-// Leads with this device's download; the rest stay one line under it.
 (() => {
-  const base = 'https://github.com/7kzaincode/plop/releases/latest/download/';
+  // The bucket every tile sits in (the app's type_icons.dart, at 32 px).
+  const bucket = 'M7.04 1.28L24.96 1.28C28.48 1.28 29.76 2.88 29.92 6.08L31.2 24.32C31.68 29.44 29.44 31.04 26.24 29.44C20.48 26.88 11.52 26.88 5.76 29.44C2.56 31.04 0.32 29.44 0.8 24.32L2.08 6.08C2.24 2.88 3.52 1.28 7.04 1.28Z';
+  for (const p of document.querySelectorAll('.tile .bucket')) p.setAttribute('d', bucket);
+  for (const t of document.querySelectorAll('.tile')) {
+    t.querySelector('.bucket').setAttribute('fill', '#f5f5f5');
+    const label = t.querySelector('text');
+    label.setAttribute('fill', '#0a0a0a');
+    label.setAttribute('font-family', 'Geist Mono, ui-monospace, Menlo, monospace');
+    label.setAttribute('font-size', '8.4');
+    label.setAttribute('font-weight', '500');
+  }
+
+  // This visitor's system goes first, its hairline lit.
   const ua = navigator.userAgent;
   const touchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
   const os = /iPhone|iPad|iPod/.test(ua) || touchMac ? 'iphone'
@@ -193,25 +263,31 @@ tar xzf plop-linux-x64.tar.gz &amp;&amp; ./plop/plop</code></pre>
     : /Windows/.test(ua) ? 'windows'
     : /Linux|X11|CrOS/.test(ua) ? 'linux'
     : 'mac';
-  const all = {
-    mac: ['Mac', 'plop-macos.dmg'],
-    windows: ['Windows', 'plop-windows-setup.exe'],
-    linux: ['Linux', 'plop-linux-x64.tar.gz'],
-    android: ['Android', 'plop-android.apk'],
-  };
-  const cta = document.getElementById('cta');
-  const also = document.getElementById('also');
-  if (os === 'iphone') {
-    cta.textContent = 'Use plop on iPhone';
-    cta.href = '#iphone';
-  } else {
-    cta.textContent = 'Download for ' + all[os][0];
-    cta.href = base + all[os][1];
+  const shelf = document.getElementById('shelf');
+  const mine = shelf.querySelector('[data-os="' + os + '"]');
+  shelf.prepend(mine);
+  mine.classList.add('yours');
+
+  // Setup shows one system at a time, this visitor's first.
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  function show(name, focus) {
+    for (const t of tabs) {
+      const on = t.id === 't-' + name;
+      t.setAttribute('aria-selected', on);
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      if (on && focus) t.focus();
+    }
   }
-  const rest = Object.keys(all).filter(k => k !== os);
-  const link = k => '<a href="' + base + all[k][1] + '">' + all[k][0] + '</a>';
-  also.innerHTML = 'Also for ' + rest.slice(0, -1).map(link).join(', ') +
-    ' and ' + link(rest[rest.length - 1]) + '. Free and open source.';
+  tabs.forEach((t, i) => {
+    t.addEventListener('click', () => show(t.id.slice(2)));
+    t.addEventListener('keydown', e => {
+      const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (d) show(tabs[(i + d + tabs.length) % tabs.length].id.slice(2), true);
+    });
+  });
+  show(os);
+  document.querySelector('[data-tab="iphone"]').addEventListener('click', () => show('iphone'));
 })();
 </script>
 </body>
