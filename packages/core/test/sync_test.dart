@@ -306,10 +306,13 @@ List<int> overlappingZip(int entries) {
 /// A zip written field by field, for entries ZipEncoder cannot make: it
 /// always records MS-DOS as the maker, so a Unix symlink is out of reach.
 /// [data] is the entry as it sits in the zip, packed by [method]; [size] is
-/// what it unpacks to and [mode] its Unix mode.
+/// what it unpacks to and [mode] its Unix mode. [localFlags] and
+/// [centralFlags] are every entry's general-purpose bits in each header.
 List<int> handZip(
-  List<({String name, List<int> data, int method, int size, int mode})> files,
-) {
+  List<({String name, List<int> data, int method, int size, int mode})> files, {
+  int localFlags = 0,
+  int centralFlags = 0,
+}) {
   final out = BytesBuilder();
   void u16(int v) => out.add([v & 0xff, v >> 8 & 0xff]);
   void u32(int v) => out.add([for (var i = 0; i < 32; i += 8) v >> i & 0xff]);
@@ -317,7 +320,7 @@ List<int> handZip(
   for (final f in files) {
     offsets.add(out.length);
     u32(0x04034b50); // local file header
-    for (final v in [20, 0, f.method, 0, 0]) {
+    for (final v in [20, localFlags, f.method, 0, 0]) {
       u16(v); // version, flags, method, time, date
     }
     u32(0); // crc, not verified
@@ -332,7 +335,7 @@ List<int> handZip(
   final cdStart = out.length;
   for (final (i, f) in files.indexed) {
     u32(0x02014b50); // central directory entry
-    for (final v in [3 << 8 | 20, 20, 0, f.method, 0, 0]) {
+    for (final v in [3 << 8 | 20, 20, centralFlags, f.method, 0, 0]) {
       u16(v); // made by Unix, needed, flags, method, time, date
     }
     u32(0);
@@ -1560,6 +1563,41 @@ void main() {
       out.listSync().map((e) => e.path.split(Platform.pathSeparator).last),
       ['readme.txt'],
     );
+  });
+
+  test('a folder zip with an encrypted entry is refused', () async {
+    c = await Cluster.start(1);
+    final entry = (
+      name: 'secret.bin',
+      data: List.filled(64, 7),
+      method: 0,
+      size: 64,
+      mode: 0x81a4,
+    );
+    final out = Directory('${c.root.path}/out');
+    // Flagged in the local header only, then in the central one only.
+    for (final (local, central) in [(1, 0), (0, 1)]) {
+      final zip = File('${c.root.path}/locked$local$central.zip')
+        ..writeAsBytesSync(
+          handZip([entry], localFlags: local, centralFlags: central),
+        );
+      await expectLater(
+        extractFolder(zip.path, out.path),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('encrypted'),
+          ),
+        ),
+      );
+      expect(out.existsSync(), isFalse);
+    }
+    // Unflagged, the same entry unpacks.
+    final plain = File('${c.root.path}/plain.zip')
+      ..writeAsBytesSync(handZip([entry]));
+    await extractFolder(plain.path, out.path);
+    expect(File('${out.path}/secret.bin').readAsBytesSync(), entry.data);
   });
 
   test('unpacking a folder ignores symlinks that chain outside', () async {

@@ -19,7 +19,8 @@ import 'item.dart';
 /// or binary still runs; the rest is the receiver's business.
 ///
 /// plop only ever stores entries, so a compressed one comes from a hostile
-/// or foreign peer and is refused with a [FormatException]: the archive
+/// or foreign peer and is refused with a [FormatException], as is an
+/// encrypted one, which would be read whole to decrypt it: the archive
 /// package inflates into memory whole, and a 1 MB deflate can unpack to
 /// gigabytes. Stored entries can only add up to more than the zip itself
 /// when their headers overlap, another bomb, so the output is bounded by
@@ -47,6 +48,12 @@ Future<void> extractFolder(String zipPath, String outDir) => Isolate.run(
       final dir = ZipDirectory()..read(input);
       for (final h in dir.fileHeaders) {
         final f = h.file!;
+        // plop never encrypts either, and the archive package would decrypt
+        // with no password, reading the whole entry into memory and doing
+        // big-integer sums on every byte of it. Bit 0, in either header.
+        if (h.generalPurposeBitFlag & 1 != 0 || f.flags & 1 != 0) {
+          throw const FormatException('folder zip is encrypted');
+        }
         // Before anything is skipped, so no compressed entry gets past: a
         // link or a `..` name is still a zip plop did not make. Both
         // headers, since the local one maps a method it does not know to

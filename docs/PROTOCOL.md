@@ -69,7 +69,9 @@ has simply gone, a phone locking, say, and is not.
   segment is sanitised as a single file's name is. It refuses a zip with
   compressed entries, or one that unpacks to more than its own size
   (overlapping entries); either is a bomb, since stored content can do
-  neither. A node that does not know a kind treats it as `file`.
+  neither. It refuses encrypted entries too (general-purpose bit 0 in
+  either header). Each entry's headers are checked before any of its
+  content is read. A node that does not know a kind treats it as `file`.
 - `ttlMs` is the time **remaining**, in milliseconds. Never an absolute time:
   clocks on a LAN disagree. The sender picks the lifetime (2 minutes by
   default); it can differ per item. A receiver clamps it to 24 hours, and
