@@ -361,7 +361,12 @@ class WebHost {
     final res = req.response;
     _noStore(res);
     final body = claimBody(req);
-    final name = req.uri.queryParameters['name']?.trim() ?? '';
+    // Shown on every device's shelf: one plain line of at most the length
+    // a peer's name is cut to.
+    final name = cleanName(
+      req.uri.queryParameters['name'] ?? '',
+      max: ShelfStore.maxNameLength,
+    );
     if (name.isEmpty) {
       res.statusCode = HttpStatus.badRequest;
       return;
@@ -443,8 +448,10 @@ class WebHost {
 
 /// `attachment; filename="…"; filename*=UTF-8''…`: the plain form for old
 /// browsers, with anything outside printable ASCII replaced, and the
-/// RFC 5987 form every current one reads, which keeps the real name.
-String _attachment(String name) {
+/// RFC 5987 form every current one reads, which keeps the real name bar
+/// what [cleanName] takes out.
+String _attachment(String raw) {
+  final name = cleanName(raw, max: ShelfStore.maxNameLength);
   // By code point, so an emoji (two UTF-16 units) becomes one `_`.
   final plain = name.replaceAll(
     RegExp(r'[^\x20-\x7e]|["\\]', unicode: true),
@@ -583,6 +590,9 @@ const asked = new Set(); // keys tapped before their bytes were here
 let items = [], byKey = new Map(), uploads = [], seq = 0, sig = '', polling = false, again = false, pollTimer, toastTimer, viewing;
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
+// Names as they are: C0/C1 controls and bidi marks go, so a peer's
+// "invoice\u202Efdp.exe" cannot show as "invoiceexe.pdf" (cleanName).
+const clean = s => String(s).replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
 const saveMine = () => store.set('plop.mine', JSON.stringify(Object.fromEntries(mine)));
 const url = it => '/web/items/' + it.key;
 const fileName = it => it.kind === 'folder' ? it.name + '.zip' : it.kind === 'text' ? 'text.txt' : it.name;
@@ -619,6 +629,7 @@ async function poll() {
     const r = await fetch('/web/shelf', {cache: 'no-store'});
     if (!r.ok) throw new Error(r.status);
     items = await r.json();
+    for (const it of items) { it.name = clean(it.name); it.from = clean(it.from); }
     byKey = new Map(items.map(it => [it.key, it]));
     for (const k of [...asked]) if (!byKey.has(k) || byKey.get(k).ready) asked.delete(k);
     const now = Date.now(), live = new Set();
@@ -830,7 +841,7 @@ addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); close
 const waiting = [];
 let sending = 0;
 function upload(file) {
-  const u = {id: ++seq, name: file.name || 'file', size: file.size, pct: 0, file, tries: 0, wait: true};
+  const u = {id: ++seq, name: clean(file.name).trim() || 'file', size: file.size, pct: 0, file, tries: 0, wait: true};
   uploads.push(u);
   waiting.push(u);
   render();

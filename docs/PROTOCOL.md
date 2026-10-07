@@ -174,7 +174,7 @@ or computer on the LAN visits cannot write here.
 | `GET /icon.png` | The app icon (a 1x1 black PNG on a node that was given none). |
 | `GET /web/shelf` | Every item the node knows, own and mirrored, newest first (see below). |
 | `GET /web/items/{originId}/{id}` | The bytes, with `Content-Type`, `Content-Length`, `Content-Security-Policy: sandbox` (nothing served here runs as a page of this origin) and `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…` (a folder's zip as `<name>.zip`, text as `text.txt`). A mirror not copied yet is fetched from its origin first. `404` once gone; `502` if the origin cannot be reached. `HEAD` gives the same headers from what the shelf knows, `Content-Length` being the item's size, and fetches nothing. |
-| `POST /web/items?name=<name>` | Raw file body, streamed to disk as this node's own item. `200 {"key": "<originId>/<id>", "token": "<32 hex digits>"}`; the token is what takes it back (the page keeps it in `localStorage`). `400` without a name or for a body that ends short of its `Content-Length`; `413` past 8 GB (or the node's item cap, if lower); `507` past what the page's items still on the shelf may add up to (16 GB, 200 items). Both are answered before any of the body is read when `Content-Length` says so, else where the body crosses the line, and the connection is closed. `408` when the body stalls for 30 s. |
+| `POST /web/items?name=<name>` | Raw file body, streamed to disk as this node's own item. `200 {"key": "<originId>/<id>", "token": "<32 hex digits>"}`; the token is what takes it back (the page keeps it in `localStorage`). The name loses C0/C1 controls and Unicode bidi marks (embeddings, overrides, isolates, LRM, RLM, ALM), is trimmed, and is cut to 255 UTF-16 units with an ellipsis before its extension. `400` without a name (or with none left) or for a body that ends short of its `Content-Length`; `413` past 8 GB (or the node's item cap, if lower); `507` past what the page's items still on the shelf may add up to (16 GB, 200 items). Both are answered before any of the body is read when `Content-Length` says so, else where the body crosses the line, and the connection is closed. `408` when the body stalls for 30 s. |
 | `POST /web/text` | UTF-8 body, up to 1 MB, as a text item. `200 {"key": …, "token": …}`; `400` if blank; `413` if longer; `507` and `408` as above. |
 | `DELETE /web/items/{originId}/{id}` | Takes back an item a browser put up: `X-Plop-Token` must be the token its upload was answered with (`204`). `403` without it or for anything else: a mirror, another browser's upload, or what this device's own user shared. `404` if unknown. |
 
@@ -192,6 +192,10 @@ refused one again a few times.
 ```
 
 `from` is the origin's device name (this node's own name for its own items).
+The page takes C0/C1 controls and bidi marks out of `name` and `from` before
+showing them, as the upload route does, so a peer cannot make
+`invoice<U+202E>fdp.exe` read as `invoiceexe.pdf`; download file names are
+cleaned the same way.
 `ready` says whether the bytes are on this node yet; `progress` (0 to 1) is
 there while this node copies them over from the origin, which for an item
 over the eager-copy size starts only when someone asks for it. The page

@@ -539,6 +539,59 @@ void main() {
     expect((await send('POST', p.url('/web/items'), body: [1])).status, 400);
   });
 
+  test('an upload name is one clean line of at most 255', () async {
+    p = await Pair.start();
+    Future<ShelfItem> up(String name) async {
+      final r = await send(
+        'POST',
+        p.url('/web/items?name=${Uri.encodeQueryComponent(name)}'),
+        body: [1],
+      );
+      expect(r.status, 200, reason: name);
+      return p.a.store[(jsonDecode(utf8.decode(r.body)) as Map)['key']]!;
+    }
+
+    expect((await up('invoice\u202Efdp.exe')).name, 'invoicefdp.exe');
+    expect((await up(' a\r\nb\u2067c.txt ')).name, 'abc.txt');
+    final long = await up('${'x' * 20000}.jpg');
+    expect(long.name.length, ShelfStore.maxNameLength);
+    expect(long.name, endsWith('….jpg'));
+    expect(long.mime, 'image/jpeg', reason: 'the extension survives');
+    // Nothing left once cleaned is no name.
+    final none = await send(
+      'POST',
+      p.url('/web/items?name=${Uri.encodeQueryComponent('\u202E \r\n')}'),
+      body: [1],
+    );
+    expect(none.status, 400);
+
+    // A peer's name is downloaded under the clean one too.
+    final peer = await fakePeer(
+      [
+        {
+          'id': 'rlo1',
+          'name': 'invoice\u202Efdp.exe',
+          'size': 1,
+          'kind': 'file',
+          'ttlMs': 30000,
+        },
+      ],
+      {
+        'rlo1': [1],
+      },
+    );
+    addTearDown(() => peer.close(force: true));
+    p.da.add(
+      Peer(id: 'peer1', name: 'x', hosts: ['127.0.0.1'], port: peer.port),
+    );
+    await eventually(() => p.a.store['peer1/rlo1']?.isReady ?? false);
+    final d = await get(p.url('/web/items/peer1/rlo1'));
+    expect(
+      d.headers.value('content-disposition'),
+      "attachment; filename=\"invoicefdp.exe\"; filename*=UTF-8''invoicefdp.exe",
+    );
+  });
+
   test('a text post lands as a text item', () async {
     p = await Pair.start();
     final r = await send(

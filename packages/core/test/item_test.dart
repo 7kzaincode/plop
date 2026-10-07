@@ -24,4 +24,22 @@ void main() {
     expect(item('a/b/c').mime, 'application/octet-stream');
     expect(item('text/html, image/png').mime, 'application/octet-stream');
   });
+
+  test('cleanName takes out controls and bidi marks and keeps the tail', () {
+    String clean(String s, [int max = 255]) => cleanName(s, max: max);
+    expect(clean('invoice\u202Efdp.exe'), 'invoicefdp.exe');
+    expect(clean('a\u2066b\u2069\u200Fc\u061C'), 'abc');
+    expect(clean(' line\r\nX-Evil: 1\t\u0085 '), 'lineX-Evil: 1');
+    expect(clean('\u202E\r\n'), '');
+    expect(clean('Zürich 🏔.bin'), 'Zürich 🏔.bin');
+    final long = clean('${'a' * 300}.heic');
+    expect(long.length, 255);
+    expect(long, endsWith('a….heic'));
+    // A cut that would fall inside an emoji falls before it.
+    final emoji = clean('${'🏔' * 200}.png', 20);
+    expect(emoji, '${'🏔' * 7}….png');
+    // No extension worth keeping: the head, cut.
+    expect(clean('x' * 30, 10), '${'x' * 9}…');
+    expect(clean('a.${'x' * 40}', 10), 'a.xxxxxxx…', reason: 'too long a tail');
+  });
 }

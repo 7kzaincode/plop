@@ -198,6 +198,27 @@ String mimeFor(String name) {
       'application/octet-stream';
 }
 
+/// [name] as one line that reads as what it is: C0 and C1 controls and the
+/// Unicode bidi marks (embeddings, overrides, isolates, LRM, RLM, ALM) are
+/// taken out, so a CR/LF cannot break the line it is shown on and
+/// `invoice<RLO>fdp.exe` cannot pose as `invoiceexe.pdf`; then trimmed,
+/// and cut to [max] UTF-16 units with an ellipsis before the extension,
+/// which stays, as does every character the cut leaves whole.
+String cleanName(String name, {required int max}) {
+  final s = name.replaceAll(_unshown, '').trim();
+  if (s.length <= max) return s;
+  final dot = s.lastIndexOf('.');
+  final ext = dot > 0 && s.length - dot <= 16 ? s.substring(dot) : '';
+  var cut = max - 1 - ext.length;
+  // Not between the two halves of a surrogate pair.
+  if (cut > 0 && (s.codeUnitAt(cut - 1) & 0xfc00) == 0xd800) cut--;
+  return '${s.substring(0, cut)}…$ext';
+}
+
+final _unshown = RegExp(
+  '[\\x00-\\x1f\\x7f-\\x9f\\u061c\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]',
+);
+
 /// Makes a peer-supplied name safe to use as a single path segment on every
 /// platform plop runs on. Dotfiles stay dotfiles (`.env` must not arrive as
 /// `env`); with the separators replaced, only the bare `.` and `..` names
