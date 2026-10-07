@@ -256,9 +256,9 @@ Future<String?> grab(
   final origin = box == null ? null : box.localToGlobal(Offset.zero) & box.size;
   switch (action) {
     case GrabAction.copy:
-      return _copy(node, item);
+      return copyItem(node, item);
     case GrabAction.save:
-      return 'saved to ${_parentName(await saveItem(node, item))}';
+      return 'saved to ${savedWhere(await saveItem(node, item))}';
     case GrabAction.share:
       final path = await _materialize(node, item);
       try {
@@ -279,7 +279,7 @@ Future<String?> grab(
 /// The clipboard can only point at one file, so only the latest copy is kept.
 Directory? _lastCopy;
 
-Future<String> _copy(PlopNode node, ShelfItem item) async {
+Future<String> copyItem(PlopNode node, ShelfItem item) async {
   if (item.kind == ItemKind.text) {
     final text = await File(await node.fetch(item.key)).readAsString();
     await Clipboard.setData(ClipboardData(text: text));
@@ -417,7 +417,7 @@ String _unique(Directory dir, String name, {bool folder = false}) {
   return p;
 }
 
-String _parentName(String path) {
+String savedWhere(String path) {
   final parts = path.split(_sep);
   return parts.length < 2 ? path : parts[parts.length - 2];
 }
