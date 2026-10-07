@@ -77,13 +77,34 @@ settings panel says so in place of the shortcut rows). Snipping runs
 `gnome-screenshot`, `spectacle` or `scrot`, whichever is installed (`sudo apt
 install gnome-screenshot` on stock Ubuntu). Unlike on macOS, closing the
 window quits plop and stops the shortcuts; minimize it instead. If you turned
-on ufw or firewalld, allow your LAN subnet in: plop listens on a random port.
+on ufw or firewalld, allow your LAN subnet in: plop listens on port 7567, or
+on a random one if that is taken.
 
 ### iPhone and iPad
 
-There is no download: handing out iOS apps needs a paid Apple Developer
-account. Build it from source with a free Apple ID instead, on a Mac with
-Xcode and Flutter:
+There is no app download: handing out iOS apps needs a paid Apple Developer
+account. Instead, any Mac, Windows or Linux computer running plop serves the
+shelf as a web page to every phone on the same Wi-Fi:
+
+1. On the computer, open settings (sliders icon) and find **open on a
+   phone**.
+2. Point the iPhone's camera at the QR code, or type the address under it
+   (like `http://zains-macbook.local:7567/`) into Safari.
+3. Share > **Add to Home Screen**. From then on plop opens from its own icon,
+   full screen.
+
+Tap a row to grab it: text copies, photos open full-screen (touch and hold
+to save them to Photos), other files download. `+` adds photos or files,
+`paste` adds text, `×` takes back what you added. The page works only while
+the computer that serves it is awake with plop running, and the phone does
+not count as a device nearby on the other shelves. Android phones can use
+the same page; if the `.local` address doesn't open there, use the
+`or http://…` one under it.
+
+#### The native app, from source
+
+To build the app itself with a free Apple ID instead, on a Mac with Xcode
+and Flutter:
 
 1. Clone this repo, then `cd app && flutter pub get && open ios/Runner.xcworkspace`
    (`pub get` writes the generated Swift package and xcconfig Xcode expects;
@@ -126,6 +147,8 @@ to renew it.
   row says so). Smaller items copy to every device as soon as they appear.
   Your own rows say which devices have them. Phones only see the shelf while
   plop is in the foreground.
+- **Phones without the app:** settings › open on a phone has a QR code for
+  the web shelf (see iPhone and iPad above).
 
 ## From source
 
@@ -147,7 +170,8 @@ release build, to run two copies side by side.
 ## Layout
 
 - `packages/core`: protocol, shelf store and sync engine in pure Dart.
-  `bin/plop.dart` is a headless node for testing: `dart run plop_core:plop --text hi --file a.png`.
+  `bin/plop.dart` is a headless node for testing: `dart run plop_core:plop --text hi --file a.png`
+  (`--web` serves the web shelf too, at the addresses it prints).
 - `app`: the Flutter app (iOS, Android, macOS, Windows, Linux).
 - `docs/PROTOCOL.md`: wire protocol. `docs/PLAN.md`: milestones and what comes after v1.
 - `packaging/`: the Windows installer script.
