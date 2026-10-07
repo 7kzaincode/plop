@@ -59,6 +59,9 @@ flutter_launcher_icons:
   android: true
   adaptive_icon_background: "#0A0A0A"
   adaptive_icon_foreground: assets/icon/foreground.png
+  # Android 13+ themed icons tint this layer's alpha; the white mark on
+  # transparent is already what it needs.
+  adaptive_icon_monochrome: assets/icon/foreground.png
   ios: true
   remove_alpha_ios: true
   macos:
