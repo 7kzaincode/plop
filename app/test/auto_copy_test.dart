@@ -25,6 +25,10 @@ void main() {
   /// The wall clock, which only a test of sleep moves.
   var wall = DateTime.now();
 
+  /// Keys of this device's own items that a phone put up through the web
+  /// shelf.
+  final uploads = <String>{};
+
   /// Copies of these names wait until their completer completes, as a big
   /// picture's would; copies of names starting "bad" fail.
   final slow = <String, Completer<void>>{};
@@ -42,6 +46,7 @@ void main() {
     clip = 0;
     wall = DateTime.now();
     slow.clear();
+    uploads.clear();
     settings = Settings.inMemory()..autoCopy = on;
     AutoCopy.onCopied = (item) => told.add(item.name);
     AutoCopy.watchItems(
@@ -49,6 +54,7 @@ void main() {
       () => shelf,
       () => peers,
       self: 'me',
+      isUpload: uploads.contains,
       settings: settings,
       maxBytes: 1 << 20,
       deadline: (_) => const Duration(seconds: 30),
@@ -445,6 +451,28 @@ void main() {
     shelf = [item('later still', from: 'mac', ready: true), ...shelf];
     await changed(tester);
     expect(copied, ['after waking', 'later still']);
+    await stop();
+  });
+
+  // A phone without the app puts things up through the web shelf, as this
+  // device's own items; they are arrivals all the same, and never what a
+  // device already had, even in plop's first seconds.
+  testWidgets('what a phone put up through the web shelf goes on', (
+    tester,
+  ) async {
+    shelf = [];
+    peers = [];
+    watch();
+    await tester.pump();
+    final upload = item('from a phone', from: 'me', ready: true);
+    shelf = [upload, item('mine', from: 'me', ready: true)];
+    await changed(tester);
+    expect(copied, isEmpty, reason: 'not known to be an upload yet');
+    uploads.add(upload.key); // the web shelf says so a moment later
+    await changed(tester);
+    expect(copied, ['from a phone']);
+    expect(AutoCopy.senderOf(upload), 'a phone (web)');
+    expect(AutoCopy.senderOf(item('x')), "Zain's iPhone");
     await stop();
   });
 

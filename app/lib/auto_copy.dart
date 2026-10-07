@@ -14,7 +14,8 @@ import 'seen.dart';
 import 'settings.dart';
 
 /// Text and pictures another device plops go straight onto this one's
-/// clipboard once they are here, when the settings panel has it switched on
+/// clipboard once they are here (and what a phone without the app puts up
+/// through the web shelf, which is this device's own to the core), when the settings panel has it switched on
 /// ([Settings.autoCopy]). Off by default: anyone nearby with plop could then
 /// fill the clipboard. Only arrivals count: not what was on the shelf at
 /// launch, nor what a device brings in its first seconds on the network,
@@ -35,6 +36,16 @@ abstract final class AutoCopy {
   /// Called after each copy instead of the notification, with the item that
   /// is now on the clipboard; the macOS island sets it.
   static void Function(ShelfItem item)? onCopied;
+
+  /// Who [item] came from, as a message names them: its device, or for
+  /// what a phone put up through the web shelf, which arrives as this
+  /// device's own, [webSender].
+  static String senderOf(ShelfItem item) =>
+      _isUpload(item.key) ? webSender : item.originName;
+
+  static String _self = '';
+  static bool Function(String key) _isUpload = _never;
+  static bool _never(String key) => false;
 
   static Settings? _settings;
   static StreamSubscription<void>? _watching;
@@ -65,6 +76,7 @@ abstract final class AutoCopy {
     () => node.items,
     () => node.peers.map((p) => p.id),
     self: node.id,
+    isUpload: node.web.isUpload,
     settings: settings,
     maxBytes: node.engine.eagerCopyBytes,
     deadline: node.engine.eagerDeadlineFor,
@@ -73,7 +85,8 @@ abstract final class AutoCopy {
 
   /// [watch] with the node taken apart: [changes] fires whenever [items],
   /// the shelf, or [peers], the ids of the other devices, may have changed;
-  /// [self] is this device's id, [copy] puts an item on the clipboard,
+  /// [self] is this device's id, [isUpload] tells which of its own items a
+  /// phone put up through the web shelf, [copy] puts an item on the clipboard,
   /// [maxBytes] is the eager-copy size and [deadline] the time an eager
   /// copy of a size gets. [stamp] stands in for [clipboardStamp] and
   /// [clock] for the wall clock, which shows when the machine slept.
@@ -83,6 +96,7 @@ abstract final class AutoCopy {
     Iterable<ShelfItem> Function() items,
     Iterable<String> Function() peers, {
     required String self,
+    bool Function(String key)? isUpload,
     required Settings settings,
     required Future<void> Function(ShelfItem item) copy,
     int maxBytes = defaultEagerCopyBytes,
@@ -92,6 +106,8 @@ abstract final class AutoCopy {
   }) {
     if (!isDesktop) return;
     _settings = settings;
+    _self = self;
+    _isUpload = isUpload ?? _never;
     _copy = copy;
     _maxBytes = maxBytes;
     _deadline = deadline ?? _eagerDeadline;
@@ -103,7 +119,7 @@ abstract final class AutoCopy {
       final here = peers().toList();
       _settling.present(here);
       here.forEach(_settling.hear);
-      _arrived(items().where((i) => i.originId != self));
+      _arrived(items().where((i) => i.originId != self || _isUpload(i.key)));
     }
 
     check();
@@ -125,18 +141,24 @@ abstract final class AutoCopy {
       (item.kind == ItemKind.text || copiesAsImage(item)) &&
       item.size <= _maxBytes;
 
-  /// The shelf's items from other devices as they are now.
+  /// The shelf's items from other devices, and the web shelf's uploads, as
+  /// they are now. An upload is known as one a moment after the store has
+  /// it as this device's own (WebHost.changes); it is new then.
   static void _arrived(Iterable<ShelfItem> remote) {
     final items = remote.toList();
     final here = <String>{};
     ShelfItem? newest;
     for (final item in items) {
       here.add(item.key);
-      _settling.hear(item.originId);
+      // An upload is never something a device already had.
+      final upload = item.originId == _self;
+      if (!upload) _settling.hear(item.originId);
       if (!_seen.add(item)) continue;
       // Switched off (switching on later does not reach back), a device
       // that is only turning up, or nothing for the clipboard.
-      if (!_on || _settling.isQuiet(item.originId) || !_wanted(item)) {
+      if (!_on ||
+          (!upload && _settling.isQuiet(item.originId)) ||
+          !_wanted(item)) {
         continue;
       }
       if (newest == null || item.addedAt.isAfter(newest.addedAt)) {
@@ -203,7 +225,7 @@ abstract final class AutoCopy {
     if (hook != null) {
       hook(item);
     } else {
-      Notify.say('copied ${messageName(item)} from ${item.originName}');
+      Notify.say('copied ${messageName(item)} from ${senderOf(item)}');
     }
   }
 
@@ -218,6 +240,8 @@ abstract final class AutoCopy {
     _copying = Future.value();
     _ours = null;
     _settings = null;
+    _self = '';
+    _isUpload = _never;
     _copy = null;
     _stamp = clipboardStamp;
     _deadline = _eagerDeadline;
@@ -225,6 +249,10 @@ abstract final class AutoCopy {
     onCopied = null;
   }
 }
+
+/// How a message names whoever put an item up through the web shelf: a
+/// phone without the app, as a rule.
+const webSender = 'a phone (web)';
 
 typedef _Pending = ({String key, Future<Object?> stamp, Timer timer});
 
