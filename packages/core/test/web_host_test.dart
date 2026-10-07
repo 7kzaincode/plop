@@ -65,13 +65,16 @@ typedef Reply = ({int status, HttpHeaders headers, Uint8List body});
 
 final http = HttpClient();
 
+/// A request as the page makes it: writes carry [webHeader].
 Future<Reply> send(
   String method,
   Uri uri, {
   List<int>? body,
   bool chunked = false,
+  Map<String, String> headers = const {webHeader: '1'},
 }) async {
   final req = await http.openUrl(method, uri);
+  headers.forEach(req.headers.set);
   if (body != null) {
     if (chunked) {
       req.headers.chunkedTransferEncoding = true;
@@ -232,6 +235,78 @@ void main() {
       expect(await as(host, '/web/shelf'), contains('200'), reason: host);
       expect(await as(host, '/v1/items'), contains('200'), reason: host);
     }
+  });
+
+  test('writes need the page header; other origins are refused', () async {
+    p = await Pair.start();
+    final own = 'http://127.0.0.1:${p.a.port}';
+    final note = await p.a.addText('keep me');
+    // What a form post or a no-cors fetch from any site can send.
+    for (final (method, path) in [
+      ('POST', '/web/text'),
+      ('POST', '/web/items?name=a.txt'),
+      ('DELETE', '/web/items/${note.key}'),
+    ]) {
+      final r = await send(method, p.url(path), body: [104, 105], headers: {});
+      expect(r.status, 403, reason: '$method $path without the header');
+      final wrong = await send(
+        method,
+        p.url(path),
+        body: [104, 105],
+        headers: {webHeader: 'yes'},
+      );
+      expect(wrong.status, 403, reason: '$method $path, header not 1');
+    }
+    // A big body is refused without being read first.
+    expect(
+      await rawStatus(
+        p.a.port,
+        'POST /web/items?name=big.bin HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+        'Content-Length: 100000000\r\n\r\n',
+      ),
+      contains('403'),
+    );
+    expect(p.a.items.map((i) => i.key), [note.key]);
+
+    // The header with another page's Origin; reads through CORS too.
+    for (final origin in [
+      'http://evil.example',
+      'null',
+      'http://127.0.0.1',
+      'https://127.0.0.1:${p.a.port}',
+    ]) {
+      final r = await send(
+        'POST',
+        p.url('/web/text'),
+        body: [104, 105],
+        headers: {webHeader: '1', 'origin': origin},
+      );
+      expect(r.status, 403, reason: origin);
+      final read = await send(
+        'GET',
+        p.url('/web/shelf'),
+        headers: {'origin': origin},
+      );
+      expect(read.status, 403, reason: origin);
+    }
+    expect(p.a.items.map((i) => i.key), [note.key]);
+
+    // The page's own: same origin, with the header.
+    final ok = await send(
+      'POST',
+      p.url('/web/text'),
+      body: [104, 105],
+      headers: {webHeader: '1', 'origin': own},
+    );
+    expect(ok.status, 200);
+    final read = await send(
+      'GET',
+      p.url('/web/shelf'),
+      headers: {'origin': own},
+    );
+    expect(read.status, 200);
+    // Reads need no header: the page's GETs and plain navigations.
+    expect((await send('GET', p.url('/web/shelf'), headers: {})).status, 200);
   });
 
   test('isLanHost', () {
@@ -462,6 +537,7 @@ void main() {
       await rawStatus(
         p.a.port,
         'POST /web/text HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+        '$webHeader: 1\r\n'
         'Content-Length: ${WebHost.maxTextBytes + 1}\r\n\r\n',
       ),
       contains('413'),
@@ -504,6 +580,7 @@ void main() {
       await rawStatus(
         p.a.port,
         'POST /web/items?name=big.bin HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+        '$webHeader: 1\r\n'
         'Content-Length: ${128 * 1024}\r\n\r\n',
       ),
       contains('413'),
@@ -513,6 +590,7 @@ void main() {
       await rawStatus(
         p.a.port,
         'POST /web/items?name=big.bin HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+        '$webHeader: 1\r\n'
         'Transfer-Encoding: chunked\r\n\r\n',
         chunkedBody(96 * 1024, 8 * 1024),
       ),

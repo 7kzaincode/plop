@@ -8,6 +8,12 @@ import 'node_server.dart';
 import 'plop_node.dart';
 import 'shelf_store.dart';
 
+/// Header the page sets on every request that changes something. A form
+/// or a no-cors fetch from any other site reaches these routes through the
+/// user's browser too, but neither can set a header of its own: that takes
+/// a CORS preflight, which this server never answers.
+const webHeader = 'x-plop-web';
+
 /// Port the app asks for first: p-l-o-p on a phone keypad, so the address a
 /// phone has to type is one worth remembering. Any free port when taken.
 const defaultWebPort = 7567;
@@ -62,6 +68,13 @@ class WebHost {
 
   Future<void> _route(HttpRequest req) async {
     final res = req.response;
+    final reads = req.method == 'GET' || req.method == 'HEAD';
+    if (!_sameOrigin(req) ||
+        !reads && req.headers[webHeader]?.singleOrNull != '1') {
+      claimBody(req); // refused without reading it
+      res.statusCode = HttpStatus.forbidden;
+      return;
+    }
     // HEAD answers as GET would; dart:io leaves the body out.
     final method = req.method == 'HEAD' ? 'GET' : req.method;
     switch ((method, req.uri.pathSegments)) {
@@ -111,6 +124,19 @@ class WebHost {
       default:
         res.statusCode = HttpStatus.notFound;
     }
+  }
+
+  /// False for a request that says it comes from a page on another origin.
+  /// Browsers send Origin with every write, and with reads made through
+  /// CORS; the page's own requests carry `http://` plus the Host they went
+  /// to. Requests with no Origin (navigations, nodes, curl) pass.
+  static bool _sameOrigin(HttpRequest req) {
+    final origin = req.headers['origin'];
+    if (origin == null) return true;
+    final host = req.headers[HttpHeaders.hostHeader];
+    return origin.length == 1 &&
+        host?.length == 1 &&
+        origin.single.toLowerCase() == 'http://${host!.single.toLowerCase()}';
   }
 
   static void _noStore(HttpResponse res) =>
@@ -285,7 +311,8 @@ final _blackPixel = Uint8List.fromList(const [
 // (navigator.share, navigator.clipboard, install prompts): copying goes
 // through execCommand inside the tap, images open full-screen to be held
 // and saved, other files download, and share() is used only where a
-// browser does offer it. `{{name}}` is this device's name.
+// browser does offer it. Every write sets the x-plop-web header (see
+// webHeader). `{{name}}` is this device's name.
 const _page = r'''<!doctype html>
 <html lang="en">
 <head>
@@ -608,6 +635,7 @@ function upload(file) {
   render();
   const x = new XMLHttpRequest();
   x.open('POST', '/web/items?name=' + encodeURIComponent(u.name));
+  x.setRequestHeader('x-plop-web', '1');
   x.upload.onprogress = e => {
     if (!e.lengthComputable) return;
     u.pct = Math.round(e.loaded / e.total * 100);
@@ -631,7 +659,7 @@ async function sendText(t) {
   if (!t.trim()) return;
   closeSheet();
   try {
-    const r = await fetch('/web/text', {method: 'POST', headers: {'content-type': 'text/plain;charset=utf-8'}, body: t});
+    const r = await fetch('/web/text', {method: 'POST', headers: {'content-type': 'text/plain;charset=utf-8', 'x-plop-web': '1'}, body: t});
     if (!r.ok) throw new Error(r.status);
     mine.set((await r.json()).key, Date.now());
     saveMine();
@@ -641,7 +669,7 @@ async function sendText(t) {
   }
 }
 async function remove(key) {
-  const r = await fetch('/web/items/' + key, {method: 'DELETE'}).catch(() => null);
+  const r = await fetch('/web/items/' + key, {method: 'DELETE', headers: {'x-plop-web': '1'}}).catch(() => null);
   if (!r || !r.ok) return toast("couldn't remove that");
   mine.delete(key);
   saveMine();

@@ -150,6 +150,13 @@ becomes this node's own item and travels to peers over `/v1` like any other.
 
 ### Routes
 
+Every `POST` and `DELETE` (anything but `GET` and `HEAD`) must carry
+`X-Plop-Web: 1`, and a request with an `Origin` header must come from
+`http://<its Host>`; either failing is `403`, answered without reading the
+body. A form or a no-cors `fetch` from another site cannot set a header of
+its own, and this server answers no CORS preflight, so other pages a phone
+or computer on the LAN visits cannot write here.
+
 | route | answer |
 |---|---|
 | `GET /` | The page: inline HTML, CSS and JS, nothing fetched from elsewhere. `Cache-Control: max-age=60`. |
