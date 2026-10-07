@@ -30,6 +30,13 @@ keeping its id and, when it can, its port.
 
 Plain HTTP on the advertised port. Only items this node originated are served.
 
+Every request, on every route, must name the node by address: its `Host`
+header is an IP literal (IPv6 in brackets), `localhost` or a name under it,
+or a `.local` name, optionally with a port. Anything else gets `421` before
+any routing and without the body being read. A web page elsewhere can point
+its own domain at a LAN address (DNS rebinding) and the browser then treats
+this node as that site; this is what stops it. Nodes always connect by IP.
+
 ### `GET /v1/items`
 
 The caller sets `X-Plop-Node: <its node id>`. A node id is a plain token

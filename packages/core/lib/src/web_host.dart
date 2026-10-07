@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'item.dart';
+import 'node_server.dart';
 import 'plop_node.dart';
 import 'shelf_store.dart';
 
@@ -189,7 +190,7 @@ class WebHost {
   Future<void> _upload(HttpRequest req) async {
     final res = req.response;
     _noStore(res);
-    final body = _body(req);
+    final body = claimBody(req);
     final name = req.uri.queryParameters['name']?.trim() ?? '';
     if (name.isEmpty) {
       res.statusCode = HttpStatus.badRequest;
@@ -205,7 +206,7 @@ class WebHost {
       res.headers.contentType = ContentType.json;
       res.write(jsonEncode({'key': item.key}));
     } on ItemTooLargeException {
-      // The rest of the body stays unread; see _body.
+      // The rest of the body stays unread; see claimBody.
       res.statusCode = HttpStatus.requestEntityTooLarge;
     } on FormatException {
       res.statusCode = HttpStatus.badRequest; // ended short of its length
@@ -215,7 +216,7 @@ class WebHost {
   Future<void> _text(HttpRequest req) async {
     final res = req.response;
     _noStore(res);
-    final body = _body(req);
+    final body = claimBody(req);
     if (req.contentLength > maxTextBytes) {
       res.statusCode = HttpStatus.requestEntityTooLarge;
       return;
@@ -236,25 +237,6 @@ class WebHost {
     final item = await node.addText(text);
     res.headers.contentType = ContentType.json;
     res.write(jsonEncode({'key': item.key}));
-  }
-
-  /// [req]'s body, for a reader that may stop early. It is claimed at once
-  /// and paused: dart:io reads a body nobody has claimed to its end before
-  /// it lets any answer out, so a 413 for a 100 GB upload would first take
-  /// the 100 GB. Cancelling only pauses it as well: a cancelled body
-  /// destroys the connection on the spot, answer or no answer, while a
-  /// paused one goes with the connection once the answer is out (a body
-  /// left unread is never kept alive).
-  static Stream<List<int>> _body(HttpRequest req) {
-    final c = StreamController<List<int>>();
-    final sub = req.listen(c.add, onError: c.addError, onDone: c.close)
-      ..pause();
-    c
-      ..onListen = sub.resume
-      ..onPause = sub.pause
-      ..onResume = sub.resume
-      ..onCancel = sub.pause;
-    return c.stream;
   }
 }
 

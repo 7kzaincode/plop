@@ -37,7 +37,7 @@ class Pair {
     da.add(Peer(id: b.id, name: 'phone', hosts: ['127.0.0.1'], port: b.port));
     db.add(Peer(id: a.id, name: 'mac', hosts: ['127.0.0.1'], port: a.port));
     a.web.enabled = true;
-    return Pair._(a, b, root, da);
+    return _running = Pair._(a, b, root, da);
   }
 
   Uri url(String path) => Uri.parse('http://127.0.0.1:${a.port}$path');
@@ -154,9 +154,15 @@ List<int> chunkedBody(int total, int chunk) {
   return out.takeBytes();
 }
 
+/// The pair the current test started, if it started one.
+Pair? _running;
+
 void main() {
   late Pair p;
-  tearDown(() => p.stop());
+  tearDown(() async {
+    await _running?.stop();
+    _running = null;
+  });
   tearDownAll(() => http.close(force: true));
 
   test('disabled, the web routes answer 404 and /v1 is untouched', () async {
@@ -166,6 +172,83 @@ void main() {
       expect((await get(p.url(path))).status, 404, reason: path);
     }
     expect((await get(p.url('/v1/items'))).status, 200);
+  });
+
+  test('only a LAN host name is answered, on every route', () async {
+    p = await Pair.start();
+    final port = p.a.port;
+    Future<String> as(String host, String path) => rawStatus(
+      port,
+      'GET $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n',
+    );
+    // A page out on the web that pointed its own name at this machine.
+    for (final host in [
+      'attacker.example',
+      'attacker.example:$port',
+      'evil.com.:$port',
+      '127.0.0.1.evil.com',
+      'localhost.evil.com',
+      'local',
+      '[::1',
+      '[nope]:$port',
+      '127.0.0.1:x',
+      '',
+    ]) {
+      for (final path in ['/', '/web/shelf', '/v1/items']) {
+        expect(await as(host, path), contains('421'), reason: '$host $path');
+      }
+    }
+    // Two Host headers, one of them fine.
+    expect(
+      await rawStatus(
+        port,
+        'GET /web/shelf HTTP/1.1\r\nHost: 127.0.0.1\r\n'
+        'Host: attacker.example\r\nConnection: close\r\n\r\n',
+      ),
+      anyOf(contains('421'), contains('400')),
+    );
+    // Refused before a byte of an upload is read.
+    expect(
+      await rawStatus(
+        port,
+        'POST /web/text HTTP/1.1\r\nHost: attacker.example\r\n'
+        'Content-Length: 1000000\r\n\r\n',
+      ),
+      contains('421'),
+    );
+    expect(p.a.items, isEmpty);
+
+    for (final host in [
+      '127.0.0.1',
+      '127.0.0.1:$port',
+      '192.168.1.20:$port',
+      '[::1]:$port',
+      '[fe80::1%25en0]:$port',
+      'localhost:$port',
+      'plop.localhost',
+      'zains-macbook.local:$port',
+      'Zains-MacBook.local.',
+    ]) {
+      expect(await as(host, '/web/shelf'), contains('200'), reason: host);
+      expect(await as(host, '/v1/items'), contains('200'), reason: host);
+    }
+  });
+
+  test('isLanHost', () {
+    expect(isLanHost(null), isTrue, reason: 'no browser leaves it out');
+    expect(isLanHost('10.0.0.5:7567'), isTrue);
+    expect(isLanHost('[2001:db8::1]:7567'), isTrue);
+    expect(isLanHost('[2001:db8::1]'), isTrue);
+    expect(isLanHost('2001:db8::1'), isFalse, reason: 'brackets required');
+    expect(isLanHost('[10.0.0.5]'), isFalse);
+    expect(isLanHost('[::1]x'), isFalse);
+    expect(isLanHost('localhost'), isTrue);
+    expect(isLanHost('a.b.localhost:1'), isTrue);
+    expect(isLanHost('mac.local'), isTrue);
+    expect(isLanHost('mac.lan'), isFalse);
+    expect(isLanHost('example.com'), isFalse);
+    expect(isLanHost('1.2.3.4.nip.io'), isFalse);
+    expect(isLanHost('mac.local:123456'), isFalse);
   });
 
   test('the page, the manifest and the icon are served', () async {
@@ -378,7 +461,7 @@ void main() {
     expect(
       await rawStatus(
         p.a.port,
-        'POST /web/text HTTP/1.1\r\nHost: x\r\n'
+        'POST /web/text HTTP/1.1\r\nHost: 127.0.0.1\r\n'
         'Content-Length: ${WebHost.maxTextBytes + 1}\r\n\r\n',
       ),
       contains('413'),
@@ -420,7 +503,7 @@ void main() {
     expect(
       await rawStatus(
         p.a.port,
-        'POST /web/items?name=big.bin HTTP/1.1\r\nHost: x\r\n'
+        'POST /web/items?name=big.bin HTTP/1.1\r\nHost: 127.0.0.1\r\n'
         'Content-Length: ${128 * 1024}\r\n\r\n',
       ),
       contains('413'),
@@ -429,7 +512,7 @@ void main() {
     expect(
       await rawStatus(
         p.a.port,
-        'POST /web/items?name=big.bin HTTP/1.1\r\nHost: x\r\n'
+        'POST /web/items?name=big.bin HTTP/1.1\r\nHost: 127.0.0.1\r\n'
         'Transfer-Encoding: chunked\r\n\r\n',
         chunkedBody(96 * 1024, 8 * 1024),
       ),
