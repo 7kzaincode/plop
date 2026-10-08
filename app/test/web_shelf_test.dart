@@ -61,7 +61,7 @@ void main() {
   testWidgets('the QR code is black on a white card, quiet zone and all', (
     tester,
   ) async {
-    const url = 'http://zains-macbook-pro-5.local:7567/';
+    const url = 'http://my-mac.local:7567/';
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(

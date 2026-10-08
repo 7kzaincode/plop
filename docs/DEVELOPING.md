@@ -34,7 +34,7 @@ same for a release build, to run two copies side by side.
   `bin/plop.dart` is a headless node for testing: `dart run plop_core:plop --text hi --file a.png`
   (`--web` serves the web shelf too, at the addresses it prints).
 - `app`: the Flutter app (iOS, Android, macOS, Windows, Linux).
-- `docs/PROTOCOL.md`: wire protocol. `docs/PLAN.md`: milestones and what comes after v1.
+- `docs/PROTOCOL.md`: wire protocol.
 - `packaging/`: the Windows installer script.
 
 ## Releasing

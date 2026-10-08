@@ -129,7 +129,7 @@ shelf as a web page to every phone on the same Wi-Fi:
 1. On the computer, open settings (sliders icon) and find **open on a
    phone**.
 2. Point the iPhone's camera at the QR code, or type the address under it
-   into Safari: a Mac's `.local` name (like `http://zains-macbook.local:7567/`),
+   into Safari: a Mac's `.local` name (like `http://my-mac.local:7567/`),
    elsewhere usually an IP address (like `http://192.168.1.20:7567/`).
 3. Share > **Add to Home Screen**. From then on plop opens from its own icon,
    full screen.

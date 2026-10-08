@@ -241,8 +241,8 @@ void main() {
       '[fe80::1%25nosuchif9]:$port',
       'localhost:$port',
       'plop.localhost',
-      'zains-macbook.local:$port',
-      'Zains-MacBook.local.',
+      'my-mac.local:$port',
+      'My-Mac.local.',
     ]) {
       expect(await as(host, '/web/shelf'), contains('200'), reason: host);
       expect(await as(host, '/v1/items'), contains('200'), reason: host);

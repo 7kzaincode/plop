@@ -239,8 +239,8 @@ cleaned the same way.
 
 ### Trust
 
-There is no authentication, as on `/v1` (see PLAN.md, "Room code and
-TLS"), and the web shelf gives anyone who can reach this port on the network
+There is no authentication, as on `/v1` (a room code and TLS may come
+later), and the web shelf gives anyone who can reach this port on the network
 more than `/v1` gives a peer. A browser is not needed for any of it; `curl`
 will do.
 
