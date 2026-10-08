@@ -911,12 +911,13 @@ async function fetchBlob(it) {
   }
   return new Blob(chunks, {type: it.mime});
 }
-// A link with the download attribute, which the browser saves (Safari
-// asks first, then it is in Files › Downloads). A home-screen app has no
-// download list of its own, so there the item opens in the browser, which
-// saves it from its attachment header.
+// A link with the download attribute, which the browser saves: Safari
+// asks first, then it is in Files › Downloads. A home-screen app on an
+// iPhone or iPad does this too, through a page for the file whose tap
+// offers Save to Files; opening the item in a new view instead (as this
+// once did) only shows it, with no way to keep it.
 function download(it) {
-  if (standalone && window.open(url(it), '_blank')) return;
+  if (standalone && ios) toast('tap the file, then save to files');
   const a = document.createElement('a');
   a.href = url(it);
   a.download = fileName(it);
