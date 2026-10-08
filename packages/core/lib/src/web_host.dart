@@ -599,8 +599,9 @@ input[type=file]{display:none}
 </header>
 <div id="list"></div>
 <div id="hint"><span>add plop to your home screen: <b>share › add to home screen</b></span><button class="x" id="hintx" aria-label="dismiss">×</button></div>
-<nav id="bar"><button class="gb" id="photo"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9 9"/></svg>photo</button><button class="gb" id="add"><svg viewBox="0 0 24 24"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5v5h5"/></svg>file</button><button class="gb" id="paste"><svg viewBox="0 0 24 24"><rect x="5.5" y="5" width="13" height="15.5" rx="2"/><path d="M9 5V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/></svg>paste</button></nav>
+<nav id="bar"><button class="gb" id="camera"><svg viewBox="0 0 24 24"><path d="M4.5 8A1.5 1.5 0 0 1 6 6.5h2.2l1.4-2h4.8l1.4 2H18A1.5 1.5 0 0 1 19.5 8v9.5A1.5 1.5 0 0 1 18 19H6a1.5 1.5 0 0 1-1.5-1.5z"/><circle cx="12" cy="12.6" r="3.3"/></svg>camera</button><button class="gb" id="photo"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9 9"/></svg>photo</button><button class="gb" id="add"><svg viewBox="0 0 24 24"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5v5h5"/></svg>file</button><button class="gb" id="paste"><svg viewBox="0 0 24 24"><rect x="5.5" y="5" width="13" height="15.5" rx="2"/><path d="M9 5V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/></svg>paste</button></nav>
 <input type="file" id="pics" accept="image/*,video/*" multiple>
+<input type="file" id="shot" accept="image/*" capture="environment">
 <input type="file" id="file" multiple>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><clipPath id="bk"><path d="M7.04 1.28L24.96 1.28C28.48 1.28 29.76 2.88 29.92 6.08L31.2 24.32C31.68 29.44 29.44 31.04 26.24 29.44C20.48 26.88 11.52 26.88 5.76 29.44C2.56 31.04 0.32 29.44 0.8 24.32L2.08 6.08C2.24 2.88 3.52 1.28 7.04 1.28Z"/></clipPath></defs></svg>
 <div id="sheet"><form id="textform"><textarea id="text" placeholder="paste or type, then plop"></textarea><div class="actions"><button type="button" class="ghost" id="cancel">cancel</button><button type="submit" class="btn">plop</button></div></form></div>
@@ -979,7 +980,9 @@ async function copyText(it) {
 
 $('add').onclick = () => $('file').click();
 $('photo').onclick = () => $('pics').click();
-for (const id of ['file', 'pics']) $(id).onchange = () => { for (const f of $(id).files) upload(f); $(id).value = ''; };
+// Straight to the phone's camera; a computer without one offers its files.
+$('camera').onclick = () => $('shot').click();
+for (const id of ['file', 'pics', 'shot']) $(id).onchange = () => { for (const f of $(id).files) upload(f); $(id).value = ''; };
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => { e.preventDefault(); for (const f of e.dataTransfer.files) upload(f); });
 addEventListener('paste', e => {

@@ -534,6 +534,11 @@ class ShelfScreenState extends State<ShelfScreen> {
       children: [
         for (final (icon, label, onTap) in [
           (
+            Icons.photo_camera_outlined,
+            'camera',
+            () => run(() => _add(takePhoto)),
+          ),
+          (
             Icons.photo_outlined,
             'photo',
             () => run(() => _add(() => pickFiles(media: true))),
@@ -1283,13 +1288,21 @@ class _GhostButton extends StatelessWidget {
       onTap: onTap,
       child: SizedBox(
         height: 46,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: Palette.text),
-            const SizedBox(width: 8),
-            Text(label, style: monoStyle(color: Palette.text)),
-          ],
+        // Four to a row on the narrowest phones: the label shrinks to fit
+        // rather than run over.
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: Palette.text),
+                const SizedBox(width: 8),
+                Text(label, style: monoStyle(color: Palette.text)),
+              ],
+            ),
+          ),
         ),
       ),
     ),

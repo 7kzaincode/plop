@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pasteboard/pasteboard.dart';
@@ -41,6 +42,14 @@ class PlopMessage implements Exception {
 // ---------------------------------------------------------------- adding
 
 /// [media] opens the photo library on mobile, where screenshots live.
+/// A photo taken now with the phone's camera, or none if the user backs out.
+Future<List<String>> takePhoto() async {
+  final shot = await ImagePickerPlatform.instance.getImageFromSource(
+    source: ImageSource.camera,
+  );
+  return [?shot?.path];
+}
+
 Future<List<String>> pickFiles({bool media = false}) async {
   if (Platform.isMacOS && !media) {
     // One panel that takes files and folders alike.

@@ -15,6 +15,9 @@ dependencies:
   flutter:
     sdk: flutter
   hotkey_manager: ^0.2.3
+  image_picker_android: ^0.8.13+25
+  image_picker_ios: ^0.8.13+10
+  image_picker_platform_interface: ^2.11.2
   local_notifier: ^0.1.6
   pasteboard: ^0.5.0
   path_provider: ^2.1.6
