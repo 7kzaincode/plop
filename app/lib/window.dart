@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:plop_core/plop_core.dart';
 
 import 'island.dart';
+import 'notify.dart';
 import 'seen.dart';
 
 /// The macOS window draws its own title bar area (see MainFlutterWindow.swift).
@@ -85,7 +86,8 @@ abstract final class AppWindow {
 /// other windows: a count on the Dock icon (macOS, MainFlutterWindow.swift
 /// "badge") or a flashing taskbar button (Windows, flutter_window.cpp
 /// "flash"), cleared once the window is focused again. Linux has no
-/// portable equivalent.
+/// portable equivalent. Where the island says what arrived, the Dock icon
+/// doesn't bounce and the taskbar button doesn't flash on top of it.
 abstract final class Arrivals {
   static const _channel = MethodChannel('plop/window');
 
@@ -134,7 +136,10 @@ abstract final class Arrivals {
         // The island says what arrived now; no bounce on top of it.
         'fresh': fresh && !Island.active,
       }).ignore();
-    } else if (fresh) {
+    } else if (fresh && !(Island.active && Notify.islandWanted)) {
+      // The pill says what arrived now. With it switched off ("show
+      // arrivals") the taskbar button still flashes, as it always did
+      // alongside the notifications that switch also turns off.
       _channel.invokeMethod<void>('flash').ignore();
     }
   }

@@ -6,12 +6,16 @@
 #endif
 
 #include "flutter/generated_plugin_registrant.h"
+#include "island.h"
 
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
   // lib/window.dart's "plop/window" channel; kept for the life of the app.
   FlMethodChannel* window_channel;
+  // lib/island.dart's pill above the panel (island.cc), which says what
+  // arrived while the window is away; on X11 only.
+  Island* island;
   // Set over that channel once the tray icon is up (lib/tray.dart): closing
   // the window then hides it and plop lives on in the tray, as on macOS.
   // Until then a close quits as it always did, so a desktop without a tray
@@ -157,6 +161,8 @@ static void my_application_activate(GApplication* application) {
       FL_METHOD_CODEC(codec));
   fl_method_channel_set_method_call_handler(self->window_channel,
                                             window_method_cb, self, nullptr);
+  self->island = island_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)));
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -213,6 +219,10 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->window_channel);
+  if (self->island != nullptr) {
+    island_free(self->island);
+    self->island = nullptr;
+  }
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 

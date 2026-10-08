@@ -1,11 +1,15 @@
 // The Dock badge (macOS) and taskbar flash (Windows) for items that land
-// while plop is in the background, with the window channel standing in for
-// the runner and the lifecycle channel for the window.
+// while plop is in the background, and that neither goes on top of the
+// island, with the window channel standing in for the runner and the
+// lifecycle channel for the window.
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plop/island.dart';
+import 'package:plop/notify.dart';
+import 'package:plop/settings.dart';
 import 'package:plop/window.dart';
 import 'package:plop_core/plop_core.dart';
 
@@ -31,13 +35,14 @@ void main() {
         (_) {},
       );
 
-  testWidgets('an item back from a peer that dropped off is not fresh', (
-    tester,
-  ) async {
-    // Each signal that something new landed: a badge marked fresh on
-    // macOS, a flash elsewhere; and the badge counts as they go.
-    final fresh = <String>[];
-    final counts = <int>[];
+  // Each signal that something new landed: a badge marked fresh on macOS, a
+  // flash elsewhere; and the badge counts as they go.
+  late List<String> fresh;
+  late List<int> counts;
+
+  void runner(WidgetTester tester) {
+    fresh = [];
+    counts = [];
     final messenger = tester.binding.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(window, (call) async {
       final args = call.arguments;
@@ -51,8 +56,16 @@ void main() {
     addTearDown(() {
       messenger.setMockMethodCallHandler(window, null);
       Arrivals.reset();
+      Island.reset();
+      Notify.reset();
     });
     Arrivals.reset();
+  }
+
+  testWidgets('an item back from a peer that dropped off is not fresh', (
+    tester,
+  ) async {
+    runner(tester);
 
     // Seen on the focused shelf, then the window goes to the background and
     // the phone sleeps (its uncopied item leaves) and wakes (it is back).
@@ -69,5 +82,25 @@ void main() {
     await tester.pump();
     expect(fresh, [Platform.isMacOS ? 'badge' : 'flash']);
     if (Platform.isMacOS) expect(counts, [1]);
+  });
+
+  testWidgets('the island says what arrived: no bounce, no flash on top', (
+    tester,
+  ) async {
+    runner(tester);
+    Island.debugActivate();
+    await lifecycle(tester, AppLifecycleState.hidden);
+    Arrivals.update([item('a')]);
+    await tester.pump();
+    expect(fresh, isEmpty);
+    if (Platform.isMacOS) expect(counts, [1], reason: 'the count stays');
+
+    // Arrivals switched off: nothing shows on the pill, so the taskbar
+    // button flashes again. The Dock icon stays quiet, as it always has
+    // with the island.
+    await Notify.init(Settings.inMemory()..notifications = false);
+    Arrivals.update([item('a'), item('b')]);
+    await tester.pump();
+    expect(fresh, Platform.isMacOS ? isEmpty : ['flash']);
   });
 }

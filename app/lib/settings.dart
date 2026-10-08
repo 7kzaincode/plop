@@ -64,8 +64,8 @@ class Settings {
   }
 
   /// Showing arrivals and shortcut results while plop is in the background:
-  /// the island on macOS, OS notifications elsewhere (lib/notify.dart). On
-  /// unless switched off.
+  /// the island on macOS, Windows and Linux under X11 (lib/island.dart), OS
+  /// notifications on Wayland (lib/notify.dart). On unless switched off.
   bool get notifications => _data['notifications'] != false;
 
   set notifications(bool on) {

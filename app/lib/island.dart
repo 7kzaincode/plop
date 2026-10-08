@@ -12,18 +12,24 @@ import 'shelf_screen.dart' show formatSize;
 import 'type_icons.dart';
 import 'window.dart';
 
-/// The island on macOS: a black pill that drops out of the notch (from the
-/// top edge on a screen without one) when something arrives from another
-/// device while plop is not in front, with copy and save on it and the file
+/// The island: a black pill that shows what arrives from another device
+/// while plop is not in front, with copy and save on it and the file
 /// draggable out of it into any app; it also says what a global shortcut
-/// did. It takes the place of the Dock bounce and the notification there,
-/// so an arrival is one calm thing instead of three, and it never takes
-/// the keyboard from whatever the user is typing in.
+/// did. On macOS it drops out of the notch (from the top edge on a screen
+/// without one) in place of the Dock bounce and the notification. On
+/// Windows, and on Linux under X11, it rises in the bottom-right corner
+/// above the taskbar, Medal-style, in place of the notification and the
+/// taskbar flash. Either way an arrival is one calm thing instead of three,
+/// and it never takes the keyboard from whatever the user is typing in.
+/// Wayland lets no app put a window in a corner of its choosing, so there
+/// plop keeps OS notifications.
 ///
 /// This side decides what to show and does the copying and saving, with the
-/// same code as the shelf's rows; macos/Runner/Island.swift draws it.
-/// [Notify] calls in, under the same rules as its notifications: only while
-/// the window is not focused, and not with them switched off.
+/// same code as the shelf's rows; the runners draw it, from the same
+/// messages on one channel: macos/Runner/Island.swift,
+/// windows/runner/island.cpp and linux/runner/island.cc. [Notify] calls in,
+/// under the same rules as its notifications: only while the window is not
+/// focused, and not with them switched off.
 abstract final class Island {
   static const _channel = MethodChannel('plop/island');
 
@@ -45,7 +51,17 @@ abstract final class Island {
   /// Keys of shown items already copied here, to see which just landed.
   static var _ready = <String>{};
 
-  static bool get supported => Platform.isMacOS;
+  /// Whether the island shows here: always on macOS; on Windows and Linux
+  /// once [init] has heard from the runner that it can.
+  static bool get supported => _os == 'macos' || _available;
+  static var _available = false;
+
+  static String get _os => debugOs ?? Platform.operatingSystem;
+
+  /// Tests set this to an OS name (as [Platform.operatingSystem] gives it)
+  /// for [init] to ask as it would on that OS; [reset] clears it.
+  @visibleForTesting
+  static String? debugOs;
 
   /// Whether arrivals and shortcut results go to the island.
   static bool get active => _node != null || _debugActive;
@@ -59,6 +75,8 @@ abstract final class Island {
   @visibleForTesting
   static void reset() {
     _debugActive = false;
+    _available = false;
+    debugOs = null;
     _node = null;
     _shown = [];
     _marks.clear();
@@ -66,16 +84,36 @@ abstract final class Island {
     _autoCopied.clear();
   }
 
-  /// Call after runApp on macOS. [hint] names the shortcut that grabs the
-  /// newest arrival, for the copy button's tooltip.
-  static void init(PlopNode node, {String Function()? hint}) {
-    if (!supported) return;
+  /// Call after runApp; once it is done, [supported] says whether the
+  /// island is up. [hint] names the shortcut that grabs the newest arrival,
+  /// for the copy button's tooltip on macOS.
+  static Future<void> init(PlopNode node, {String Function()? hint}) async {
+    if (!await _probe()) return;
     _node = node;
     _hint = hint;
     _channel.setMethodCallHandler(_handle);
     node.changes.listen((_) => _sync());
     // The shelf itself is in front now, and says it all.
     AppLifecycleListener(onResume: hide);
+  }
+
+  /// Whether the runner can show the island. macOS always can. Windows and
+  /// Linux answer over the channel: Linux says no on Wayland, which gives an
+  /// app no say in where its windows go, so the pill could not sit in the
+  /// corner above the panel; a runner without the island counts as no. Then
+  /// [Notify] keeps notifications.
+  static Future<bool> _probe() async {
+    switch (_os) {
+      case 'macos':
+        return true;
+      case 'windows' || 'linux':
+        final can = await _channel
+            .invokeMethod<bool>('available')
+            .catchError((_) => false);
+        return _available = can == true;
+      default:
+        return false;
+    }
   }
 
   /// [items] just arrived from [sender]. Joins what is showing when that is
@@ -215,8 +253,9 @@ abstract final class Island {
   }) => _mark(key, text, settled: settled);
 
   /// Puts [text] on [key]'s row. A slow save can finish after the island
-  /// tucked away, and macOS has no notification to fall back on now, so
-  /// the result then shows on its own; "copying…" and the like don't.
+  /// tucked away, and with the island there is no notification to fall
+  /// back on, so the result then shows on its own; "copying…" and the like
+  /// don't.
   static Future<void> _mark(
     String key,
     String text, {

@@ -209,7 +209,8 @@ _Glyph _glyphOf(FileCategory category) => switch (category) {
 };
 
 /// A [TypeIcon] as PNG bytes, [size] logical pixels drawn at [scale], for
-/// what draws outside Flutter: the macOS island (Island.swift).
+/// what draws outside Flutter: the island (macos/Runner/Island.swift,
+/// windows/runner/island.cpp, linux/runner/island.cc).
 Future<Uint8List> typeIconPng(
   FileCategory category, {
   double size = 34,

@@ -79,16 +79,19 @@ Future<void> _start() async {
   LoginItem.installLauncher();
   Arrivals.watch(node);
   // Closing the window keeps plop in the tray once its icon is up; what
-  // happens while the window is away is said on the island on macOS and
-  // with OS notifications elsewhere.
+  // happens while the window is away is said on the island where it shows
+  // (macOS, Windows, Linux on X11) and with OS notifications elsewhere.
   Tray.init(node).ignore();
   Notify.init(settings).ignore();
   Notify.watch(node);
-  // Arrivals and shortcut results on macOS: the notch island. The copy
-  // button's tooltip names the shortcut that grabs the newest.
-  Island.init(node, hint: () => Hotkeys.grabLabel);
-  // Desktop only, and only once switched on in the settings panel; on macOS
-  // the island says so on the item's row.
+  // Arrivals and shortcut results: the notch island on macOS, the pill
+  // above the taskbar on Windows and X11. Waited for, as Windows and Linux
+  // first ask their runner whether it can show, and auto-copy's hook below
+  // depends on the answer. The copy button's tooltip names the shortcut
+  // that grabs the newest.
+  await Island.init(node, hint: () => Hotkeys.grabLabel);
+  // Desktop only, and only once switched on in the settings panel; with the
+  // island the item's row says so.
   AutoCopy.watch(node, settings);
   if (Island.supported) AutoCopy.onCopied = Island.copied;
   // The shortcuts fire while the user is in another app or the window is
