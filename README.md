@@ -1,284 +1,69 @@
-# plop
+<p align="center">
+  <img src="site/logo.png" width="72" alt="plop">
+</p>
 
-Drop a file, folder, screenshot or text on a shared shelf. Anyone on the same
-Wi-Fi with the app open can grab it until its timer runs out (2 minutes by
-default). No accounts, no pairing, no picking a recipient.
+<h1 align="center">plop</h1>
+
+<p align="center">
+  Drop it on the shelf. Grab it on any device nearby.<br>
+  <a href="https://github.com/7kzaincode/plop/releases/latest">Download</a> ·
+  <a href="docs/GUIDE.md">Guide</a> ·
+  <a href="docs/PROTOCOL.md">Protocol</a>
+</p>
+
+---
+
+plop is a shared shelf for every device on your Wi-Fi. Put a file, folder,
+screenshot or some text on it, and every other device can grab it for the
+next two minutes.
+
+No accounts. No cloud. No pairing. Files go straight from one device to
+another over your local network.
+
+## Features
+
+- **Every platform:** Mac, Windows, Linux and Android. iPhone and iPad work
+  through the browser, with no install.
+- **Snip to the shelf:** `⌃⌥P` puts any part of your screen on plop. `⌃⌥V`
+  plops your clipboard.
+- **Grab the newest:** `⌃⌥G` copies the last thing another device sent.
+- **The island:** on a Mac, arrivals drop out of the notch with copy and save
+  buttons. Drag the file straight out of it.
+- **Runs quietly:** close the window and plop stays in the menu bar or tray.
+- **Any size:** small items copy instantly. Big ones, up to 100 GB, are
+  fetched when you grab them.
 
 ## Install
 
-> Downloads need the repo to be public (or collaborator access); it is private
-> while the first release is being finished.
+| System | Download |
+| --- | --- |
+| macOS 12+ | [`plop-macos.dmg`](https://github.com/7kzaincode/plop/releases/latest/download/plop-macos.dmg) |
+| Windows 10 / 11 | [`plop-windows-setup.exe`](https://github.com/7kzaincode/plop/releases/latest/download/plop-windows-setup.exe) |
+| Linux (x64) | [`plop-linux-x64.tar.gz`](https://github.com/7kzaincode/plop/releases/latest/download/plop-linux-x64.tar.gz) |
+| Android | [`plop-android.apk`](https://github.com/7kzaincode/plop/releases/latest/download/plop-android.apk) |
+| iPhone / iPad | Open plop on a computer › settings › scan the QR code |
 
-Downloads are on the [Releases](https://github.com/7kzaincode/plop/releases)
-page. They aren't signed by Apple or Microsoft (that needs paid accounts), so
-each system warns once; the steps below get past it.
+plop isn't signed by Apple or Microsoft yet, so each system warns once on
+first open. On a Mac, go to **System Settings › Privacy & Security › Open
+Anyway**. On Windows, click **More info › Run anyway**. The
+[guide](docs/GUIDE.md) has the full steps for each system.
 
-### macOS (12 or later, Apple silicon or Intel; open at login needs 13)
+## How it works
 
-1. Download `plop-macos.dmg`, open it and drag plop to Applications.
-2. The first open is blocked ("Apple could not verify plop"): click Done, then
-   go to System Settings > Privacy & Security, scroll down and click
-   **Open Anyway** next to plop. Or, in Terminal:
-   `xattr -dr com.apple.quarantine /Applications/plop.app`.
-3. Allow plop to find devices on your local network when asked.
-4. The first screen snip (⌃⌥P) asks for Screen Recording. Allow it, then quit
-   plop (⌘Q) and open it again: macOS only applies it to a fresh launch.
+Each device running plop announces itself on the local network (mDNS) and
+serves its shelf over plain HTTP. The others list it, copy small items right
+away, and fetch big ones on demand. Every item has a timer, and when it runs
+out the item is gone from every device. Nothing leaves your network. The
+details are in [PROTOCOL.md](docs/PROTOCOL.md).
 
-To update: quit plop (⌘Q, or "quit plop" from its menu bar icon), then
-install the new download as in steps 1 and 2 (each download needs Open
-Anyway once). If macOS asks about the local network again, allow it. If a
-snip then brings plop forward saying it isn't allowed yet, macOS has taken
-the update for a new app: open the settings from that message, remove plop
-there with −, press ⌃⌥P again, allow it and reopen plop.
+## Build from source
 
-Closing the window keeps plop running, so the shortcuts and your items stay
-live. Click its Dock icon, ⌘Tab back to it, or pick "open plop" from its
-menu bar icon to bring the window back; ⌘Q or "quit plop" in that menu
-quits. Files dropped on the Dock icon land on the shelf. When something
-arrives while the window is closed or behind other apps, it drops out of the
-notch (from the top of a screen without one) as a black island: what it is,
-who sent it, and copy / save right there. Drag the file out of it into any
-app, hover to keep it open, or let it tuck itself away after a few seconds;
-several from one device show as one, opening into their rows on hover. A
-shortcut's result shows there too. It never takes the keyboard from what
-you're typing in. The Dock icon keeps a quiet count, without bouncing. The
-settings panel can switch the island off ("show arrivals").
-
-### Windows (10 or 11)
-
-1. Download and run `plop-windows-setup.exe`. SmartScreen says "Windows
-   protected your PC": click **More info**, then **Run anyway**. (With Smart
-   App Control on, Windows blocks unsigned apps with no way past.)
-2. Accept the admin prompt. The installer adds a firewall rule so the other
-   devices can reach this PC; without it they see the PC but can't grab from it.
-
-No installer: unzip `plop-windows-x64.zip` and run `plop\plop.exe`. When Windows
-Firewall asks, tick both Private and Public. If you clicked Cancel, remove the
-plop entries under Windows Security > Firewall & network protection > Allow an
-app through firewall (or run the installer, which clears them).
-
-Closing the window keeps plop running in the tray (next to the clock; at
-first Windows may tuck it under the ^ arrow), so the shortcuts and your
-items stay live; the first time, a notification says so. Click the tray
-icon to bring the window back, right-click it for "quit plop"; Ctrl+Q in the
-window or "quit plop" in the settings panel quits too. Its taskbar button
-flashes when something arrives while plop is in the background, and a
-notification says who sent what (a shortcut's result is one too); click it
-to open plop. The settings panel can switch them off. Windows only shows
-notifications from apps in the Start menu: the installer's entry covers
-that, and a copy from the zip adds itself to your Start menu the first time
-it runs (uninstalling plop takes that entry too). Installing an update
-closes a running plop first.
-
-### Android
-
-Download `plop-android.apk` on the phone and open it. Let your browser install
-unknown apps, and pick **Install anyway** if Play Protect warns. From a
-computer instead: `adb install -r plop-android.apk`. The APK is signed with a
-debug key, not a store key: if Android refuses an update, uninstall plop first.
-
-### Linux (x64, glibc 2.39+: Ubuntu 24.04, Debian 13 or newer)
+Flutter 3.47.6. See [DEVELOPING.md](docs/DEVELOPING.md).
 
 ```sh
-sudo apt install avahi-daemon
-tar xzf plop-linux-x64.tar.gz && ./plop/plop
+cd app && flutter run
 ```
 
-`avahi-daemon` does discovery and is already running on most desktops; GTK 3
-comes with the desktop, the shortcut, notification and tray libraries with
-the tarball. The first launch registers plop with your desktop's launcher, so it
-can be pinned and found by search.
+## License
 
-Closing the window keeps plop running in the tray, so the shortcuts and your
-items stay live; the first time, a notification says so. Click the tray icon
-and pick "open plop" to bring the window back, "quit plop" to quit; Ctrl+Q
-in the window or "quit plop" in the settings panel quits too. The tray needs
-a panel that shows them: KDE and most desktops do, GNOME only with the
-AppIndicator extension (on by default on Ubuntu). Started at login, plop
-gives the panel 30 seconds to come up; without one, closing the window quits
-plop as it used to. A notification says who sent what while plop is in the
-background (a shortcut's result is one too); click it to open plop. The
-settings panel can switch them off.
-
-The global shortcuts work only in an X11 session; on Wayland, which GNOME
-and KDE log in to by default, the settings panel says so in place of the
-shortcut rows. Ubuntu 24.04 and Debian 13 still offer an X11 session: pick
-the "… on Xorg" option from the gear menu at the login screen. Ubuntu 25.10
-and later (26.04 LTS included) and Fedora 43 and later have none for GNOME,
-so there use the window instead: take a screenshot with Print Screen (GNOME
-copies it to the clipboard) and press Ctrl+V in plop to put it up; Ctrl+V
-also puts up whatever else you copied, and Ctrl+C or Enter grabs the newest
-item from another device. The tray and notifications work on Wayland too.
-On X11, snipping runs `gnome-screenshot`, `spectacle` or `scrot`, whichever
-is installed (`sudo apt install gnome-screenshot` on stock Ubuntu). If you
-turned on ufw or firewalld, allow your LAN subnet in: plop listens on port
-7567, or on a random one if that is taken.
-
-### iPhone and iPad (iOS 15 or later)
-
-There is no app download: handing out iOS apps needs a paid Apple Developer
-account. Instead, any Mac, Windows or Linux computer running plop serves the
-shelf as a web page to every phone on the same Wi-Fi:
-
-1. On the computer, open settings (sliders icon) and find **open on a
-   phone**.
-2. Point the iPhone's camera at the QR code, or type the address under it
-   into Safari: a Mac's `.local` name (like `http://zains-macbook.local:7567/`),
-   elsewhere usually an IP address (like `http://192.168.1.20:7567/`).
-3. Share > **Add to Home Screen**. From then on plop opens from its own icon,
-   full screen.
-
-Tap a row to grab it: text copies, photos open full-screen (touch and hold
-to save them to Photos), other files download. `+` adds photos or files,
-`paste` adds text, `×` takes back what you added. The page works only while
-the computer that serves it is awake with plop running, and the phone does
-not count as a device nearby on the other shelves. Android phones can use
-the same page; if a `.local` address doesn't open there, use the
-`or http://…` one under it.
-
-#### The native app, from source
-
-To build the app itself with a free Apple ID instead, on a Mac with Xcode
-and Flutter:
-
-1. Clone this repo, then `cd app && flutter pub get && open ios/Runner.xcworkspace`
-   (`pub get` writes the generated Swift package and xcconfig Xcode expects;
-   opened without it, Xcode reports a missing FlutterGeneratedPluginSwiftPackage).
-   In Xcode, select Runner > Signing & Capabilities and set Team to your Apple
-   ID (Add Account… if it isn't listed). If Xcode says the bundle identifier
-   is taken, change it to something unique, like `com.yourname.plop`.
-2. Connect the iPhone by cable and trust the Mac. Then on the iPhone turn on
-   Settings > Privacy & Security > Developer Mode (it restarts; iOS 15 has
-   no such switch and needs none).
-3. `flutter run --release -d <iPhone>` (`flutter devices` lists it).
-4. On the first launch iOS refuses the untrusted developer: go to Settings >
-   General > VPN & Device Management, tap your Apple ID and **Trust**. Open
-   plop again and allow Local Network.
-
-An app signed with a free Apple ID stops opening after 7 days; repeat step 3
-to renew it.
-
-## Using it
-
-- **Add:** drop anything on the window, paste with ⌘V / Ctrl+V, or add files
-  with `+` or ⌘O / Ctrl+O. On a Mac, files dropped on plop's Dock icon land
-  too. On phones: photo, file, paste; on Android also Share › plop from any
-  app.
-- **From anywhere (Mac, Windows, Linux on X11):**
-  - ⌃⌥P / Ctrl+Shift+Alt+P: select a region of the screen; it lands on plop.
-  - ⌃⌥V / Ctrl+Shift+Alt+V: plop whatever is on the clipboard.
-  - ⌃⌥G / Ctrl+Shift+Alt+G: grab the newest item from another device (or
-    from a phone through the web shelf). Text, pictures and files go on the
-    clipboard, ready to paste; a folder saves to Downloads. If you had
-    already given ⌃⌥G to one of the others, it starts on ⌃⌥N instead.
-  - Change any of them in the settings panel (sliders icon), where you can
-    also make plop open at login (macOS 13 or later; if macOS holds the
-    switch for approval, the panel says where) and switch off "show
-    arrivals" (the island on a Mac, notifications elsewhere).
-- **In the background:** closing the window keeps plop running, with an icon
-  in the menu bar or tray to bring it back or quit it. Items from other
-  devices and the results of the shortcuts then show on the island on a Mac
-  (see above), and as OS notifications on Windows and Linux, which open plop
-  when clicked; three or more items from one device within a
-  couple of seconds are one notification. A text only says how long it is
-  ("text · 42 characters"), never what it says, so a copied password stays
-  off the lock screen. What the other devices already had when plop started
-  isn't announced, nor an item that comes back when its device does.
-- **Copy arrivals automatically** (desktop, off unless switched on in the
-  settings panel): text and pictures another device plops (or a phone puts
-  up through the web shelf) go straight to your clipboard as soon as they
-  are here, the newest winning. Files, folders, anything over 25 MB and
-  pictures the clipboard can't take as pictures never do (so on Linux only
-  text does). Nor does what a device already had: what was there when plop
-  started, or what a device brings back after more than a minute away or
-  after your computer slept. One that is slow to get here (past its
-  download deadline), or that finds you have copied something since it
-  arrived, is left on the shelf, so it never overwrites your own copy later
-  (on Linux, only a text you copied is noticed), and anything that was
-  already up a while before this device saw it (put up while it slept) stays
-  on the shelf. Anyone nearby with plop, or with the web shelf open in a
-  browser, can fill your clipboard while this is on, which is why it starts
-  off.
-- **Grab:** tap a row. Text and images copy to the clipboard; files and
-  folders save to Downloads (folders unpacked). Hover for the other option;
-  tap a saved row again to show it in Finder or Explorer (its folder, on
-  Linux). ⌘C / Ctrl+C or Enter grabs the newest item from someone else. On
-  phones, files open the share sheet. Images the clipboard can't take as a
-  picture save or share instead: all of them on Linux, SVGs everywhere, and
-  on Windows and Android any but PNG, JPEG, GIF and BMP (HEIC, WebP, AVIF,
-  TIFF, RAW…), as well as anything over 25 MB on Android.
-- **Nearby:** the top bar counts the devices plop can reach; hover it (tap
-  it on a phone) for their names. With nobody there it says what to check,
-  and a device whose firewall keeps plop out shows as unreachable, by
-  name: plop on that device says what to allow.
-- **Lifetime:** the timer chip in the top bar (30s to 1h), remembered.
-- **Big items:** anything over 25 MB is fetched only when someone grabs it, and
-  only ever from you, so keep plop open until every device nearby has it (the
-  row says so). Smaller items copy to every device as soon as they appear.
-  Your own rows say which devices have them. Phones only see the shelf while
-  plop is in the foreground; a download that broke off while plop was in
-  the background starts over once by itself when plop is back in front, if
-  the sender still answers.
-- **Phones without the app:** settings › open on a phone has a QR code for
-  the web shelf (see iPhone and iPad above).
-
-## From source
-
-Flutter 3.47.6 (the version `.github/workflows/ci.yml` pins) and the
-toolchain for each system you build for; `flutter doctor` lists anything
-missing.
-
-- macOS and iOS: Xcode. The macOS app also needs CocoaPods (`brew install
-  cocoapods`): its shortcut and notification plugins are still pods.
-- Windows: Visual Studio with the "Desktop development with C++" workload.
-- Linux: `sudo apt install clang cmake pkg-config ninja-build libgtk-3-dev
-  libkeybinder-3.0-dev libnotify-dev libayatana-appindicator3-dev`.
-- Android: Android Studio, which brings the SDK and a JDK.
-
-`flutter run` builds run as their own instance, named "… (dev)", so they
-never wipe the installed plop's scratch folders; `PLOP_INSTANCE=x` does the
-same for a release build, to run two copies side by side.
-
-- Install on a Mac: `app/tool/install_macos.sh` builds a release, signs it
-  with the `plop` certificate from Releasing below if this Mac trusts it for
-  code signing, else with your Apple Development identity if you have one
-  (so the Screen Recording and Local Network permissions survive rebuilds),
-  and installs it to /Applications.
-- Tests: `cd packages/core && dart test`; `cd app && flutter test` (the layout
-  test drops screenshots in `app/build/screens/`);
-  `flutter test integration_test -d macos` runs the end-to-end test over real
-  Bonjour. `flutter analyze` (app) and `dart analyze` (core) are what CI runs
-  too.
-
-## Layout
-
-- `packages/core`: protocol, shelf store and sync engine in pure Dart.
-  `bin/plop.dart` is a headless node for testing: `dart run plop_core:plop --text hi --file a.png`
-  (`--web` serves the web shelf too, at the addresses it prints).
-- `app`: the Flutter app (iOS, Android, macOS, Windows, Linux).
-- `docs/PROTOCOL.md`: wire protocol. `docs/PLAN.md`: milestones and what comes after v1.
-- `packaging/`: the Windows installer script.
-
-## Releasing
-
-Push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
-`.github/workflows/release.yml` builds the downloads above and attaches them
-to a GitHub Release for that tag. Running it by hand (Actions > Release > Run
-workflow) on a branch replaces a "dev" prerelease instead. Two optional
-secrets keep each build recognisable as the same app as the last:
-
-- Android, so each APK installs over the last: your debug keystore,
-  `base64 -i ~/.android/debug.keystore | gh secret set ANDROID_DEBUG_KEYSTORE`.
-- Mac, so an update keeps plop's Screen Recording permission (Gatekeeper
-  still asks for Open Anyway: only a paid account can notarize). Make a
-  certificate once in Keychain Access > Certificate Assistant > Create a
-  Certificate: name `plop`, Identity Type Self Signed Root, Certificate Type
-  Code Signing, tick "Let me override defaults" and make it valid for 3650
-  days. Export it with its key from My Certificates as `plop.p12`, with a
-  password, then `base64 -i plop.p12 | gh secret set MACOS_SIGN_P12` and
-  `gh secret set MACOS_SIGN_P12_PASSWORD`. Keep the .p12: a new certificate
-  makes every Mac grant the permission once more. Apple only promises that
-  the Local Network permission follows an Apple-issued identity, so macOS
-  may still ask for that one after an update. To have
-  `app/tool/install_macos.sh` use it too, set the certificate's Trust >
-  Code Signing to Always Trust.
+[MIT](LICENSE)
