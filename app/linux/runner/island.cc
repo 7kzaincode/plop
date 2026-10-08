@@ -460,8 +460,8 @@ Island::~Island() {
   if (frame_source_ != 0) {
     g_source_remove(frame_source_);
   }
-  fl_method_channel_set_method_call_handler(channel_, nullptr, nullptr,
-                                            nullptr);
+  // Released as my_application.cc releases its window channel: the engine
+  // may be gone by now, and the channel takes its handler with it.
   g_clear_object(&channel_);
   if (window_ != nullptr) {
     gtk_widget_destroy(window_);
