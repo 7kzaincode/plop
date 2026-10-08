@@ -32,7 +32,8 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   // lib/window.dart's window channel. "flash" asks for a taskbar flash when
-  // something from another device lands while plop is in the background;
+  // something from another device lands while plop is in the background
+  // and the island is not there to say so;
   // FLASHW_TIMERNOFG flashes until the window comes to the foreground, so
   // nothing has to clear it. "show", "hide", "hideOnClose" and "quit" are
   // the tray icon's (lib/tray.dart): the window lives on hidden once the
@@ -68,6 +69,11 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  // lib/island.dart's "plop/island": the pill above the taskbar that says
+  // what arrived while this window is away, in place of a notification.
+  island_ =
+      std::make_unique<Island>(flutter_controller_->engine()->messenger());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -81,6 +87,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // Before the engine its channel answers on.
+  island_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
