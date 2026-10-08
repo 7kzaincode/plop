@@ -12,8 +12,9 @@ import 'settings.dart';
 import 'shelf_screen.dart' show formatSize;
 import 'window.dart';
 
-/// OS notifications (on macOS, the island: lib/island.dart) for what
-/// happens while plop is in the background, now
+/// OS notifications (or the island where it shows, on macOS, Windows and
+/// Linux under X11: lib/island.dart) for what happens while plop is in the
+/// background, now
 /// that closing the window no longer quits it: what a global shortcut did,
 /// and things other devices put on the shelf. Nothing is said while the
 /// window is focused, where the toast and the new row are in view anyway,
@@ -107,8 +108,8 @@ abstract final class Notify {
         : ShortcutPolicy.requireCreate;
   }
 
-  /// What a global shortcut did, as the in-window toast says it; on macOS
-  /// the island says it, in red when [ok] is false.
+  /// What a global shortcut did, as the in-window toast says it; with the
+  /// island, the island says it, in red when [ok] is false.
   static void say(String message, {bool ok = true}) {
     if (Island.active) {
       if (_islandWanted) Island.say(message, ok: ok);

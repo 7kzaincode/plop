@@ -1,6 +1,7 @@
-// What lib/island.dart sends the macOS island (Island.swift), and that
-// lib/notify.dart hands it arrivals and shortcut results in place of
-// notifications, under the same rules.
+// What lib/island.dart sends the island (Island.swift on macOS, island.cpp
+// on Windows, island.cc on Linux), that it shows on Windows and Linux only
+// where the runner says it can, and that lib/notify.dart hands it arrivals
+// and shortcut results in place of notifications, under the same rules.
 import 'dart:async';
 import 'dart:io';
 
@@ -18,7 +19,15 @@ void main() {
   late List<MethodCall> calls;
   late List<Object?> notified;
 
-  Future<void> start(WidgetTester tester) async {
+  /// The island's runner and the notification plugin, stood in for; with
+  /// [activate], the island as if set up. [available] is what the runner
+  /// answers when asked whether it can show the island; an [Exception]
+  /// is thrown instead, as by a runner without the channel.
+  Future<void> start(
+    WidgetTester tester, {
+    bool activate = true,
+    Object? available,
+  }) async {
     Notify.reset();
     Island.reset();
     calls = [];
@@ -26,7 +35,9 @@ void main() {
     final messenger = tester.binding.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(island, (call) async {
       calls.add(call);
-      return null;
+      if (call.method != 'available') return null;
+      if (available is Exception) throw available;
+      return available;
     });
     messenger.setMockMethodCallHandler(notifier, (call) async {
       if (call.method == 'notify') notified.add(call.arguments);
@@ -39,7 +50,28 @@ void main() {
       Island.reset();
     });
     await Notify.init(Settings.inMemory());
-    Island.debugActivate();
+    if (activate) Island.debugActivate();
+  }
+
+  /// [Island.init] as it runs on [os], with a real node to watch. The node
+  /// is stopped once init is done: the island only reads the items it is
+  /// handed.
+  Future<void> initAs(WidgetTester tester, String os) async {
+    Island.debugOs = os;
+    await tester.runAsync(() async {
+      final root = await Directory.systemTemp.createTemp('plop_island');
+      final node = await PlopNode.start(
+        dir: Directory('${root.path}/store'),
+        discovery: StaticDiscovery(),
+        name: 'me',
+      );
+      try {
+        await Island.init(node);
+      } finally {
+        await node.stop();
+        await root.delete(recursive: true);
+      }
+    });
   }
 
   Future<void> lifecycle(WidgetTester tester, AppLifecycleState state) =>
@@ -278,5 +310,73 @@ void main() {
     final show = calls.singleWhere((c) => c.method == 'show');
     expect((show.arguments as Map)['sender'], 'a phone (web)');
     Notify.reset(); // its settling-in timer
+  });
+
+  // The pill above the taskbar: Windows always, Linux under X11.
+  for (final os in ['windows', 'linux']) {
+    testWidgets('on $os, arrivals go to the pill once the runner can show it', (
+      tester,
+    ) async {
+      await start(tester, activate: false, available: true);
+      await initAs(tester, os);
+      expect(calls.map((c) => c.method), ['available']);
+      expect(Island.supported, isTrue);
+      expect(Island.active, isTrue);
+
+      await lifecycle(tester, AppLifecycleState.inactive);
+      Notify.arrived([item('a')]);
+      Notify.say('plopped clipboard');
+      await tester.pump(Island.burst);
+      await settle(tester);
+      expect(calls.where((c) => c.method == 'show'), hasLength(1));
+      expect(calls.where((c) => c.method == 'say'), hasLength(1));
+      expect(notified, isEmpty, reason: 'the pill instead of notifications');
+    });
+  }
+
+  testWidgets('Wayland keeps notifications: its runner says no', (
+    tester,
+  ) async {
+    await start(tester, activate: false, available: false);
+    await initAs(tester, 'linux');
+    expect(Island.supported, isFalse);
+    expect(Island.active, isFalse);
+
+    await lifecycle(tester, AppLifecycleState.inactive);
+    Notify.arrived([item('a')]);
+    await tester.pump(Notify.burst);
+    await settle(tester);
+    expect(calls.map((c) => c.method), ['available'], reason: 'nothing shown');
+    expect(notified, hasLength(1));
+  });
+
+  testWidgets('a runner without the pill keeps notifications too', (
+    tester,
+  ) async {
+    await start(
+      tester,
+      activate: false,
+      available: MissingPluginException(),
+    );
+    await initAs(tester, 'windows');
+    expect(Island.active, isFalse);
+
+    await lifecycle(tester, AppLifecycleState.hidden);
+    Notify.say('plopped clipboard');
+    await tester.pump();
+    expect(calls.where((c) => c.method == 'say'), isEmpty);
+    expect(notified, hasLength(1));
+  });
+
+  testWidgets('macOS always has the island; phones never ask', (
+    tester,
+  ) async {
+    await start(tester, activate: false, available: false);
+    await initAs(tester, 'macos');
+    expect(Island.active, isTrue, reason: 'no need to ask the runner');
+    Island.reset();
+    await initAs(tester, 'android');
+    expect(Island.active, isFalse);
+    expect(calls, isEmpty);
   });
 }

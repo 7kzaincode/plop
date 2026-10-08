@@ -280,8 +280,8 @@ abstract final class Hotkeys {
   /// [onPlopped] gets a short message after something lands, or with
   /// `ok: false` when it failed and the user needs to act. The shortcuts are
   /// pressed from other apps, so while plop's window is away the message
-  /// shows on the island on macOS, or as an OS notification elsewhere
-  /// (lib/notify.dart).
+  /// shows on the island (macOS, Windows, Linux on X11), or as an OS
+  /// notification elsewhere (lib/notify.dart).
   static Future<void> register(PlopNode node, Plopped onPlopped) async {
     _node = node;
     _onPlopped = (message, {ok = true, action, onTap}) {

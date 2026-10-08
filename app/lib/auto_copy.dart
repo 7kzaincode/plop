@@ -34,7 +34,7 @@ import 'settings.dart';
 /// something since leaves that alone ([clipboardStamp]).
 abstract final class AutoCopy {
   /// Called after each copy instead of the notification, with the item that
-  /// is now on the clipboard; the macOS island sets it.
+  /// is now on the clipboard; the island sets it where it shows.
   static void Function(ShelfItem item)? onCopied;
 
   /// Who [item] came from, as a message names them: its device, or for
@@ -249,7 +249,7 @@ abstract final class AutoCopy {
       return;
     }
     _ours = await _readStamp();
-    // On macOS the island marks its row; elsewhere its arrival's
+    // With the island, it marks the item's row; without, its arrival's
     // notification says so, or a line of its own when there is none.
     final hook = onCopied;
     if (hook != null) {
