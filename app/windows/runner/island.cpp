@@ -879,6 +879,9 @@ void Island::Pill::Tucked() {
   expanded_ = false;
   hover_row_ = -1;
   hover_button_ = -1;
+  // A window hidden under the pointer may never hear it leave: the next
+  // show asks to be told again.
+  tracking_ = false;
   ShowWindow(window_, SW_HIDE);
   thumbs_.clear();
   channel_->InvokeMethod("hidden", nullptr);
