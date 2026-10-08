@@ -64,6 +64,11 @@ Flutter 3.47.6. See [DEVELOPING.md](docs/DEVELOPING.md).
 cd app && flutter run
 ```
 
+## Credits
+
+Built by [@7kzaincode](https://github.com/7kzaincode), with
+[Claude](https://claude.com/claude-code) as a contributor.
+
 ## License
 
 [MIT](LICENSE)
