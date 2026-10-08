@@ -14,7 +14,7 @@
 ## Status (2026-10-07)
 
 - Done: core (`dart test` in `packages/core`, 90 tests), the macOS, iOS,
-  Android, Windows and Linux apps (`flutter test` in `app`, 126 tests, the
+  Android, Windows and Linux apps (`flutter test` in `app`, 132 tests, the
   shelf and layout ones driving a real pair of nodes over loopback), and
   release builds for all but iOS via release.yml (Windows and Linux
   unsigned, macOS ad-hoc or self-signed, Android debug signed; the README
@@ -27,10 +27,12 @@
   at login, Android share target, macOS Dock drops, a Dock
   badge / taskbar flash for arrivals while hidden, a tray / menu bar icon so
   closing the window keeps plop running on every desktop (Ctrl+Q quits from
-  the window on Windows and Linux), the macOS island (arrivals drop out of
-  the notch with copy / save / drag-out, in place of the Dock bounce) and OS
-  notifications elsewhere for arrivals and shortcut results while the window
-  is away (texts by length only), one-way and unreachable
+  the window on Windows and Linux), the island for arrivals and shortcut
+  results while the window is away (on macOS it drops out of the notch, on
+  Windows and X11 it is a Medal-style pill bottom-right above the taskbar;
+  copy / save / drag-out on it, in place of the Dock bounce or taskbar
+  flash and notifications) and OS notifications on Wayland, which lets no
+  app place a window (texts by length only), one-way and unreachable
   (firewall) peer detection, networking revival after resume, a Windows
   installer that opens the firewall and closes a running plop to upgrade, the frosted macOS window, a Linux launcher entry, receipts
   (a sender's rows say which devices have the item), middle-truncated names
@@ -81,6 +83,13 @@
   opens the menu rather than the window (`app/lib/tray.dart`).
 - The Windows tray icon is picked for the light or dark taskbar at launch
   and does not follow a theme change until the next one.
+- The pill on Windows and Linux is drawn by the runner
+  (`app/windows/runner/island.cpp`, `app/linux/runner/island.cc`): a
+  screen reader finds what arrived as its window's name, not its rows and
+  buttons one by one as VoiceOver does on the Mac, and its copy button has
+  no tooltip naming the grab shortcut. Linux shows it only under X11: on
+  Wayland, which lets no app place its own windows, arrivals stay OS
+  notifications.
 - Open at login needs macOS 13 (SMAppService), which may hold the switch
   until the user approves it in Login Items; the panel says so.
 - iOS has no app download without a paid Apple account (README); iPhones

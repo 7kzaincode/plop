@@ -61,14 +61,20 @@ Closing the window keeps plop running in the tray (next to the clock; at
 first Windows may tuck it under the ^ arrow), so the shortcuts and your
 items stay live; the first time, a notification says so. Click the tray
 icon to bring the window back, right-click it for "quit plop"; Ctrl+Q in the
-window or "quit plop" in the settings panel quits too. Its taskbar button
-flashes when something arrives while plop is in the background, and a
-notification says who sent what (a shortcut's result is one too); click it
-to open plop. The settings panel can switch them off. Windows only shows
-notifications from apps in the Start menu: the installer's entry covers
-that, and a copy from the zip adds itself to your Start menu the first time
-it runs (uninstalling plop takes that entry too). Installing an update
-closes a running plop first.
+window or "quit plop" in the settings panel quits too. When something
+arrives while plop is in the background, a black pill rises in the
+bottom-right corner, above the taskbar's clock: what it is, who sent it,
+and copy / save right there. Drag the file out of it into any app, click it
+to open plop (or, once saved, to show the file), hover to keep it open, or
+let it tuck itself away after a few seconds; several from one device show
+as one, opening into their rows on hover. A shortcut's result shows there
+too. It never takes the keyboard from what you're typing in. The settings
+panel can switch it off ("show arrivals"); the taskbar button then flashes
+instead. Windows only shows notifications (the one about the tray) from
+apps in the Start menu: the installer's entry covers that, and a copy from
+the zip adds itself to your Start menu the first time it runs (uninstalling
+plop takes that entry too). Installing an update closes a running plop
+first.
 
 ### Android
 
@@ -96,9 +102,13 @@ in the window or "quit plop" in the settings panel quits too. The tray needs
 a panel that shows them: KDE and most desktops do, GNOME only with the
 AppIndicator extension (on by default on Ubuntu). Started at login, plop
 gives the panel 30 seconds to come up; without one, closing the window quits
-plop as it used to. A notification says who sent what while plop is in the
-background (a shortcut's result is one too); click it to open plop. The
-settings panel can switch them off.
+plop as it used to. In an X11 session, what arrives while plop is in the
+background rises in the bottom-right corner, above the panel, as the same
+black pill as on Windows: copy / save on it, the file draggable out of it,
+a click to open plop, and a shortcut's result there too. Wayland gives
+apps no say in where their windows go, so there a notification says who
+sent what instead (a shortcut's result is one too); click it to open plop.
+The settings panel can switch either off ("show arrivals").
 
 The global shortcuts work only in an X11 session; on Wayland, which GNOME
 and KDE log in to by default, the settings panel says so in place of the
@@ -174,16 +184,21 @@ to renew it.
   - Change any of them in the settings panel (sliders icon), where you can
     also make plop open at login (macOS 13 or later; if macOS holds the
     switch for approval, the panel says where) and switch off "show
-    arrivals" (the island on a Mac, notifications elsewhere).
+    arrivals" (the island on a Mac, the pill on Windows and Linux on X11,
+    notifications on Wayland).
 - **In the background:** closing the window keeps plop running, with an icon
   in the menu bar or tray to bring it back or quit it. Items from other
-  devices and the results of the shortcuts then show on the island on a Mac
-  (see above), and as OS notifications on Windows and Linux, which open plop
-  when clicked; three or more items from one device within a
+  devices and the results of the shortcuts then show on the island: out of
+  the notch on a Mac, a pill in the bottom-right corner above the taskbar
+  on Windows and on Linux under X11 (see above). Several from one device
+  within a moment share one. On Wayland they are OS notifications, which
+  open plop when clicked; three or more items from one device within a
   couple of seconds are one notification. A text only says how long it is
-  ("text · 42 characters"), never what it says, so a copied password stays
-  off the lock screen. What the other devices already had when plop started
-  isn't announced, nor an item that comes back when its device does.
+  ("text · 42 characters"), never what it says (the island shows its first
+  line only under the pointer), so a copied password stays off the lock
+  screen and out of a shared screen. What the other devices already had
+  when plop started isn't announced, nor an item that comes back when its
+  device does.
 - **Copy arrivals automatically** (desktop, off unless switched on in the
   settings panel): text and pictures another device plops (or a phone puts
   up through the web shelf) go straight to your clipboard as soon as they
