@@ -1120,15 +1120,13 @@ void main() {
         '10.0.0.20',
         '172.20.10.3',
         '203.0.113.9',
-        '10.8.0.6',
-        '172.27.112.1',
-        '172.17.0.1',
-        '192.168.64.1',
-        '192.168.56.1',
+        // VPN, VM and container adapters and self-assigned addresses are
+        // left out beside a real one; Tailscale stays.
         '100.101.102.103',
-        '169.254.10.2',
       ],
     );
+    // With nothing better, they are all there is.
+    expect(rankIPv4s([('vEthernet (WSL)', '172.27.112.1')]), ['172.27.112.1']);
     // Equals keep the order they came in.
     expect(rankIPv4s([('en1', '192.168.1.9'), ('en0', '192.168.1.8')]), [
       '192.168.1.9',

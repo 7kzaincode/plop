@@ -162,7 +162,11 @@ class BonsoirPeerDiscovery implements PeerDiscovery {
 /// IPv6 is skipped: it needs a scope id that URIs do not carry.
 List<String> orderHosts(List<String> resolved, List<String> advertised) {
   final v4 = <String>{}, v6 = <String>{};
-  for (final h in [...resolved, ...advertised]) {
+  // The sender's own list first: it knows which of its addresses are its
+  // real network (rankIPv4s). What mDNS resolved can lead with a VM or WSL
+  // adapter's address that nothing here can reach, and every poll would
+  // wait out a timeout on it before trying the next.
+  for (final h in [...advertised, ...resolved]) {
     final addr = InternetAddress.tryParse(h.trim());
     if (addr == null || addr.isLoopback) continue;
     if (addr.type == InternetAddressType.IPv4) {

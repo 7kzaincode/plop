@@ -153,7 +153,17 @@ List<String> rankIPv4s(List<(String, String)> addrs) {
 
   final ranked = [for (final (i, a) in addrs.indexed) (rank(a), i, a.$2)]
     ..sort((x, y) => x.$1 != y.$1 ? x.$1 - y.$1 : x.$2 - y.$2);
-  return [for (final r in ranked) r.$3];
+  // With a real network address to offer, the VPN, VM and container ones
+  // are left out: no other device can reach them (a Windows PC with WSL
+  // offers 172.x on its vEthernet adapter), and a peer that tried one
+  // first would wait out a timeout on every poll before the real one.
+  // Tailscale's 100.64/10 stays: it reaches the user's own devices on any
+  // network.
+  final real = ranked.any((r) => r.$1 < 20);
+  return [
+    for (final r in ranked)
+      if (!real || (r.$1 != 20 && r.$1 != 40)) r.$3,
+  ];
 }
 
 /// Interface names of VPN tunnels, VMs, containers and bridges: Unix names
