@@ -233,3 +233,22 @@ to renew it.
 - **Phones without the app:** settings › open on a phone has a QR code for
   the web shelf (see iPhone and iPad above).
 
+- **Private mode** (off unless switched on): only your own paired devices
+  see each other, and everything between them is signed and encrypted.
+  1. On both devices, on the same Wi-Fi, open settings › private mode ›
+     pair a device. Each lists the other for two minutes while the panel
+     stays open.
+  2. On one of them, tap the other's name. Both show the same six-digit
+     number; check that they match and tap **match** on both (**doesn't
+     match** stops it: someone may be in the middle).
+  3. Switch private mode on, on each device. A lock shows in the top bar.
+     Pair more devices the same way, from any device already paired.
+
+  While it is on, devices without your key (plop in normal mode, older
+  versions, other people's circles) don't see this one, and it doesn't see
+  them; the device's name is not broadcast. The web shelf is off, since a
+  browser has no key. **Forget** takes a device out and gives the rest a
+  new key; a device that is off or away when you do that keeps the old key
+  and sees nobody until you pair it again. **Leave circle** takes this
+  device out and turns private mode off. The clocks on your devices must
+  agree to within a minute (they do when set automatically).

@@ -16,6 +16,13 @@ port. TXT attributes:
 | `v`    | Protocol version, `1`. A node ignores services advertising any other value, so a newer version is invisible to v1 nodes unless it also advertises `v=1`. |
 | `name` | Human-readable device name, shown as "from" on the shelf.             |
 | `ips`  | Comma-separated IPv4 addresses, fallback when the resolved host is unusable. |
+| `c`    | Private mode only: the circle hint (below). |
+| `pair` | `1` while the node's pairing is open (below). |
+
+A node in [private mode](#private-mode) advertises `v=p1` and `c`, leaves
+`name` out unless its pairing is open, and uses `plop-<first 8 digits of
+its id>` as its service name rather than its device name. v1 nodes ignore
+it, as they ignore any `v` but `1`.
 
 Address choice: resolved IPv4 host addresses first, then `ips`, then routable
 IPv6 addresses. IPv6 link-local addresses are skipped (they need a scope id
@@ -239,8 +246,8 @@ cleaned the same way.
 
 ### Trust
 
-There is no authentication, as on `/v1` (a room code and TLS may come
-later), and the web shelf gives anyone who can reach this port on the network
+There is no authentication, as on `/v1` outside private mode (the web
+shelf is off while private mode is on), and the web shelf gives anyone who can reach this port on the network
 more than `/v1` gives a peer. A browser is not needed for any of it; `curl`
 will do.
 
@@ -274,3 +281,186 @@ Being plain HTTP also means browsers deny the page their secure-context APIs
 (share sheet, clipboard, install prompt), so it falls back: text copies
 through a selection, images open full-screen to be saved with a long press,
 and other files download.
+
+## Private mode
+
+Optional, off by default. Only devices that were paired with each other
+see each other, every `/v1` request is signed and every answer sealed.
+A node with it off behaves exactly as above. The keys and the maths live
+in `packages/core/lib/src/circle.dart`, `pairing.dart` and
+`private_link.dart`, which know nothing of the LAN; `private_mode.dart`
+carries them over HTTP.
+
+Everything is pure Dart: X25519 from `package:cryptography`, ChaCha20 from
+`package:cryptography`, SHA-256 and HMAC-SHA256 from `package:crypto`, and
+HKDF-SHA256 (RFC 5869) on top of HMAC. Bodies use ChaCha20 then
+HMAC-SHA256 (encrypt-then-MAC) rather than ChaCha20-Poly1305: the
+pure-Dart Poly1305 runs at under 40 MB/s, which would cap a transfer below
+a good Wi-Fi link; ChaCha20 runs near 135 MB/s and HMAC-SHA256 near
+115 MB/s on an M-series Mac, about 60 MB/s per side together. Encoding:
+keys and MACs are base64url without padding.
+
+### Keys
+
+- **Device key:** an X25519 key pair made on first launch and kept in
+  `private.json` beside the settings (mode 0600 on macOS and Linux; per-user
+  app data on Windows; the app sandbox on phones). Its public half, in
+  base64url, is the device's id in a circle.
+- **Circle:** a random 32-byte key, an `epoch` (bumped on every change; of
+  two versions the higher wins) and the members' public keys and names.
+  From the key, with HKDF-SHA256 and no salt:
+  - `hint` = first 16 hex digits of HMAC-SHA256(key, `plop-circle`);
+  - `authKey` = HKDF(key, info `plop auth v1`);
+  - `bodyKey` = HKDF(key, info `plop body v1`).
+
+### Discovery
+
+A private node advertises `v=p1` and `c=<hint>` (see Discovery). A node
+syncs only with peers whose hint equals its own, or which have none when
+it has none: public nodes see public nodes, private ones their circle,
+and two circles never meet. A node that switches mode advertises afresh
+under its other service name with the same id.
+
+### Signed requests
+
+Every `/v1` request to a private node (lists, bytes, `received`,
+`changed`) carries
+
+    X-Plop-Auth: v1.<ms since epoch>.<nonce: 32 hex digits>.<mac>
+
+where `mac` = HMAC-SHA256(authKey, `plop-auth-v1\n<METHOD>\n<path[?query]>\n<X-Plop-Node or empty>\n<ms>\n<nonce>`).
+The server answers `401`, without reading the body, if it is missing,
+does not verify, is more than 60 s from its own clock either way, or
+reuses a nonce it accepted in the last two minutes (it remembers up to
+8192). Pairing routes are the one exception, and only while pairing is
+open.
+
+### Sealed answers
+
+The answer to a signed request (`GET /v1/items`, `GET /v1/items/{id}`,
+`GET /v1/circle`) is a sealed stream, `Content-Type:
+application/octet-stream`, with an exact `Content-Length`:
+
+    "PLS1" | salt (16 random bytes) | frame | frame | ... | final frame
+
+The stream's keys are HKDF(bodyKey, salt, info `plop stream v1\n` +
+context, 64 bytes): the first 32 for ChaCha20, the last 32 for
+HMAC-SHA256. The context is `answer\n<request nonce>\n<METHOD>\n<path>`,
+so an answer recorded once cannot be passed off as the answer to another
+request. A frame is
+
+    len (4 bytes, big-endian; top bit set on the last frame) | ciphertext (len bytes) | tag (32 bytes)
+
+with at most 64 KiB of plaintext, ChaCha20 with a 12-byte nonce of four
+zero bytes and the frame's number (from 0, 8 bytes big-endian), and tag =
+HMAC-SHA256(macKey, nonce | 4-byte length of `len` (4) | `len` |
+ciphertext). Every frame but the last is full, and the last may be
+empty, so `n` bytes seal to `20 + (n div 65536 + 1) * 36 + n`. A reader
+checks each tag before passing anything on, refuses a frame over 64 KiB
+before reading it, and fails if frames come out of order, if the stream
+ends without the last frame, or if anything follows it. A private list is
+`{"name": <device name>, "items": [...]}`, since the name is not
+advertised. Large files stream through frame by frame; nothing holds more
+than a frame.
+
+### Pairing
+
+Both devices open pairing in the settings panel (two minutes, or until
+the panel closes): they advertise `pair=1` and their name, and answer
+`/v1/pair/*` unsigned. The user picks the other device on one of them,
+the initiator A; B responds. JSON bodies, at most 16 KB:
+
+| route | body | answer |
+|---|---|---|
+| `POST /v1/pair/hello` | `{"v":1,"pk":A,"name":…,"commit":SHA-256("plop pair commit v1"‖pkA‖nA),"circle":bool}` | `200 {"sid":…,"pk":B,"name":…,"nonce":nB,"circle":bool}`; `409` if B is busy with another exchange |
+| `POST /v1/pair/reveal` | `{"sid":…,"nonce":nA}` | `204`, or `400` if nA does not match the commit |
+| `POST /v1/pair/confirm` | `{"sid":…,"box":…}` | `202` until B's user answers, then `200 {"box":…}` or `403` if they said no |
+| `POST /v1/pair/cancel` | `{"sid":…}` | `204`: A's user said no |
+
+Nonces are 16 random bytes. Both sides show `code` = the first four bytes
+of SHA-256(`plop pair code v1` ‖ pkA ‖ pkB ‖ nA ‖ nB), big-endian, mod
+10⁶, as six digits, and ask the user whether the other screen shows the
+same. A committed to nA before seeing nB, and B sent nB before learning
+nA, so someone in the middle, who must run the exchange with each side
+under its own key, cannot steer either number: the two match by chance
+once in a million, and otherwise the users see different numbers.
+
+On "match", A polls `confirm` every second. Each `box` is a sealed box
+(below) under HKDF(X25519(A, B), salt nA‖nB, info `plop pair key v1` ‖
+pkA ‖ pkB), context `pair confirm a` from A and `pair confirm b` from B,
+holding `{"name":…,"circle":<circle or null>}`. The circle comes from A
+if A is in one or neither is (A makes one), else from B; it already lists
+both. The side that handed it over then sends it to the other members it
+can reach (`/v1/circle/update`). When two devices pick each other at
+once, the one whose public key sorts lower answers `409` and takes the
+other's exchange instead.
+
+A **sealed box** is `"PLB1" | salt (16) | ciphertext | tag (32)`, keys
+HKDF(key, salt, info `plop box v1\n` + context, 64 bytes), nonce all zero
+(each box has its own keys), tag over the nonce, `PLB1` and the
+ciphertext as for a frame.
+
+### Circle routes
+
+Signed with the circle's key whether private mode is on or not; `401`
+otherwise.
+
+- `GET /v1/circle`: a sealed answer, `{"pk": <device key>, "epoch": n}`.
+- `POST /v1/circle/update` `{"from": pk, "box": …}`: `box` is a sealed box
+  under HKDF(X25519(sender, receiver), info `plop member box v1` ‖
+  pk_from ‖ pk_to), context `circle update`, holding a circle. Accepted
+  (`204`) if `from` is a member, the circle lists the receiver and its
+  epoch is higher; `403`/`409` otherwise.
+- `POST /v1/circle/leave` `{"from": pk}`: the sender left; it is taken
+  off the list (`204`). The key stays: it was trusted, and left on its
+  own.
+
+**Forget** makes a new key and epoch without the device, and before
+switching to it sends it with `update` to every member it can reach,
+sealed to each one's own key (so the forgotten device, which knows the
+old circle key, cannot read it even on the wire), signed under the old
+key. A member that is off or away then keeps the old key, advertises the
+old hint and sees nobody; the settings panel names it, and it has to be
+paired again. Two devices that change the circle at the same moment
+produce the same epoch, and the first to arrive wins at each member.
+
+### Threat model and limits
+
+Private mode is meant to keep other people on the same network (a café,
+an office, a shared flat) from seeing, reading, changing or adding to
+what your own devices pass around.
+
+- **Protected:** item lists, names and bytes (encrypted and
+  authenticated), who may list, fetch or nudge (signed requests),
+  answers replayed or swapped, a body cut short or changed, a man in the
+  middle at pairing (numeric comparison), a forgotten device (new key,
+  sent sealed to each remaining device).
+- **Not hidden:** that plop runs on a device, its addresses and port, its
+  per-launch node id, the circle hint (constant for a key: devices of one
+  circle can be told apart from other plop users, and recognised from day
+  to day), traffic sizes and timing, status codes, and the device name for
+  the two minutes pairing is open.
+- **Trusted:** every device in the circle holds the same key and can do
+  anything any other can, including claim another's node id. There is no
+  per-device permission.
+- **Not covered:** a device that is itself compromised; a user who taps
+  "match" on numbers that differ; clocks more than a minute apart (every
+  request is refused; automatic time fixes it); denial of service (anyone
+  can still flood the port, or start pairing exchanges while pairing is
+  open, though only one runs at a time).
+- **Keys at rest** are as safe as the user's account: a plain file, 0600,
+  not the OS keychain.
+
+### Remote transports
+
+Nothing in `circle.dart`, `pairing.dart` or `private_link.dart` assumes the
+LAN: a request is a method, a path and a node id to sign; an answer is
+bytes to seal with the request's nonce; pairing is three messages and a
+confirm, each a JSON object. An "anywhere" mode would reuse them through a
+rendezvous relay: devices would register under a value derived from the
+circle key (as the hint is, with its own HKDF label, so the relay learns
+nothing it could use on the LAN), the relay would forward the same signed
+requests and sealed streams it cannot open, and pairing could run over it
+as is, since the numeric comparison does not depend on the channel being
+honest. Only the relay client and the address of a peer change; the key
+handling does not.

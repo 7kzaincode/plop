@@ -32,6 +32,8 @@ another over your local network.
 - **Runs quietly:** close the window and plop stays in the menu bar or tray.
 - **Any size:** small items copy instantly. Big ones, up to 100 GB, are
   fetched when you grab them.
+- **Private mode:** pair your own devices once (compare a six-digit number)
+  and only they see each other, with every transfer encrypted.
 
 ## Install
 
