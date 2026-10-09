@@ -351,6 +351,7 @@ class ShelfScreenState extends State<ShelfScreen> {
               blocked: blocked.length,
               help: help == null ? null : '${help.what}\n${help.fix}',
               self: node.store.nodeName,
+              private: node.private.on,
               searching: searching,
               ttl: node.ttl,
               onTtl: _setTtl,
@@ -594,6 +595,7 @@ class _TopBar extends StatelessWidget {
     required this.blocked,
     required this.help,
     required this.self,
+    this.private = false,
     required this.searching,
     required this.ttl,
     required this.onTtl,
@@ -613,6 +615,9 @@ class _TopBar extends StatelessWidget {
   /// What to do about who is, or is not, around; for the tooltip.
   final String? help;
   final String self;
+
+  /// Private mode is on: a small lock beside who is around.
+  final bool private;
   final bool searching;
   final Duration ttl;
   final ValueChanged<Duration> onTtl;
@@ -657,6 +662,19 @@ class _TopBar extends StatelessWidget {
               ),
             ],
             const Spacer(),
+            if (private) ...[
+              Tooltip(
+                message: 'private mode · only your paired devices',
+                triggerMode: isDesktop ? null : TooltipTriggerMode.tap,
+                child: const Icon(
+                  Icons.lock_outline_rounded,
+                  key: ValueKey('private lock'),
+                  size: 13,
+                  color: Palette.dim,
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
             Tooltip(
               message: [
                 'you · $self',

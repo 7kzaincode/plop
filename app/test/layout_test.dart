@@ -398,6 +398,10 @@ void main() {
         }
         return null;
       });
+      // The private mode section below makes the panel longer; bring the
+      // address back into view first.
+      await tester.ensureVisible(url);
+      await tester.pumpAndSettle();
       await tester.tap(url);
       await tester.pump();
       expect(copied, address);

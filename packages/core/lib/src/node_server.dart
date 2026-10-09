@@ -2,7 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'circle.dart';
 import 'item.dart';
+import 'private_link.dart';
+import 'private_mode.dart';
 import 'shelf_store.dart';
 import 'web_host.dart';
 
@@ -76,8 +79,14 @@ class NodeServer {
   /// Called on `POST /v1/changed` with the sender's node id, if it gave one.
   final void Function(String? fromId)? onNudge;
 
-  /// Answers every path outside /v1 while it is enabled; 404 otherwise.
+  /// Answers every path outside /v1 while it is enabled and private mode
+  /// is off; 404 otherwise.
   WebHost? web;
+
+  /// This device's private mode: /v1/pair and /v1/circle go to it, and
+  /// while it is on every other /v1 request must be signed with the
+  /// circle's key (401 otherwise) and every answer is sealed with it.
+  PrivateMode? private;
 
   HttpServer? _server;
 
@@ -159,7 +168,42 @@ class NodeServer {
       await res.close();
       return;
     }
-    switch ((req.method, req.uri.pathSegments)) {
+    final segs = req.uri.pathSegments;
+    if (private case final p?
+        when segs.length >= 2 &&
+            segs[0] == 'v1' &&
+            (segs[1] == 'pair' || segs[1] == 'circle')) {
+      return p.handle(req);
+    }
+    final privateOn = private?.on ?? false;
+    ({Circle circle, String nonce})? signed;
+    if (privateOn && segs.firstOrNull == 'v1') {
+      signed = private!.authorize(req);
+      if (signed == null) {
+        claimBody(req);
+        res.statusCode = HttpStatus.unauthorized;
+        await res.close();
+        return;
+      }
+    }
+    // Sends [body] of [length] bytes, sealed for the request when it was
+    // signed.
+    Future<void> send(Stream<List<int>> body, int length) {
+      if (signed case (:final circle, :final nonce)) {
+        res
+          ..contentLength = sealedLength(length)
+          ..headers.contentType = ContentType.binary;
+        return sealStream(
+          body,
+          circle.bodyKey,
+          responseContext(nonce, req.method, pathOf(req.uri)),
+        ).pipe(res);
+      }
+      res.contentLength = length;
+      return body.pipe(res);
+    }
+
+    switch ((req.method, segs)) {
       case ('GET', ['v1', 'items']):
         _noteCaller(req);
         // A snapshot: remove() mutates, and an item can expire while a
@@ -181,7 +225,13 @@ class NodeServer {
             if (present[n] && store[i.key] == i) i.toJson(),
         ];
         res.headers.contentType = ContentType.json;
-        res.write(jsonEncode(items));
+        // A private node advertises no name, so its list says it.
+        final body = utf8.encode(
+          jsonEncode(
+            signed == null ? items : {'name': store.nodeName, 'items': items},
+          ),
+        );
+        return send(Stream.value(body), body.length);
       case ('GET', ['v1', 'items', final id]):
         final item = store.local(id);
         final file = item?.path != null && await store.stillThere(item!)
@@ -192,9 +242,7 @@ class NodeServer {
           break;
         }
         res.headers.contentType = ContentType.parse(item!.mime);
-        res.contentLength = await file.length();
-        await file.openRead().pipe(res);
-        return; // pipe closes the response
+        return send(file.openRead(), await file.length()); // closes it
       case ('POST', ['v1', 'items', final id, 'received']):
         await req.drain<void>();
         _noteCaller(req);
@@ -208,7 +256,10 @@ class NodeServer {
         res.statusCode = HttpStatus.noContent;
         onNudge?.call(_callerId(req));
       default:
-        if (web case final web? when web.enabled) return web.handle(req);
+        // The web shelf has no way to sign; it is off while private is on.
+        if (web case final web? when web.enabled && !privateOn) {
+          return web.handle(req);
+        }
         res.statusCode = HttpStatus.notFound;
     }
     await res.close();

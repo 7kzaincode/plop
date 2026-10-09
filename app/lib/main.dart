@@ -66,6 +66,7 @@ Future<void> _start() async {
     discovery: BonsoirPeerDiscovery(),
     name: name,
     ttl: settings.ttl,
+    private: await loadPrivateMode(suffix: suffix),
     // Desktop serves the web shelf too, so its address should stay put:
     // the port phones were given, else the memorable one, else any.
     ports: [

@@ -8,6 +8,8 @@ class LocalNode {
     required this.name,
     required this.port,
     required this.ips,
+    this.hint,
+    this.pairing = false,
   });
 
   final String id;
@@ -17,7 +19,36 @@ class LocalNode {
   /// IPv4 addresses, advertised as a fallback when mDNS resolves to an
   /// address that is not usable.
   final List<String> ips;
+
+  /// The circle's hint ([Circle.hint]) while private mode is on; null
+  /// otherwise.
+  final String? hint;
+
+  /// Whether the settings panel's pairing is open here, so nearby devices
+  /// list this one to pair with.
+  final bool pairing;
+
+  /// The mDNS service name: the device name normally, which every browser
+  /// of `_plop._tcp` sees; in private mode one that says nothing about the
+  /// device, from the id that changes every launch.
+  String get serviceName => hint == null ? name : 'plop-${id.substring(0, 8)}';
+
+  /// The TXT attributes to advertise. In private mode `v` is [privateV],
+  /// which nodes from before private mode ignore as they do any version
+  /// but `1`, the name is left out unless pairing is open (a device
+  /// listed to pair with has to say who it is), and `c` carries the hint.
+  Map<String, String> get txt => {
+    'id': id,
+    'v': hint == null ? '1' : privateV,
+    if (hint == null || pairing) 'name': name,
+    'ips': ips.join(','),
+    'c': ?hint,
+    if (pairing) 'pair': '1',
+  };
 }
+
+/// The protocol version a private-mode node advertises.
+const privateV = 'p1';
 
 class Peer {
   Peer({
@@ -25,14 +56,62 @@ class Peer {
     required this.name,
     required this.hosts,
     required this.port,
+    this.hint,
+    this.pairing = false,
   });
 
+  /// The peer [txt] describes, at [hosts] and [port]; null for a service
+  /// that is not a node this version understands. [serviceName] stands in
+  /// for a missing name on a public node, as nodes before private mode did.
+  static Peer? fromTxt(
+    Map<String, String> txt, {
+    required String serviceName,
+    required List<String> hosts,
+    required int port,
+  }) {
+    final id = txt['id'];
+    final v = txt['v'];
+    final hint = txt['c'];
+    if (id == null || !(v == '1' || v == privateV && hint != null)) {
+      return null;
+    }
+    return Peer(
+      id: id,
+      name: txt['name'] ?? (v == '1' ? serviceName : ''),
+      hosts: hosts,
+      port: port,
+      hint: v == '1' ? null : hint,
+      pairing: txt['pair'] == '1',
+    );
+  }
+
   final String id;
+
+  /// The device's name; empty for a private node until its list, sealed,
+  /// says it.
   final String name;
 
   /// Candidate addresses, best first.
   final List<String> hosts;
   final int port;
+
+  /// Its circle hint if it is in private mode, else null. A node syncs only
+  /// with peers whose hint is its own, so public nodes see public nodes
+  /// and private ones their own circle.
+  final String? hint;
+
+  /// Whether its pairing is open.
+  final bool pairing;
+
+  /// This peer under [name], as its sealed list named it.
+  Peer named(String name) => Peer(
+    id: id,
+    name: name,
+    hosts: hosts,
+    port: port,
+    hint: hint,
+    pairing: pairing,
+  );
 
   List<Uri> get baseUris => [
     for (final h in hosts) Uri(scheme: 'http', host: h, port: port),

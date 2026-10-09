@@ -11,3 +11,5 @@ dev_dependencies:
 dependencies:
   archive: ^4.3.0
   characters: ^1.4.0
+  crypto: ^3.0.7
+  cryptography: ^2.9.0

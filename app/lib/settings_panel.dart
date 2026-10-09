@@ -15,24 +15,32 @@ import 'tray.dart';
 import 'web_shelf.dart';
 
 /// The one settings surface: global shortcuts, open-at-login, the web
-/// shelf's address when [node] serves one, and what plop does in the
-/// background, with [onQuit] behind its "quit plop" link while the tray
-/// icon is up on Windows and Linux ([Tray.quitsInWindow]).
+/// shelf's address when [node] serves one, private mode ([private], which
+/// defaults to [node]'s), and what plop does in the background, with
+/// [onQuit] behind its "quit plop" link while the tray icon is up on
+/// Windows and Linux ([Tray.quitsInWindow]).
 Future<void> showSettings(
   BuildContext context,
   Settings settings, {
   PlopNode? node,
+  PrivateMode? private,
   VoidCallback? onQuit,
 }) => showDialog<void>(
   context: context,
   barrierColor: const Color(0x99000000),
-  builder: (_) => _SettingsPanel(settings, node: node, onQuit: onQuit),
+  builder: (_) => _SettingsPanel(
+    settings,
+    node: node,
+    private: private ?? node?.private,
+    onQuit: onQuit,
+  ),
 );
 
 class _SettingsPanel extends StatefulWidget {
-  const _SettingsPanel(this.settings, {this.node, this.onQuit});
+  const _SettingsPanel(this.settings, {this.node, this.private, this.onQuit});
   final Settings settings;
   final PlopNode? node;
+  final PrivateMode? private;
   final VoidCallback? onQuit;
 
   @override
@@ -299,8 +307,15 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   ),
                   label,
                 ),
-              if (widget.node case final node? when node.web.enabled)
+              if (widget.node case final node?
+                  when node.web.enabled && !node.private.on)
                 PhoneLink(node, recording: _recording != null),
+              if (widget.private case final private?)
+                _PrivateSection(
+                  private,
+                  webShelf: widget.node?.web.enabled ?? false,
+                  recording: _recording != null,
+                ),
               if (Notify.supported)
                 _BackgroundSection(
                   widget.settings,
@@ -488,6 +503,264 @@ class _LinkState extends State<_Link> {
       ),
     ),
   );
+}
+
+/// Private mode: a switch (it needs another paired device first), pairing
+/// a device, the circle's devices with "forget", and "leave circle". Opening
+/// "pair a device" lists this device nearby for two minutes, or until the
+/// panel closes; lib/src/private_mode.dart in the core has the rest.
+class _PrivateSection extends StatefulWidget {
+  const _PrivateSection(
+    this.mode, {
+    required this.webShelf,
+    required this.recording,
+  });
+  final PrivateMode mode;
+
+  /// This device serves the web shelf when private mode is off.
+  final bool webShelf;
+
+  /// See [_Key.recording].
+  final bool recording;
+
+  @override
+  State<_PrivateSection> createState() => _PrivateSectionState();
+}
+
+class _PrivateSectionState extends State<_PrivateSection> {
+  static const _label = 'private mode';
+  late final StreamSubscription<void> _sub;
+  Timer? _tick;
+  String? _note;
+  bool _busy = false; // a forget or a leave running
+
+  PrivateMode get mode => widget.mode;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = mode.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    _tick?.cancel();
+    // Pairing is the panel's: the device stops being listed once it goes.
+    if (mode.pairingOpen) mode.closePairing();
+    super.dispose();
+  }
+
+  void _openPairing() {
+    mode.openPairing();
+    _note = null;
+    // The countdown.
+    _tick ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+      if (!mode.pairingOpen) {
+        _tick?.cancel();
+        _tick = null;
+      }
+    });
+    setState(() {});
+  }
+
+  void _toggle(bool on) {
+    mode.setOn(on).catchError((Object _) {
+      if (mounted) {
+        setState(
+          () => _note = "couldn't save that · it holds until plop quits",
+        );
+      }
+    });
+    setState(() => _note = null);
+  }
+
+  Future<void> _forget(CircleMember m) async {
+    setState(() => _busy = true);
+    final missed = await mode.forget(m.publicKey);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _note = missed.isEmpty
+          ? 'forgot ${m.name} · the others have the new key'
+          : 'forgot ${m.name} · '
+                "${[for (final x in missed) x.name].join(', ')} "
+                "wasn't around for the new key · pair it again";
+    });
+  }
+
+  Future<void> _leave() async {
+    setState(() => _busy = true);
+    await mode.leave();
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _note = 'left the circle · private mode is off';
+    });
+  }
+
+  String get _left {
+    final until = mode.pairingUntil;
+    if (until == null) return '';
+    // Rounded up: it reads 2:00 as it opens, and 0:00 only at the end.
+    final ms = until.difference(DateTime.now()).inMilliseconds;
+    final s = ((ms + 999) ~/ 1000).clamp(0, 999);
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
+
+  Widget _link(String text, VoidCallback onTap) => Align(
+    alignment: Alignment.centerLeft,
+    child: _Link(text, recording: widget.recording, onTap: onTap),
+  );
+
+  Widget _small(String text, {Color color = Palette.dim}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 2),
+    child: Text(text, style: monoStyle(size: 11, color: color)),
+  );
+
+  /// The pairing part: nearby devices to pick, then the number to compare.
+  List<Widget> _pairing() {
+    final p = mode.pairing;
+    final who = p.peerName == null || p.peerName!.isEmpty
+        ? 'the other device'
+        : p.peerName!;
+    switch (p.step) {
+      case PairStep.compare || PairStep.waiting:
+        final code = p.code!;
+        return [
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '${code.substring(0, 3)} ${code.substring(3)}',
+              key: const ValueKey('pairing code'),
+              style: monoStyle(
+                size: 34,
+                color: Palette.text,
+                weight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (p.step == PairStep.compare) ...[
+            Center(child: _small('same number on $who?')),
+            // A Wrap: on a narrow phone the two go one above the other.
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 20,
+              children: [
+                _Link(
+                  'match',
+                  recording: widget.recording,
+                  onTap: () => mode.answer(true),
+                ),
+                _Link(
+                  "doesn't match",
+                  recording: widget.recording,
+                  onTap: () => mode.answer(false),
+                ),
+              ],
+            ),
+          ] else
+            Center(child: _small('waiting for $who to tap match…')),
+        ];
+      case PairStep.connecting:
+        return [_small('reaching $who…')];
+      case PairStep.idle || PairStep.done || PairStep.failed:
+        if (!mode.pairingOpen) {
+          return [
+            if (p.message != null) _small(p.message!),
+            _link('pair a device', _openPairing),
+          ];
+        }
+        final nearby = mode.candidates;
+        return [
+          if (p.step == PairStep.failed && p.message != null)
+            _small(p.message!),
+          _small('pairing · $_left · open pair a device on the other one too'),
+          if (nearby.isEmpty)
+            _small('looking for devices…', color: Palette.faint)
+          else
+            for (final peer in nearby)
+              _link(
+                peer.name.isEmpty ? 'a device' : peer.name,
+                () => mode.pairWith(peer),
+              ),
+          _link('stop pairing', mode.closePairing),
+        ];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = mode.on;
+    final canSwitch = on || mode.canTurnOn;
+    final others = mode.others;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Divider(height: 20, color: Palette.line),
+        Text(
+          'private mode · only your paired devices',
+          style: monoStyle(size: 11),
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(_label, style: monoStyle(color: Palette.text)),
+              ),
+              _Toggle(
+                label: _label,
+                value: on,
+                recording: widget.recording,
+                onChanged: canSwitch ? _toggle : null,
+              ),
+            ],
+          ),
+        ),
+        if (!canSwitch)
+          _small('pair a device first')
+        else if (on)
+          _small(
+            widget.webShelf
+                ? 'only your devices see this one, sealed end to end · '
+                      'the web shelf is off: browsers have no key'
+                : 'only your devices see this one, sealed end to end',
+          ),
+        ..._pairing(),
+        if (others.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          _small('your devices', color: Palette.faint),
+          for (final m in others)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    m.name.isEmpty ? 'a device' : m.name,
+                    style: monoStyle(color: Palette.text),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (!_busy)
+                  _Link(
+                    'forget',
+                    recording: widget.recording,
+                    onTap: () => _forget(m),
+                  ),
+              ],
+            ),
+        ],
+        if (mode.circle != null && !_busy) _link('leave circle', _leave),
+        if (_note != null) _small(_note!),
+      ],
+    );
+  }
 }
 
 const _loginLabel = 'open plop at login';

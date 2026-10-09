@@ -6,6 +6,7 @@ import 'discovery.dart';
 import 'item.dart';
 import 'node_client.dart';
 import 'node_server.dart';
+import 'private_mode.dart';
 import 'shelf_store.dart';
 import 'sync_engine.dart';
 import 'web_host.dart';
@@ -13,10 +14,26 @@ import 'web_host.dart';
 /// One running node: store, HTTP server, sync engine and discovery, wired
 /// together.
 class PlopNode {
-  PlopNode._(this.store, this.server, this.engine, this.discovery) {
+  PlopNode._(
+    this.store,
+    this.server,
+    this.engine,
+    this.discovery,
+    this.private,
+    this._advertised,
+  ) {
     web = WebHost(this);
     server.web = web;
+    _privateSub = private.changes.listen((_) => _applyPrivate());
   }
+
+  /// This device's private mode (its key, its circle, pairing); see
+  /// lib/src/private_mode.dart.
+  final PrivateMode private;
+
+  /// The hint and pairing flag discovery last advertised.
+  (String?, bool) _advertised;
+  StreamSubscription<void>? _privateSub;
 
   final ShelfStore store;
   final NodeServer server;
@@ -42,7 +59,9 @@ class PlopNode {
     int maxItemBytes = defaultMaxItemBytes,
     Duration pollInterval = const Duration(seconds: 3),
     NodeClient? client,
+    PrivateMode? private,
   }) async {
+    private ??= await PrivateMode.load(null);
     final store = ShelfStore(
       nodeId: randomId(),
       nodeName: name,
@@ -59,7 +78,17 @@ class PlopNode {
       eagerDeadline: eagerDeadline,
       pollInterval: pollInterval,
     );
-    final server = NodeServer(store, onNudge: engine.onNudge);
+    final server = NodeServer(store, onNudge: engine.onNudge)
+      ..private = private;
+    private.attach(
+      nodeId: store.nodeId,
+      name: name,
+      client: engine.client,
+      engine: engine,
+    );
+    final hint = private.on ? private.circle!.hint : null;
+    engine.client.circle = private.on ? private.circle : null;
+    engine.rescan(hint);
     var bound = false;
     for (final port in ports) {
       if (port < 1 || port > 65535) continue; // bind would throw ArgumentError
@@ -79,9 +108,37 @@ class PlopNode {
         name: name,
         port: server.port,
         ips: await localIPv4s(),
+        hint: hint,
+        pairing: private.pairingOpen,
       ),
     );
-    return PlopNode._(store, server, engine, discovery);
+    return PlopNode._(store, server, engine, discovery, private, (
+      hint,
+      private.pairingOpen,
+    ));
+  }
+
+  /// This node as discovery should advertise it now.
+  Future<LocalNode> _self() async => LocalNode(
+    id: id,
+    name: store.nodeName,
+    port: port,
+    ips: await localIPv4s(),
+    hint: private.on ? private.circle!.hint : null,
+    pairing: private.pairingOpen,
+  );
+
+  /// Follows private mode: on, off, a new circle key, pairing opened or
+  /// closed. Requests from here on are signed with the circle's key, or
+  /// not; peers are those with the new hint; discovery advertises it.
+  void _applyPrivate() {
+    final hint = private.on ? private.circle!.hint : null;
+    engine.client.circle = private.on ? private.circle : null;
+    final now = (hint, private.pairingOpen);
+    if (now == _advertised) return;
+    if (hint != _advertised.$1) engine.rescan(hint);
+    _advertised = now;
+    _self().then(discovery.rebroadcast).catchError((_) {});
   }
 
   String get id => store.nodeId;
@@ -169,7 +226,7 @@ class PlopNode {
   /// to, and polls every peer right away.
   Future<void> revive({bool rebroadcast = false}) async {
     var listening = false;
-    final probe = NodeClient();
+    final probe = NodeClient()..circle = engine.client.circle;
     try {
       await probe
           .fetchList(Uri(scheme: 'http', host: '127.0.0.1', port: port), id)
@@ -184,21 +241,12 @@ class PlopNode {
       await server.restart();
       rebroadcast = true; // the port may have changed
     }
-    if (rebroadcast) {
-      await discovery.rebroadcast(
-        LocalNode(
-          id: id,
-          name: store.nodeName,
-          port: port,
-          ips: await localIPv4s(),
-        ),
-      );
-    }
+    if (rebroadcast) await discovery.rebroadcast(await _self());
     engine.onNudge(null);
   }
 
-  /// Fires when items or peers change, or an item turns out to be one the
-  /// web shelf took in ([WebHost.uploads]).
+  /// Fires when items or peers change, an item turns out to be one the
+  /// web shelf took in ([WebHost.uploads]), or private mode changes.
   Stream<void> get changes {
     late final StreamController<void> c;
     final subs = <StreamSubscription<void>>[];
@@ -206,7 +254,8 @@ class PlopNode {
       onListen: () => subs
         ..add(store.changes.listen(c.add))
         ..add(engine.peerChanges.listen(c.add))
-        ..add(web.changes.listen(c.add)),
+        ..add(web.changes.listen(c.add))
+        ..add(private.changes.listen(c.add)),
       onCancel: () {
         for (final s in subs) {
           s.cancel();
@@ -238,6 +287,8 @@ class PlopNode {
       engine.saveTo(key, destPath);
 
   Future<void> stop() async {
+    await _privateSub?.cancel();
+    await private.detach();
     await discovery.stop();
     await engine.stop();
     await server.stop();
