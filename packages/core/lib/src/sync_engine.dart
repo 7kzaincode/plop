@@ -78,6 +78,17 @@ class SyncEngine {
   static const maxEagerTries = 3;
 
   final _peers = <String, _PeerState>{};
+
+  /// Every node discovery lists, by id, whatever its mode: [_peers] is the
+  /// ones this node syncs with, those whose hint is [hint]. Pairing lists
+  /// from the rest too, and private mode reaches them to share a new key.
+  final _known = <String, Peer>{};
+
+  /// The circle hint of private mode, or null in public mode. Only peers
+  /// advertising the same are synced with: public nodes and private ones
+  /// never see each other, nor two circles. Set with [rescan].
+  String? _hint;
+  String? get hint => _hint;
   final _downloads = <String, Future<String>>{};
 
   /// Keys of items waiting for an eager copy, oldest first; a set, since
@@ -124,6 +135,29 @@ class SyncEngine {
       if (s.failures >= maxFailures) s.peer,
   ];
 
+  /// Every node discovery lists, synced with or not.
+  List<Peer> get knownPeers => [..._known.values];
+
+  /// Nodes nearby with pairing open, whatever their mode.
+  List<Peer> get pairingPeers => [
+    for (final p in _known.values)
+      if (p.pairing) p,
+  ];
+
+  /// Switches to syncing with peers that advertise [hint]: drops those
+  /// that no longer match, as if they had left, and takes up the known
+  /// ones that now do.
+  void rescan(String? hint) {
+    _hint = hint;
+    for (final id in [..._peers.keys]) {
+      if (_known[id]?.hint != hint) _down(id);
+    }
+    for (final p in [..._known.values]) {
+      if (p.hint == hint && !_peers.containsKey(p.id)) _up(p);
+    }
+    _peerChanges.add(null);
+  }
+
   /// Since when [id] has been continuously reachable; null if it is not.
   DateTime? okSince(String id) => _peers[id]?.okSince;
 
@@ -146,21 +180,41 @@ class SyncEngine {
     switch (e) {
       case PeerUp(:final peer):
         if (peer.id == store.nodeId) return;
-        final s = _peers[peer.id];
-        if (s != null) {
-          s.peer = peer;
-        } else {
-          final s = _peers[peer.id] = _PeerState(peer);
-          s.poll = Timer.periodic(pollInterval, (_) => _refresh(s));
+        final was = _known[peer.id];
+        _known[peer.id] = peer;
+        if (peer.hint != _hint) {
+          _down(peer.id);
+          // Pairing lists it whatever its mode.
+          if (peer.pairing || (was?.pairing ?? false)) _peerChanges.add(null);
+          return;
         }
-        _refresh(_peers[peer.id]!);
+        if (was?.pairing != peer.pairing) _peerChanges.add(null);
+        _up(peer);
       case PeerDown(:final id):
-        final s = _peers.remove(id);
-        if (s == null) return;
-        s.poll?.cancel();
-        _dropUncopied(id);
-        _peerChanges.add(null);
+        final was = _known.remove(id);
+        if (was != null && was.pairing) _peerChanges.add(null);
+        _down(id);
     }
+  }
+
+  void _up(Peer peer) {
+    final s = _peers[peer.id];
+    if (s != null) {
+      // A private node advertises no name; keep the one its list gave.
+      s.peer = peer.name.isEmpty ? peer.named(s.peer.name) : peer;
+    } else {
+      final s = _peers[peer.id] = _PeerState(peer);
+      s.poll = Timer.periodic(pollInterval, (_) => _refresh(s));
+    }
+    _refresh(_peers[peer.id]!);
+  }
+
+  void _down(String id) {
+    final s = _peers.remove(id);
+    if (s == null) return;
+    s.poll?.cancel();
+    _dropUncopied(id);
+    _peerChanges.add(null);
   }
 
   /// Handles `POST /v1/changed`.
@@ -192,8 +246,13 @@ class SyncEngine {
   Future<void> _refreshOnce(_PeerState s) async {
     for (final base in s.candidates) {
       try {
-        final list = await client.fetchList(base, store.nodeId);
+        final (:items, :name) = await client.fetchShelf(base, store.nodeId);
+        final list = items;
         if (_peers[s.peer.id] != s) return; // went away meanwhile
+        if (name != null && name != s.peer.name) {
+          s.peer = s.peer.named(name);
+          _peerChanges.add(null);
+        }
         final changed = s.base != base || s.failures != 0;
         s
           ..base = base
@@ -435,6 +494,7 @@ class SyncEngine {
           dest,
           expectedSize: item.size,
           cutOff: cutOff,
+          selfId: store.nodeId,
           onProgress: (n) {
             final step = item.size == 0 ? 100 : n * 100 ~/ item.size;
             if (step != lastStep) {
@@ -472,6 +532,7 @@ class SyncEngine {
       s.poll?.cancel();
     }
     _peers.clear();
+    _known.clear();
     _eagerQueue.clear();
     for (final t in _deadlines.values) {
       t.cancel();

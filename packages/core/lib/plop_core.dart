@@ -9,6 +9,7 @@ export 'src/node_server.dart';
 export 'src/pairing.dart';
 export 'src/plop_node.dart';
 export 'src/private_link.dart';
+export 'src/private_mode.dart';
 export 'src/shelf_store.dart';
 export 'src/sync_engine.dart';
 export 'src/web_host.dart';

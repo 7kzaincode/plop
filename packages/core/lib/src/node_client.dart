@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'circle.dart';
 import 'item.dart';
 import 'node_server.dart';
+import 'private_link.dart';
 
 /// A download that broke off part way through its body: the connection
 /// dropped or was reset, or no byte came for the stall timeout. The sender
@@ -31,6 +33,32 @@ class NodeClient {
 
   static const _listTimeout = Duration(seconds: 5);
 
+  /// The circle whose key signs every request and opens every answer while
+  /// private mode is on; null otherwise. Read once per request, so one
+  /// that is running when it changes finishes under the key it began with.
+  Circle? circle;
+
+  /// Signs [req] for [selfId] when [under] or [circle] is set. Returns what opens the
+  /// answer: the body as it came, or unsealed under the request's nonce.
+  Stream<List<int>> Function(Stream<List<int>>) _sign(
+    HttpClientRequest req,
+    String selfId, [
+    Circle? under,
+  ]) {
+    final c = under ?? circle;
+    if (c == null) return (body) => body;
+    final path = pathOf(req.uri);
+    final (header, nonce) = signRequest(
+      c.authKey,
+      method: req.method,
+      path: path,
+      nodeId: selfId,
+    );
+    req.headers.set(authHeader, header);
+    return (body) =>
+        openStream(body, c.bodyKey, responseContext(nonce, req.method, path));
+  }
+
   /// A list entry is ~150 bytes, so this is thousands of items. Every node
   /// polls every peer, so one that streams an endless list must not be
   /// allowed to fill the memory of every device around it.
@@ -38,9 +66,18 @@ class NodeClient {
 
   /// [selfId] tells the peer who is asking, so it can tell that this node
   /// can reach it.
-  Future<List<RemoteItem>> fetchList(Uri base, String selfId) async {
+  Future<List<RemoteItem>> fetchList(Uri base, String selfId) async =>
+      (await fetchShelf(base, selfId)).items;
+
+  /// [fetchList], with the name a private node gives in its sealed list
+  /// (it advertises none); null from a public node.
+  Future<({List<RemoteItem> items, String? name})> fetchShelf(
+    Uri base,
+    String selfId,
+  ) async {
     final req = await _http.getUrl(base.replace(path: '/v1/items'));
     req.headers.set(nodeIdHeader, selfId);
+    final open = _sign(req, selfId);
     final res = await req.close().timeout(_listTimeout);
     if (res.statusCode != HttpStatus.ok) {
       await _hangUp(res);
@@ -49,16 +86,22 @@ class NodeClient {
     // Throwing out of `await for` cancels the subscription and drops the
     // socket; Future.timeout on a decodeStream would leave it buffering.
     final buf = BytesBuilder(copy: false);
-    await for (final chunk in res.timeout(_listTimeout)) {
+    await for (final chunk in open(res.timeout(_listTimeout))) {
       buf.add(chunk);
       if (buf.length > _maxListBytes) {
         throw HttpException('list too large', uri: base);
       }
     }
-    return [
-      for (final j in jsonDecode(utf8.decode(buf.takeBytes())) as List)
-        RemoteItem.fromJson(j as Map<String, dynamic>),
-    ];
+    // A private node's list is {"name": …, "items": […]}.
+    final body = jsonDecode(utf8.decode(buf.takeBytes()));
+    final list = body is Map ? body['items'] as List : body as List;
+    final name = body is Map ? body['name'] : null;
+    return (
+      items: [
+        for (final j in list) RemoteItem.fromJson(j as Map<String, dynamic>),
+      ],
+      name: name is String ? name : null,
+    );
   }
 
   /// Drops a response whose body is not wanted. Not `drain()`: that reads
@@ -107,6 +150,7 @@ class NodeClient {
     required int expectedSize,
     void Function(int received)? onProgress,
     Future<void>? cutOff,
+    String selfId = '',
   }) async {
     // Opened before asking, so a local error never strands a response.
     final part = File('$destPath.part');
@@ -116,6 +160,8 @@ class NodeClient {
     var closed = false, ok = false;
     try {
       final req = await _http.getUrl(base.replace(path: '/v1/items/$id'));
+      if (selfId.isNotEmpty) req.headers.set(nodeIdHeader, selfId);
+      final open = _sign(req, selfId);
       // While waiting for the headers; once they are in, abort() does
       // nothing, and [_until] takes over.
       cutOff?.then((_) => req.abort(_outOfTime));
@@ -130,9 +176,14 @@ class NodeClient {
       // Whatever breaks the body (the stall, a hang-up, a reset) is an
       // interruption, told apart from what this end decides below (too
       // many bytes, too few) and from [cutOff], added after.
-      var body = res
-          .timeout(const Duration(seconds: 15))
-          .handleError((Object e) => throw TransferInterrupted(e));
+      // Private mode unseals after the interruption check, so a body that
+      // broke off is still an interruption, while one that was tampered
+      // with fails with a PrivateLinkException.
+      var body = open(
+        res
+            .timeout(const Duration(seconds: 15))
+            .handleError((Object e) => throw TransferInterrupted(e)),
+      );
       if (cutOff != null) body = _until(body, cutOff);
       await for (final chunk in body) {
         received += chunk.length;
@@ -181,9 +232,92 @@ class NodeClient {
     try {
       final req = await _http.postUrl(base.replace(path: path));
       req.headers.set(nodeIdHeader, selfId);
+      _sign(req, selfId);
       final res = await req.close().timeout(const Duration(seconds: 3));
       await res.drain<void>();
     } catch (_) {}
+  }
+
+  /// Most a pairing or circle answer may be; they are a few hundred bytes.
+  static const _maxJsonBytes = 64 << 10;
+
+  /// Posts [body] as JSON to a pairing route ([path] under /v1/pair), which
+  /// is not signed: the two devices share nothing yet. Returns the status
+  /// and the JSON answer, if there was one.
+  Future<(int, Map<String, Object?>?)> pairPost(
+    Uri base,
+    String path,
+    Map<String, Object?> body,
+  ) async {
+    final req = await _http.postUrl(base.replace(path: path));
+    req.headers.contentType = ContentType.json;
+    req.write(jsonEncode(body));
+    final res = await req.close().timeout(const Duration(seconds: 5));
+    return (res.statusCode, await _json(res, (b) => b));
+  }
+
+  /// Asks a peer, signed with [c], which device it is: its public key and
+  /// the epoch of its circle. Null if it does not answer as a member of
+  /// [c] would.
+  Future<Map<String, Object?>?> circleInfo(
+    Uri base,
+    String selfId,
+    Circle c,
+  ) async {
+    try {
+      final req = await _http.getUrl(base.replace(path: '/v1/circle'));
+      req.headers.set(nodeIdHeader, selfId);
+      final open = _sign(req, selfId, c);
+      final res = await req.close().timeout(const Duration(seconds: 3));
+      if (res.statusCode != HttpStatus.ok) {
+        await _hangUp(res);
+        return null;
+      }
+      return await _json(res, open);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Posts [body] to a circle route, signed with [c]; the status, or null
+  /// if the peer could not be reached.
+  Future<int?> circlePost(
+    Uri base,
+    String path,
+    String selfId,
+    Circle c,
+    Map<String, Object?> body,
+  ) async {
+    try {
+      final req = await _http.postUrl(base.replace(path: path));
+      req.headers
+        ..set(nodeIdHeader, selfId)
+        ..contentType = ContentType.json;
+      _sign(req, selfId, c);
+      req.write(jsonEncode(body));
+      final res = await req.close().timeout(const Duration(seconds: 3));
+      await _hangUp(res);
+      return res.statusCode;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<Map<String, Object?>?> _json(
+    HttpClientResponse res,
+    Stream<List<int>> Function(Stream<List<int>>) open,
+  ) async {
+    final buf = BytesBuilder(copy: false);
+    await for (final chunk in open(res.timeout(const Duration(seconds: 5)))) {
+      buf.add(chunk);
+      if (buf.length > _maxJsonBytes) throw const FormatException('too big');
+    }
+    if (buf.isEmpty) return null;
+    try {
+      return (jsonDecode(utf8.decode(buf.takeBytes())) as Map).cast();
+    } catch (_) {
+      return null;
+    }
   }
 
   void close() => _http.close(force: true);

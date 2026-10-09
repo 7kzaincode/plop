@@ -418,6 +418,9 @@ String _signed(
   return ('v1.$ms.$nonce.${b64(mac)}', nonce);
 }
 
+/// What a signature covers of [uri]: its path, and its query if it has one.
+String pathOf(Uri uri) => uri.hasQuery ? '${uri.path}?${uri.query}' : uri.path;
+
 /// What an answer to a signed request is sealed for: the request's nonce,
 /// method and path. A recorded answer cannot be passed off as the answer to
 /// another request, a stale list to a fresh poll, say.

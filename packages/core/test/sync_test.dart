@@ -91,6 +91,7 @@ class CountingClient extends NodeClient {
     required int expectedSize,
     void Function(int received)? onProgress,
     Future<void>? cutOff,
+    String selfId = '',
   }) async {
     final name = destPath.split(Platform.pathSeparator).last;
     final attempt = calls[name] = (calls[name] ?? 0) + 1;
@@ -109,6 +110,7 @@ class CountingClient extends NodeClient {
         expectedSize: expectedSize,
         onProgress: onProgress,
         cutOff: cutOff,
+        selfId: selfId,
       );
     } finally {
       inFlight--;
@@ -204,6 +206,7 @@ class StallingClient extends NodeClient {
     required int expectedSize,
     void Function(int received)? onProgress,
     Future<void>? cutOff,
+    String selfId = '',
   }) async {
     final n = attempts[id] = (attempts[id] ?? 0) + 1;
     if (n == 1) {
@@ -217,6 +220,7 @@ class StallingClient extends NodeClient {
       expectedSize: expectedSize,
       onProgress: onProgress,
       cutOff: cutOff,
+      selfId: selfId,
     );
   }
 }
@@ -349,6 +353,7 @@ class GatedClient extends NodeClient {
     required int expectedSize,
     void Function(int received)? onProgress,
     Future<void>? cutOff,
+    String selfId = '',
   }) async {
     await gate;
     await super.download(
@@ -358,6 +363,7 @@ class GatedClient extends NodeClient {
       expectedSize: expectedSize,
       onProgress: onProgress,
       cutOff: cutOff,
+      selfId: selfId,
     );
   }
 }
