@@ -70,7 +70,12 @@ class BonsoirPeerDiscovery implements PeerDiscovery {
       case BonsoirDiscoveryServiceLostEvent(:final service):
         _forget(service.name);
         final id = _idsByName.remove(service.name);
-        if (id != null) _events.add(PeerDown(id));
+        // A node switching private mode on or off advertises under a new
+        // service name with the same id; the old name's loss, which can
+        // come after the new one is found, must not take it down.
+        if (id != null && !_idsByName.containsValue(id)) {
+          _events.add(PeerDown(id));
+        }
       default:
         break;
     }
@@ -98,16 +103,13 @@ class BonsoirPeerDiscovery implements PeerDiscovery {
 
   Future<void> _advertise(LocalNode self) async {
     final broadcast = _broadcast = BonsoirBroadcast(
+      // The name and TXT come from the core: in private mode they carry
+      // a circle hint and no device name (LocalNode.txt).
       service: BonsoirService(
-        name: self.name,
+        name: self.serviceName,
         type: serviceType,
         port: self.port,
-        attributes: {
-          'id': self.id,
-          'v': '1',
-          'name': self.name,
-          'ips': self.ips.join(','),
-        },
+        attributes: self.txt,
       ),
     );
     await broadcast.initialize();
@@ -133,16 +135,17 @@ class BonsoirPeerDiscovery implements PeerDiscovery {
     if (s.port == 0) return;
     _forget(s.name);
     final a = s.attributes;
-    final id = a['id'];
-    if (id == null || id == _selfId || a['v'] != '1') return;
     final hosts = orderHosts(s.hostAddresses, (a['ips'] ?? '').split(','));
-    if (hosts.isEmpty) return;
-    _idsByName[s.name] = id;
-    _events.add(
-      PeerUp(
-        Peer(id: id, name: a['name'] ?? s.name, hosts: hosts, port: s.port),
-      ),
+    final peer = Peer.fromTxt(
+      a,
+      serviceName: s.name,
+      hosts: hosts,
+      port: s.port,
     );
+    // Not a node this version knows, or this one, or nowhere to reach it.
+    if (peer == null || peer.id == _selfId || hosts.isEmpty) return;
+    _idsByName[s.name] = peer.id;
+    _events.add(PeerUp(peer));
   }
 
   @override

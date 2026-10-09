@@ -95,4 +95,45 @@ void main() {
     await tester.pump(const Duration(seconds: 30));
     expect(asked, ['pc']);
   });
+
+  testWidgets('private peers carry their hint; a renamed service stays up', (
+    tester,
+  ) async {
+    final d = BonsoirPeerDiscovery();
+    final events = <PeerEvent>[];
+    final sub = d.events.listen(events.add);
+    addTearDown(sub.cancel);
+    void resolve(BonsoirService s) {}
+    final private = BonsoirService(
+      name: 'plop-01234567',
+      type: serviceType,
+      port: 7567,
+      hostAddresses: const ['192.168.1.20'],
+      attributes: {'id': 'id-mac', 'v': privateV, 'c': 'hint', 'ips': ''},
+    );
+    // The same node, public first, then private under its new name; the
+    // public name's loss comes last.
+    d.handle(
+      BonsoirDiscoveryServiceResolvedEvent(
+        service: BonsoirService(
+          name: 'mac',
+          type: serviceType,
+          port: 7567,
+          hostAddresses: const ['192.168.1.20'],
+          attributes: {'id': 'id-mac', 'v': '1', 'name': 'mac', 'ips': ''},
+        ),
+      ),
+      resolve,
+    );
+    d.handle(BonsoirDiscoveryServiceResolvedEvent(service: private), resolve);
+    d.handle(BonsoirDiscoveryServiceLostEvent(service: found('mac')), resolve);
+    await tester.pump();
+    expect(events, hasLength(2));
+    final up = events.last as PeerUp;
+    expect(up.peer.hint, 'hint');
+    expect(up.peer.name, '');
+    d.handle(BonsoirDiscoveryServiceLostEvent(service: private), resolve);
+    await tester.pump();
+    expect(events.last, isA<PeerDown>());
+  });
 }
