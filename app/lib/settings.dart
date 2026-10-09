@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:hotkey_manager/hotkey_manager.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:plop_core/plop_core.dart';
 
 /// Lifetimes offered in the picker.
 const ttlChoices = [
@@ -146,4 +147,37 @@ class Settings {
     await file.parent.create(recursive: true);
     await file.writeAsString(jsonEncode(_data));
   }
+}
+
+/// This device's private mode (lib/src/private_mode.dart in the core): its
+/// long-term key, its circle and the switch, in `private[-suffix].json`
+/// beside settings.json, apart from it so only this user can read it
+/// ([writeSecret]). [suffix] is PLOP_INSTANCE's, so a dev build beside the
+/// installed plop is another device, as it is on the network.
+Future<PrivateMode> loadPrivateMode({String suffix = ''}) async {
+  final dir = await getApplicationSupportDirectory();
+  final file = File('${dir.path}${Platform.pathSeparator}private$suffix.json');
+  Map<String, Object?>? json;
+  try {
+    json = (jsonDecode(await file.readAsString()) as Map).cast();
+  } catch (_) {
+    // None yet, or unreadable: a new key.
+  }
+  return PrivateMode.load(json, save: (j) => writeSecret(file, jsonEncode(j)));
+}
+
+/// Writes [text] to [file] so that only this user can read it: on macOS
+/// and Linux the file is made 0600 while still empty, before the key goes
+/// in, and then moved over the old one. Windows keeps app data per user
+/// already, and Android and iOS keep it in the app's own sandbox, where
+/// there is no chmod to run.
+Future<void> writeSecret(File file, String text) async {
+  await file.parent.create(recursive: true);
+  final tmp = File('${file.path}.tmp');
+  await tmp.writeAsString('');
+  if (Platform.isMacOS || Platform.isLinux) {
+    await Process.run('chmod', ['600', tmp.path]);
+  }
+  await tmp.writeAsString(text, flush: true);
+  await tmp.rename(file.path);
 }

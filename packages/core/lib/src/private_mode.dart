@@ -217,6 +217,9 @@ class PrivateMode {
 
   PairingStatus get pairing => _status;
 
+  /// Tests only: show [status] as if an exchange had got there.
+  void debugShow(PairingStatus status) => _set(status);
+
   /// Devices nearby with pairing open, whatever their mode.
   List<Peer> get candidates => _engine?.pairingPeers ?? const [];
 

@@ -26,6 +26,7 @@ void main() {
     WidgetTester tester, {
     bool connect = true,
     Duration poll = const Duration(seconds: 3),
+    PrivateMode? private,
   }) => tester.runAsync(
     // flutter_test stubs HttpClient to answer 400; the nodes need the real one.
     () => HttpOverrides.runWithHttpOverrides(() async {
@@ -38,6 +39,7 @@ void main() {
         discovery: dMe,
         name: 'me',
         pollInterval: poll,
+        private: private,
       );
       other = await PlopNode.start(
         dir: Directory('${root.path}/other'),
@@ -142,6 +144,36 @@ void main() {
     }
     await tester.sendKeyUpEvent(LogicalKeyboardKey.enter);
   }
+
+  testWidgets('a lock shows in the top bar while private mode is on', (
+    tester,
+  ) async {
+    late PrivateMode mode;
+    await tester.runAsync(() async {
+      final self = await DeviceIdentity.generate();
+      final other = await DeviceIdentity.generate();
+      final circle = Circle.create(CircleMember(self.id, 'me'))
+          .withMember(CircleMember(other.id, 'phone'));
+      mode = await PrivateMode.load({
+        'identity': self.toJson(),
+        'circle': circle.toJson(),
+        'on': false,
+      });
+    });
+    await startNodes(tester, connect: false, private: mode);
+    await pumpApp(tester);
+    final lock = find.byKey(const ValueKey('private lock'));
+    expect(lock, findsNothing);
+    await tester.runAsync(() => mode.setOn(true));
+    await tester.pump();
+    await tester.pump();
+    expect(lock, findsOneWidget);
+    await tester.runAsync(() => mode.setOn(false));
+    await tester.pump();
+    await tester.pump();
+    expect(lock, findsNothing);
+    await stopNodes(tester);
+  });
 
   testWidgets('Enter grabs the newest item once per press', (tester) async {
     debugDesktopOverride = true;
