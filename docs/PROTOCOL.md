@@ -218,7 +218,7 @@ Limits: a network that blocks multicast (guest Wi-Fi with client isolation,
 some mesh and enterprise networks) resolves no `.local` name, so the own
 address is the one that works there. Android's Chrome resolves `.local`
 names unreliably; the own address, also in the QR code's `or` line, does.
-Windows does not report conflicts the way mDNSResponder and Avahi do, so two
+Windows may not report conflicts the way mDNSResponder and Avahi do, so two
 Windows PCs may both answer for a while; either answers with the same shelf.
 On Windows a Public network profile keeps other devices' queries out, and
 the name then reaches no one. A Mac whose Bonjour Sleep Proxy (an Apple TV,
