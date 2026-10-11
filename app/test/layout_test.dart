@@ -366,10 +366,13 @@ void main() {
 
       // The web shelf's address is looked up off the UI thread (scutil, the
       // network interfaces); give it real time, then the QR code and the
-      // lines under it must fit the panel's width and scroll into view.
+      // lines under it must fit the panel's width and scroll into view. The
+      // lookup of plop.local gives up after 1.5 s where no computer holds
+      // it, on the test's clock.
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 400)),
       );
+      await tester.pump(const Duration(seconds: 2));
       await tester.pumpAndSettle();
       final qr = find.byType(QrImageView);
       expect(qr, findsOneWidget);

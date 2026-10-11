@@ -15,6 +15,7 @@ import 'package:flutter/widgets.dart'
 import 'package:plop_core/plop_core.dart';
 import 'package:tray_manager/tray_manager.dart';
 
+import 'alias.dart';
 import 'notify.dart';
 import 'window.dart';
 
@@ -139,6 +140,9 @@ abstract final class Tray {
     if (_quitting) return;
     _quitting = true;
     if (_up) await trayManager.destroy().catchError((_) {});
+    // plop.local goes first, so another computer can take it over at once
+    // (bounded: the runner and the OS let go at exit regardless).
+    await Alias.instance.release();
     await node.stop().timeout(const Duration(seconds: 2)).catchError((_) {});
     await AppWindow.quit();
   }
