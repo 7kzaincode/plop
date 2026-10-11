@@ -146,11 +146,20 @@ class PlopNode {
   List<ShelfItem> get items => store.items;
   List<Peer> get peers => engine.reachablePeers;
 
+  /// Set by the app while this machine answers for [sharedHost].
+  bool holdsSharedHost = false;
+
   /// Where a browser on this network opens the web shelf, best first; see
   /// [webUrlsFor] for where the mDNS name (see [localHostName]) goes. The
   /// lookup that decides it is skipped on macOS, which does not need it.
+  /// [sharedHost] leads while this machine holds it, or a lookup finds
+  /// another computer that does.
   Future<List<String>> get webUrls async {
-    final (ips, host) = await (localIPv4s(), localHostName()).wait;
+    final (ips, host, shared) = await (
+      localIPv4s(),
+      localHostName(),
+      holdsSharedHost ? Future.value(true) : resolves(sharedHost),
+    ).wait;
     final local = host.isNotEmpty && host != 'localhost' ? '$host.local' : null;
     return webUrlsFor(
       port: port,
@@ -161,6 +170,7 @@ class PlopNode {
           local != null &&
           !Platform.isMacOS &&
           await resolvesToSelf(local, ips),
+      shared: shared,
     );
   }
 
@@ -305,12 +315,18 @@ class PlopNode {
 /// is answering). On Windows it never leads, even then: Windows resolves
 /// its own name either way, while a Public network profile can keep
 /// everyone else's queries out. It comes second there instead.
+///
+/// When [shared], [sharedHost] on [defaultWebPort] goes before all of
+/// them: some computer of the user's answers there, this one or another,
+/// and a phone that saves it reaches whichever is on. This machine's own
+/// addresses follow, for a browser that cannot resolve .local names.
 List<String> webUrlsFor({
   required int port,
   required List<String> ips,
   required String os,
   String? local,
   bool resolves = false,
+  bool shared = false,
 }) {
   final hosts = [...ips];
   if (local != null) {
@@ -320,5 +336,8 @@ List<String> webUrlsFor({
       hosts.insert(min(1, hosts.length), local);
     }
   }
-  return [for (final h in hosts) 'http://$h:$port/'];
+  return [
+    if (shared) 'http://$sharedHost:$defaultWebPort/',
+    for (final h in hosts) 'http://$h:$port/',
+  ];
 }

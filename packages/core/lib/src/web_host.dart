@@ -22,6 +22,13 @@ const webTokenHeader = 'x-plop-token';
 /// phone has to type is one worth remembering. Any free port when taken.
 const defaultWebPort = 7567;
 
+/// The mDNS host name every desktop plop with the web shelf on tries to
+/// answer for, on [defaultWebPort], so one address (and one home-screen
+/// icon) reaches the shelf through whichever of the user's computers is
+/// on. Host names are unique on mDNS: one computer holds it, the others
+/// wait and take it over when that one goes (the app's lib/alias.dart).
+const sharedHost = 'plop.local';
+
 /// A one-page web shelf for devices without the app (iPhones, mostly),
 /// served on the node's own port once [enabled]. The page lists everything
 /// this node knows, own items and mirrors alike, hands any of it out
@@ -253,6 +260,11 @@ class WebHost {
         // 0..1 while this node copies it over from its sender.
         'progress': ?i.progress,
         if (i.originId == node.id) 'receivedBy': i.receivedBy.length,
+        // The page put it up here, so this node holds the token that takes
+        // it back. With [sharedHost] the page may be talking to another
+        // computer than the one that took an upload: that one lists it as
+        // a mirror without this, and the page shows no × it cannot honour.
+        if (_uploaded.containsKey(i.key)) 'removable': true,
         'text': ?text,
       });
     }
@@ -617,7 +629,11 @@ const store = {
 };
 // Items this browser put up, by key, with when and the token that takes
 // each back: they get a × here, and a key is forgotten only once the shelf
-// has gone a while without it.
+// has gone a while without it. The × shows only where the shelf says the
+// item is removable, which only the computer that took the upload does:
+// through plop.local another of the user's computers may be answering,
+// and it has no token to check. Kept all the same, for when that one
+// answers again.
 const mine = new Map((() => {
   try { return Object.entries(JSON.parse(store.get('plop.mine') || '{}')); } catch (e) { return []; }
 })().filter(([, v]) => v && typeof v.token === 'string' && typeof v.at === 'number'));
@@ -625,6 +641,14 @@ const seen = new Map();  // key -> {expires, total}: countdowns between polls
 const blobs = new Map(); // key -> Blob fetched for share(), kept for a retry
 const asked = new Map(); // key -> when it was tapped before its bytes were here
 let items = [], byKey = new Map(), uploads = [], seq = 0, sig = '', polling = false, again = false, pollTimer, toastTimer, viewing;
+// Since when the shelf has not answered. Quiet for DOWN_MS, the page
+// reloads once something answers again: through plop.local that may be another of
+// the user's computers, now holding the name, and the reload brings its
+// page. Not before: a reload that nothing answers strands a home-screen
+// app on the browser's error page, with no way to try again.
+const DOWN_MS = 5000;
+let downSince = 0;
+const mineHere = it => mine.has(it.key) && it.removable === true;
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]);
 // Names as they are, as safeLabel has them: controls, bidi overrides and
@@ -743,9 +767,17 @@ async function poll() {
   clearTimeout(pollTimer);
   if (document.hidden) return; // resumed by visibilitychange
   polling = true;
+  const asking = Date.now();
   try {
-    const r = await fetch('/web/shelf', {cache: 'no-store'});
+    // A computer that went to sleep never refuses, it just stops answering:
+    // without a limit the fetch would hang for as long as TCP waits.
+    const ac = new AbortController(), limit = setTimeout(() => ac.abort(), 4000);
+    let r;
+    try { r = await fetch('/web/shelf', {cache: 'no-store', signal: ac.signal}); } finally { clearTimeout(limit); }
     if (!r.ok) throw new Error(r.status);
+    // Not mid-upload or while something is open on top: those would be lost.
+    if (downSince && Date.now() - downSince >= DOWN_MS && !uploads.length && !viewing && !sheet.classList.contains('on')) return location.reload();
+    downSince = 0;
     items = await r.json();
     for (const it of items) { it.name = clean(it.name); it.from = clean(it.from); }
     byKey = new Map(items.map(it => [it.key, it]));
@@ -763,6 +795,7 @@ async function poll() {
     document.body.classList.remove('off');
     render();
   } catch (e) {
+    if (!downSince) downSince = asking;
     document.body.classList.add('off');
   }
   polling = false;
@@ -779,7 +812,7 @@ function frac(key) {
 // Rebuilds the rows only when the shelf itself changed, so a tap never
 // lands on a row that was swapped out under it; tick() keeps the clocks.
 function render() {
-  const next = JSON.stringify([uploads.map(u => [u.id, u.wait]), items.map(it => [it.key, it.name, it.from, it.ready, mine.has(it.key), done.get(it.key)])]);
+  const next = JSON.stringify([uploads.map(u => [u.id, u.wait]), items.map(it => [it.key, it.name, it.from, it.ready, mine.has(it.key), mineHere(it), done.get(it.key)])]);
   if (next === sig) return tick();
   sig = next;
   const rows = [];
@@ -792,7 +825,7 @@ function render() {
     const meta = [it.kind === 'text' ? null : size(it.size), mine.has(it.key) ? 'you' : it.from, done.get(it.key)].filter(Boolean).join(' · ');
     rows.push('<div class="row" data-key="' + esc(it.key) + '">' + lead(it) + '<div class="main"><div class="name">' + esc(it.name) +
       '</div><div class="meta">' + esc(meta) + '<span class="cp"></span></div></div>' +
-      actionsFor(it).map(a => icon(a)).join('') + (mine.has(it.key) ? icon('remove') : '') +
+      actionsFor(it).map(a => icon(a)).join('') + (mineHere(it) ? icon('remove') : '') +
       '<div class="time"></div><div class="bar"><i></i></div></div>');
   }
   list.innerHTML = rows.length ? rows.join('') :
