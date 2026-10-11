@@ -73,6 +73,8 @@ bool FlutterWindow::OnCreate() {
   // what arrived while this window is away, in place of a notification.
   island_ =
       std::make_unique<Island>(flutter_controller_->engine()->messenger());
+  // lib/alias.dart's "plop/alias": plop.local for phones (alias.cpp).
+  alias_ = std::make_unique<Alias>(flutter_controller_->engine()->messenger());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -87,8 +89,11 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
-  // Before the engine its channel answers on.
+  // Before the engine their channels answer on. The alias lets plop.local
+  // go here: every way out (quit, close, WM_ENDSESSION) destroys the
+  // window, and it does not wait for the answer.
   island_ = nullptr;
+  alias_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

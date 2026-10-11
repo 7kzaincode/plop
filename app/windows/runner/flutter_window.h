@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "alias.h"
 #include "island.h"
 #include "win32_window.h"
 
@@ -33,6 +34,11 @@ class FlutterWindow : public Win32Window {
   // The pill arrivals show on while this window is away (island.cpp); it
   // talks to the engine, so it goes first.
   std::unique_ptr<Island> island_;
+
+  // plop.local while no other computer has it (alias.cpp); also talks to
+  // the engine, and lets the name go as the window is destroyed, however
+  // plop quits.
+  std::unique_ptr<Alias> alias_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_
