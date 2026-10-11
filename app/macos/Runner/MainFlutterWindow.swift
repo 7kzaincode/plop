@@ -11,6 +11,8 @@ class MainFlutterWindow: NSWindow {
   private var pendingOpens: [String] = []
   /// Arrivals and shortcut results while plop is not in front (Island.swift).
   private var island: Island?
+  /// plop.local for this Mac while no other computer has it (Alias.swift).
+  private var alias: Alias?
   private var dartListening = false
 
   func open(_ paths: [String]) {
@@ -148,6 +150,7 @@ class MainFlutterWindow: NSWindow {
     }
     self.share = share
     island = Island(messenger: flutterViewController.engine.binaryMessenger)
+    alias = Alias(messenger: flutterViewController.engine.binaryMessenger)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
