@@ -701,6 +701,88 @@ void main() {
     expect(await delete(file['key'] as String, file['token'] as String), 204);
   });
 
+  // Through plop.local the page may be served by another of the user's
+  // computers than the one that took its upload: that one lists the item
+  // as a mirror and has no token for it, so it is not marked removable and
+  // the page shows no × there; the one that took it still honours it.
+  test('only the computer that took an upload says it is removable', () async {
+    p = await Pair.start();
+    p.b.web.enabled = true;
+    final up =
+        jsonDecode(
+              utf8.decode(
+                (await send(
+                  'POST',
+                  p.url('/web/text'),
+                  body: utf8.encode('from a phone'),
+                )).body,
+              ),
+            )
+            as Map;
+    final key = up['key'] as String, token = up['token'] as String;
+    final desktop = await p.a.addText('the desktop user shared this');
+    await eventually(() => p.b.store[key] != null);
+
+    Map<String, dynamic> row(List<dynamic> shelf, String k) =>
+        shelf.cast<Map<String, dynamic>>().firstWhere((r) => r['key'] == k);
+    final here = shelfOf(await get(p.url('/web/shelf')));
+    expect(row(here, key)['removable'], isTrue);
+    expect(row(here, desktop.key).containsKey('removable'), isFalse);
+
+    final b = Uri.parse('http://127.0.0.1:${p.b.port}');
+    final there = shelfOf(await get(b.resolve('/web/shelf')));
+    expect(row(there, key).containsKey('removable'), isFalse);
+    final refused = await send(
+      'DELETE',
+      b.resolve('/web/items/$key'),
+      headers: {webHeader: '1', webTokenHeader: token},
+    );
+    expect(refused.status, 403);
+    expect(p.a.store[key], isNotNull);
+  });
+
+  test('the page reloads once its host answers again after going quiet, '
+      'and shows × only where the shelf says removable', () async {
+    p = await Pair.start();
+    final html = utf8.decode((await get(p.url('/'))).body);
+    final start = html.indexOf('<script>') + '<script>'.length;
+    final js = html.substring(start, html.indexOf('</script>', start));
+    expect(js, contains('const DOWN_MS = 5000;'));
+    expect(js, contains('signal: ac.signal'));
+    expect(js, contains('if (!downSince) downSince = asking;'));
+    expect(
+      js,
+      contains(
+        'if (downSince && Date.now() - downSince >= DOWN_MS && '
+        '!uploads.length && !viewing && '
+        "!sheet.classList.contains('on')) return location.reload();",
+      ),
+    );
+    expect(
+      js,
+      contains(
+        "const mineHere = it => mine.has(it.key) && "
+        'it.removable === true;',
+      ),
+    );
+    expect(js, contains("(mineHere(it) ? icon('remove') : '')"));
+    expect(js, isNot(contains("(mine.has(it.key) ? icon('remove')")));
+    final dir = await Directory.systemTemp.createTemp('plop_js');
+    try {
+      final f = File('${dir.path}/page.js')..writeAsStringSync(js);
+      final ProcessResult r;
+      try {
+        r = await Process.run('node', ['--check', f.path]);
+      } on ProcessException {
+        markTestSkipped('node is not installed');
+        return;
+      }
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
   // The app treats what a phone put up through the page as an arrival, not
   // as the desktop user's own: it must be told which items those are, and
   // when one is known to be (after the store announced it as its own).
@@ -1043,7 +1125,7 @@ void main() {
     // Whatever this machine's resolver says (avahi on a CI runner may well
     // answer); where that puts the name is webUrlsFor's test below.
     final local = host != 'localhost' ? '$host.local' : null;
-    final resolves =
+    final own =
         local != null && !Platform.isMacOS && await resolvesToSelf(local, ips);
     expect(
       await p.a.webUrls,
@@ -1052,12 +1134,16 @@ void main() {
         ips: ips,
         local: local,
         os: Platform.operatingSystem,
-        resolves: resolves,
+        resolves: own,
+        shared: await resolves(sharedHost),
       ),
     );
-    if (Platform.isMacOS && local != null) {
+    if (Platform.isMacOS && local != null && !await resolves(sharedHost)) {
       expect((await p.a.webUrls).first, 'http://$local:${p.a.port}/');
     }
+    // Holding the shared name, it leads without a lookup.
+    p.a.holdsSharedHost = true;
+    expect((await p.a.webUrls).first, 'http://plop.local:7567/');
   });
 
   test('webUrlsFor puts the .local name first, second or nowhere', () {
@@ -1098,6 +1184,27 @@ void main() {
       'http://10.0.0.2:1/',
     ]);
     expect(webUrlsFor(port: 1, ips: [], os: 'linux'), isEmpty);
+    // plop.local, held here or by another computer, leads everywhere, on
+    // the shared port whatever this machine's own; its own addresses
+    // follow as the "or" line.
+    expect(webUrlsFor(port: 7568, ips: ips, os: 'windows', shared: true), [
+      'http://plop.local:7567/',
+      'http://192.168.1.5:7568/',
+      'http://10.0.0.2:7568/',
+    ]);
+    expect(
+      webUrlsFor(
+        port: 7567,
+        ips: ips,
+        os: 'macos',
+        local: 'box.local',
+        shared: true,
+      ).take(2),
+      ['http://plop.local:7567/', 'http://box.local:7567/'],
+    );
+    expect(webUrlsFor(port: 7567, ips: [], os: 'linux', shared: true), [
+      'http://plop.local:7567/',
+    ]);
   });
 
   test('rankIPv4s puts the likely LAN address first', () {

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:plop_core/plop_core.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'alias.dart';
 import 'settings.dart';
 import 'theme.dart';
 
@@ -87,7 +88,11 @@ double qrQuietZone(int modules, double size) {
 
 /// The settings panel's "open on a phone" section: the web shelf's first
 /// address as a QR code to point a camera at, and as a line that copies on
-/// a tap, with what to do once it is open.
+/// a tap, with what to do once it is open. That is plop.local while this
+/// computer or another of the user's answers for it, so the icon a phone
+/// saves opens whichever is on; this computer's own address is the "or"
+/// line, for a browser that cannot resolve .local names (Android's).
+/// Looked up again when this computer takes the name or lets it go.
 class PhoneLink extends StatefulWidget {
   const PhoneLink(this.node, {super.key, required this.recording});
   final PlopNode node;
@@ -106,6 +111,7 @@ class _PhoneLinkState extends State<PhoneLink> {
   bool _hover = false;
   bool _focused = false;
   Timer? _copiedTimer;
+  StreamSubscription<AliasState>? _alias;
 
   static final _pressKeys = [
     const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false),
@@ -115,13 +121,17 @@ class _PhoneLinkState extends State<PhoneLink> {
   @override
   void initState() {
     super.initState();
-    widget.node.webUrls.then((u) {
-      if (mounted) setState(() => _urls = u);
-    });
+    _lookUp();
+    _alias = Alias.instance.changes.listen((_) => _lookUp());
   }
+
+  void _lookUp() => widget.node.webUrls.then((u) {
+    if (mounted) setState(() => _urls = u);
+  });
 
   @override
   void dispose() {
+    _alias?.cancel();
     _copiedTimer?.cancel();
     super.dispose();
   }
@@ -203,8 +213,9 @@ class _PhoneLinkState extends State<PhoneLink> {
           ),
         ),
       ),
-      // The next best: an IPv4 address for browsers that cannot resolve
-      // .local (Android's, mostly), or on Windows the .local name.
+      // The next best: this computer's own address after plop.local, else
+      // an IPv4 address for browsers that cannot resolve .local (Android's,
+      // mostly), or on Windows the .local name.
       if (urls.length > 1)
         Padding(
           padding: const EdgeInsets.only(left: 4),

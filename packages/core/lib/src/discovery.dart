@@ -255,6 +255,22 @@ final _virtualIface = RegExp(
   caseSensitive: false,
 );
 
+/// Whether a lookup of [name] finds any IPv4 address within [within].
+Future<bool> resolves(
+  String name, {
+  Duration within = const Duration(milliseconds: 1500),
+}) async {
+  try {
+    final found = await InternetAddress.lookup(
+      name,
+      type: InternetAddressType.IPv4,
+    ).timeout(within);
+    return found.isNotEmpty;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Whether [name] resolves, through this machine's own resolver, to one
 /// of [ips]: on Linux that means avahi and nss-mdns are running, so the
 /// `.local` name is being answered for on the network too.

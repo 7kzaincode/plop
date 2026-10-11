@@ -129,10 +129,20 @@ shelf as a web page to every phone on the same Wi-Fi:
 1. On the computer, open settings (sliders icon) and find **open on a
    phone**.
 2. Point the iPhone's camera at the QR code, or type the address under it
-   into Safari: a Mac's `.local` name (like `http://my-mac.local:7567/`),
-   elsewhere usually an IP address (like `http://192.168.1.20:7567/`).
+   into Safari: usually `http://plop.local:7567/`, else the computer's own
+   address (a Mac's `.local` name like `http://my-mac.local:7567/`, or an
+   IP address like `http://192.168.1.20:7567/`).
 3. Share > **Add to Home Screen**. From then on plop opens from its own icon,
    full screen.
+
+With more than one computer, one icon is enough. Every Mac, Windows and
+Linux computer running plop offers the shelf at `http://plop.local:7567/`:
+one of them answers for that name, and when it sleeps or quits another
+takes over within about half a minute. An icon saved with it opens on
+whichever is on; an open page that loses its computer reloads by itself
+once another answers. The `×` on something you added shows only while the
+computer that took it is the one answering (the others cannot take it
+back for you); it comes back when that one does.
 
 Tap a row to grab it: text copies, photos open full-screen (touch and hold
 to save them to Photos), other files download. `+` adds photos or files,
@@ -140,7 +150,7 @@ to save them to Photos), other files download. `+` adds photos or files,
 the computer that serves it is awake with plop running, and the phone does
 not count as a device nearby on the other shelves. Android phones can use
 the same page; if a `.local` address doesn't open there, use the
-`or http://…` one under it.
+`or http://…` one under it (that one is tied to that one computer).
 
 #### The native app, from source
 

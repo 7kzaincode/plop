@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'alias.dart';
 import 'auto_copy.dart';
 import 'bonsoir_discovery.dart';
 import 'grab.dart';
@@ -73,7 +74,12 @@ Future<void> _start() async {
       if (isDesktop) ...[?settings.webPort, defaultWebPort],
     ],
   );
-  if (isDesktop) await startWebShelf(node, settings, remember: suffix == '');
+  if (isDesktop) {
+    await startWebShelf(node, settings, remember: suffix == '');
+    // plop.local, for phones: whichever of the user's computers is on
+    // answers there (lib/alias.dart).
+    Alias.instance.follow(node);
+  }
   if (kDebugMode) await _seed(node);
   final screen = GlobalKey<ShelfScreenState>();
   runApp(PlopApp(node: node, settings: settings, screenKey: screen));
