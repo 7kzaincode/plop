@@ -23,7 +23,8 @@ another over your local network.
 ## Features
 
 - **Every platform:** Mac, Windows, Linux and Android. iPhone and iPad work
-  through the browser, with no install.
+  through the browser, with no install, at `http://plop.local:7567` on
+  whichever of your computers is on.
 - **Snip to the shelf:** `⌃⌥P` puts any part of your screen on plop. `⌃⌥V`
   plops your clipboard.
 - **Grab the newest:** `⌃⌥G` copies the last thing another device sent.

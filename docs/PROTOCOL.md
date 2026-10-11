@@ -187,7 +187,44 @@ Sharing settings' local host name) where other devices can count on it: first
 on macOS, first on Linux when a lookup of it from the machine itself finds
 one of its addresses, second on Windows under the same check (a Public
 network profile can keep other devices' queries out even then), and not at
-all otherwise.
+all otherwise. `http://plop.local:7567/` leads them all while some
+computer answers for that name (below).
+
+**plop.local.** Every desktop app with the web shelf on, outside private
+mode and serving on `7567`, claims the mDNS host name `plop.local` for its
+best IPv4 address (the first of those above), so one address, and one icon
+on a phone's home screen, reaches the shelf through whichever of the user's
+computers is on. They all serve the same shelf, so it does not matter which
+one answers. The claim is a unique A record (TTL 120 s): macOS registers it
+with mDNSResponder (`DNSServiceRegisterRecord`, `kDNSServiceFlagsUnique`),
+Linux with Avahi over D-Bus (an entry group with `AddAddress`, without the
+reverse PTR record), Windows 10 1809 and later with `DnsServiceRegister`
+(a `_plop-web._tcp` instance whose host name is `plop.local`). Host names are
+unique on mDNS: with two computers on, one wins the probe and the other hears
+of a conflict. The loser never renames itself (a `plop-2.local` would be an
+address no phone saved): it lets go and claims again every 20 to 30 s
+(jittered), and wins once the holder has gone, which a computer that quits or
+lets go says with a goodbye packet, and one that sleeps by no longer
+answering the probe. The address is checked every 30 s, and a new one (after
+a wake, on another network) is claimed afresh. Quitting lets go first, within
+300 ms; the OS lets go regardless once the process is gone (mDNSResponder and
+Avahi drop a client's records when its connection closes, Windows when the
+window is destroyed, on WM_ENDSESSION too). The settings panel leads with
+`http://plop.local:7567/` while this computer holds the name or a lookup
+finds another that does, and keeps the computer's own address as the
+`or …` line.
+
+Limits: a network that blocks multicast (guest Wi-Fi with client isolation,
+some mesh and enterprise networks) resolves no `.local` name, so the own
+address is the one that works there. Android's Chrome resolves `.local`
+names unreliably; the own address, also in the QR code's `or` line, does.
+Windows does not report conflicts the way mDNSResponder and Avahi do, so two
+Windows PCs may both answer for a while; either answers with the same shelf.
+On Windows a Public network profile keeps other devices' queries out, and
+the name then reaches no one. A Mac whose Bonjour Sleep Proxy (an Apple TV,
+a HomePod) answers for it while asleep can keep the name until its records
+there expire. Linux needs avahi-daemon; without it, or on Windows before
+1809, the app just does not claim the name.
 
 **Not part of the protocol.** No node calls these routes, so the rule that
 mirrors are never re-served between nodes holds. A browser on this page is a
@@ -213,7 +250,7 @@ or computer on the LAN visits cannot write here.
 | `GET /web/items/{originId}/{id}` | The bytes, with `Content-Type`, `Content-Length`, `Content-Security-Policy: sandbox` (nothing served here runs as a page of this origin) and `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…` (a folder's zip as `<name>.zip`, text as `text.txt`). A mirror not copied yet is fetched from its origin first. `404` once gone; `502` if the origin cannot be reached. `HEAD` gives the same headers from what the shelf knows, `Content-Length` being the item's size, and fetches nothing. |
 | `POST /web/items?name=<name>` | Raw file body, streamed to disk as this node's own item. `200 {"key": "<originId>/<id>", "token": "<32 hex digits>"}`; the token is what takes it back (the page keeps it in `localStorage`). The name loses C0/C1 controls and Unicode bidi marks (embeddings, overrides, isolates, LRM, RLM, ALM), is trimmed, and is cut to 255 UTF-16 units with an ellipsis before its extension. `400` without a name (or with none left) or for a body that ends short of its `Content-Length`; `413` past 8 GB (or the node's item cap, if lower); `507` past what the page's items still on the shelf may add up to (16 GB, 200 items). Both are answered before any of the body is read when `Content-Length` says so, else where the body crosses the line, and the connection is closed. `408` when the body stalls for 30 s. |
 | `POST /web/text` | UTF-8 body, up to 1 MB, as a text item. `200 {"key": …, "token": …}`; `400` if blank; `413` if longer; `507` and `408` as above. |
-| `DELETE /web/items/{originId}/{id}` | Takes back an item a browser put up: `X-Plop-Token` must be the token its upload was answered with (`204`). `403` without it or for anything else: a mirror, another browser's upload, or what this device's own user shared. `404` if unknown. |
+| `DELETE /web/items/{originId}/{id}` | Takes back an item a browser put up: `X-Plop-Token` must be the token its upload was answered with (`204`). `403` without it or for anything else: a mirror, another browser's upload, or what this device's own user shared. `404` if unknown. Only the node that took the upload holds its token; another answering for `plop.local` refuses it like any mirror. |
 
 Everything under `/web/` carries `Cache-Control: no-store`. At most 4
 uploads (files and texts together) run at once; past that the answer is
@@ -225,7 +262,7 @@ refused one again a few times.
 ```json
 {"key": "9f2c…/1a7e…", "name": "photo.png", "size": 102400,
  "mime": "image/png", "kind": "file", "ttlMs": 87412, "from": "Zain's MacBook",
- "ready": true, "receivedBy": 1, "text": "…"}
+ "ready": true, "receivedBy": 1, "removable": true, "text": "…"}
 ```
 
 `from` is the origin's device name (this node's own name for its own items).
@@ -233,11 +270,25 @@ refused one again a few times.
 there while this node copies them over from the origin, which for an item
 over the eager-copy size starts only when someone asks for it, and the page
 shows such a row as copying. `receivedBy` (own items only) counts the peers
-holding a copy. `text` is a ready text item's content when it is at most 64
+holding a copy. `removable` is there, `true`, for an item a browser put up
+on this node and that this node can still take back: the page shows its `×`
+only then. The page keeps upload tokens per origin, and through
+`plop.local` that origin may be served by another computer than the one that
+took an upload; that one lists the item as a mirror without `removable`, so
+the `×` is hidden there instead of failing, and the token is kept for when
+the uploader answers again. `text` is a ready text item's content when it is at most 64
 KB, so the page can copy it inside the tap: on plain HTTP a browser gives the
 page no asynchronous clipboard, and the fallback it has works only within the
 user's gesture. Inline texts add up to 1 MB per answer at most, newest first;
 the page fetches the rest on a tap.
+
+The page polls `/web/shelf` every 2 s, giving up on a poll after 4 s (a
+computer that went to sleep does not refuse, it stops answering). Once the
+shelf has gone 5 s without answering, the page reloads as soon as a poll
+answers again, unless an upload, the viewer or the text sheet is open:
+through `plop.local` that answer may come from another computer, now
+holding the name. It never reloads while nothing answers, which would leave
+a home-screen app on the browser's error page.
 
 The page takes C0/C1 controls and bidi marks out of `name` and `from` before
 showing them, as the upload route does, so a peer cannot make
