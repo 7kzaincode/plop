@@ -795,12 +795,12 @@ class _TopBar extends StatelessWidget {
               if (Platform.isMacOS)
                 _IconAction(
                   icon: Icons.add_outlined,
-                  tip: 'add files or folders (⌘O)',
+                  tip: 'add files or folders · ⌘O',
                   onTap: onAddFiles,
                 )
               else
                 PopupMenuButton<bool>(
-                  tooltip: 'add (Ctrl+O)',
+                  tooltip: 'add · Ctrl+O',
                   position: PopupMenuPosition.under,
                   popUpAnimationStyle: _menuAnimation,
                   offset: _menuOffset,

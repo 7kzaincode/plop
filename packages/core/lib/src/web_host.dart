@@ -829,7 +829,7 @@ function render() {
       '<div class="time"></div><div class="bar"><i></i></div></div>');
   }
   list.innerHTML = rows.length ? rows.join('') :
-    '<div class="empty">nothing here yet<br>add something or drop it on any device with plop</div>';
+    '<div class="empty">nothing here yet<br>add something below, or plop it from any device on this wi-fi</div>';
   tick();
 }
 // A row whose bytes are not on the desktop yet says so while the desktop
