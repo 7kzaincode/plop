@@ -84,6 +84,9 @@ ThemeData plopTheme() {
         side: const BorderSide(color: Color(0xFF2A2A2A)),
       ),
       textStyle: monoStyle(color: Palette.text),
+      // Material's 8px above and below the items made a three-line menu
+      // look half empty; 4px matches the 32px rows.
+      menuPadding: const EdgeInsets.symmetric(vertical: 4),
     ),
   );
   return base.copyWith(

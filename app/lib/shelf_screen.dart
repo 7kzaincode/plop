@@ -32,6 +32,18 @@ const _iconInset = 6.0;
 
 final _mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
 
+/// The TTL and add menus: a quick fade-and-grow instead of Material's
+/// 300 ms unfurl with staggered items, which felt slow for a three-line
+/// menu; 4px clear of the button that opened it, as narrow as the short
+/// labels allow and with the same 12px inset as the rows' content.
+const _menuAnimation = AnimationStyle(
+  duration: Duration(milliseconds: 120),
+  reverseDuration: Duration(milliseconds: 80),
+);
+const _menuOffset = Offset(0, 4);
+const _menuWidth = BoxConstraints(minWidth: 96);
+const _menuItemPadding = EdgeInsets.symmetric(horizontal: 12);
+
 /// ⌘ on macOS, Ctrl elsewhere. No repeats: a held ⌘V would plop the
 /// clipboard once per repeat.
 SingleActivator _cmd(LogicalKeyboardKey k) => SingleActivator(
@@ -705,12 +717,16 @@ class _TopBar extends StatelessWidget {
               initialValue: ttl,
               onSelected: onTtl,
               position: PopupMenuPosition.under,
+              popUpAnimationStyle: _menuAnimation,
+              offset: _menuOffset,
+              constraints: _menuWidth,
               borderRadius: BorderRadius.circular(6),
               itemBuilder: (_) => [
                 for (final d in ttlChoices)
                   PopupMenuItem(
                     value: d,
                     height: 32,
+                    padding: _menuItemPadding,
                     child: Text(
                       formatTtl(d),
                       style: monoStyle(
@@ -733,12 +749,16 @@ class _TopBar extends StatelessWidget {
                 PopupMenuButton<bool>(
                   tooltip: 'add (Ctrl+O)',
                   position: PopupMenuPosition.under,
+                  popUpAnimationStyle: _menuAnimation,
+                  offset: _menuOffset,
+                  constraints: _menuWidth,
                   borderRadius: BorderRadius.circular(6),
                   onSelected: (folder) => folder ? onAddFolder() : onAddFiles(),
                   itemBuilder: (_) => [
                     PopupMenuItem(
                       value: false,
                       height: 32,
+                      padding: _menuItemPadding,
                       child: Text(
                         'files…',
                         style: monoStyle(color: Palette.text),
@@ -747,6 +767,7 @@ class _TopBar extends StatelessWidget {
                     PopupMenuItem(
                       value: true,
                       height: 32,
+                      padding: _menuItemPadding,
                       child: Text(
                         'folder…',
                         style: monoStyle(color: Palette.text),

@@ -258,6 +258,15 @@ void main() {
             '$kind-empty-${size.width.toInt()}x${size.height.toInt()}',
           ),
         );
+        if (desktop && size == const Size(460, 560)) {
+          // The lifetime menu, open.
+          await tester.tap(find.byIcon(Icons.timer_outlined));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 200));
+          await tester.runAsync(() => _shot(key, 'desktop-ttl-menu'));
+          await tester.tapAt(const Offset(20, 300));
+          await tester.pump(const Duration(milliseconds: 200));
+        }
       }
       await stopNodes(tester);
     });
