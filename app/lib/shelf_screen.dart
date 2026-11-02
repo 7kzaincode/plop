@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'alias.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
 import 'settings.dart';
@@ -72,6 +73,8 @@ class ShelfScreen extends StatefulWidget {
 
 class ShelfScreenState extends State<ShelfScreen> {
   late final StreamSubscription<void> _changes;
+  // The empty shelf names plop.local only while it leads somewhere.
+  late final StreamSubscription<AliasState> _alias;
   late final Timer _tick;
   late final AppLifecycleListener _lifecycle;
   final _started = DateTime.now();
@@ -112,6 +115,9 @@ class ShelfScreenState extends State<ShelfScreen> {
   void initState() {
     super.initState();
     _changes = node.changes.listen((_) => setState(() {}));
+    _alias = Alias.instance.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
     // Redraw once a second only while there is a countdown to show, the
     // "looking for devices" grace period is running, or the one-way flag or
     // the unreachable peers (both purely time-based in the core, so nothing
@@ -148,6 +154,7 @@ class ShelfScreenState extends State<ShelfScreen> {
   void dispose() {
     _lifecycle.dispose();
     _changes.cancel();
+    _alias.cancel();
     _tick.cancel();
     _toastTimer?.cancel();
     _focus.dispose();
@@ -470,7 +477,22 @@ class ShelfScreenState extends State<ShelfScreen> {
     );
   }
 
+  /// The first thing a new user sees, and what anyone sees between plops:
+  /// what plop is in one line, then a short key/value list of how to put
+  /// something on it, how long it stays and how other devices join. No
+  /// tutorial: everything here is also how the app keeps working, and it
+  /// goes the moment the shelf has something on it.
   Widget _empty(_Help? help) {
+    // Phones have their add buttons right below; desktop has no buttons
+    // for drop and paste, so it names them.
+    final add = isDesktop
+        ? ['drop a file  ·  +  ·  ${_mod}V paste']
+        : [
+            'camera, photo, file or paste below',
+            // The quickest way in on Android, and one an APK's users
+            // would otherwise only learn from the README.
+            if (ShareIn.shareTarget) 'or share to plop from any app',
+          ];
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
@@ -483,47 +505,26 @@ class ShelfScreenState extends State<ShelfScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              isDesktop
-                  ? 'drop anything  ·  ${_mod}V to paste'
-                  : 'add a photo, a file, or paste',
+              'share with every device on this wi-fi',
               textAlign: TextAlign.center,
               style: monoStyle(color: Palette.dim),
             ),
-            // The quickest way in on Android, and one an APK's users would
-            // otherwise only learn from the README.
-            if (!isDesktop && ShareIn.shareTarget) ...[
-              const SizedBox(height: 6),
-              Text(
-                'or share to plop from any app',
-                textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.faint),
-              ),
-            ],
-            const SizedBox(height: 6),
-            Text(
-              'anyone on this wi-fi with plop open can grab it '
-              'for ${formatTtl(node.ttl)}',
-              textAlign: TextAlign.center,
-              style: monoStyle(size: 11, color: Palette.faint),
+            const SizedBox(height: 18),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Fact('add', add),
+                if (Hotkeys.supported)
+                  _Fact('keys', [
+                    '${Hotkeys.snipLabel} snip  ·  '
+                        '${Hotkeys.clipLabel} clipboard',
+                    'from any app',
+                  ]),
+                _Fact('stays', ['${formatTtl(node.ttl)}, then it vanishes']),
+                _Fact('join', _joinHint()),
+              ],
             ),
-            if (Hotkeys.supported) ...[
-              const SizedBox(height: 14),
-              Text(
-                '${Hotkeys.snipLabel} snip  ·  ${Hotkeys.clipLabel} clipboard'
-                '  ·  from any app',
-                textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.faint),
-              ),
-            ],
-            // iPhones cannot get the app; the web shelf is the way in.
-            if (isDesktop) ...[
-              SizedBox(height: Hotkeys.supported ? 6 : 14),
-              Text(
-                'phones without the app: settings › open on a phone',
-                textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.faint),
-              ),
-            ],
             if (help != null) ...[
               const SizedBox(height: 18),
               Text(
@@ -536,6 +537,26 @@ class ShelfScreenState extends State<ShelfScreen> {
         ),
       ),
     );
+  }
+
+  /// How another device gets onto this shelf. Any device with plop open
+  /// is on it already; a phone without the app (an iPhone can't get it)
+  /// opens the web shelf. plop.local is the address while this computer,
+  /// or another of the user's, answers for it, or is about to; otherwise
+  /// the settings panel has this computer's own address and a QR code.
+  List<String> _joinHint() {
+    if (!isDesktop) return ['open plop on the other device too'];
+    // Private mode serves no web shelf; only paired devices get in.
+    if (node.private.on) {
+      return ['plop on the other device,', 'then pair it in settings'];
+    }
+    return switch (Alias.instance.state) {
+      AliasState.held || AliasState.waiting || AliasState.claiming => [
+        'plop on the other device, or',
+        '$sharedHost:$defaultWebPort in a browser',
+      ],
+      _ => ['plop on the other device, or', 'settings › open on a phone'],
+    };
   }
 
   Widget _mobileBar() => Container(
@@ -599,6 +620,38 @@ String _fixHint() => Platform.isIOS
     : Platform.isWindows
     ? 'allow plop in Windows Firewall, or set this wi-fi to Private'
     : 'guest and campus wi-fi often block devices from seeing each other';
+
+/// One line of the empty shelf's list: a faint label in a fixed column,
+/// then what it says, a line per entry, wrapping under itself.
+class _Fact extends StatelessWidget {
+  const _Fact(this.label, this.lines);
+  final String label;
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: MediaQuery.textScalerOf(context).scale(48),
+          child: Text(label, style: monoStyle(size: 11, color: Palette.faint)),
+        ),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final l in lines)
+                Text(l, style: monoStyle(size: 11, color: Palette.dim)),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
