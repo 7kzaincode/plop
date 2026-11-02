@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 
 /// A near-black, mostly monochrome palette. Overlays are translucent white so
 /// they read the same on an opaque canvas and on the macOS glass. The three
-/// text tiers all pass WCAG AA on [bg].
+/// text tiers all pass WCAG AA on [bg]. [faint] carries most of the small
+/// 11px hints, so it sits well clear of the 4.5:1 line rather than on it:
+/// the macOS glass lets a white wallpaper lift the backdrop to about
+/// #404040, where the old #7A7A7A fell to 2.4:1 and this one keeps 3:1.
 abstract final class Palette {
   static const bg = Color(0xFF0A0A0A);
   static const hover = Color(0x0AFFFFFF);
@@ -13,7 +16,7 @@ abstract final class Palette {
   static const border = Color(0x24FFFFFF);
   static const text = Color(0xFFEDEDED); // 16.9:1
   static const dim = Color(0xFFA1A1A1); // 7.7:1
-  static const faint = Color(0xFF7A7A7A); // 4.6:1
+  static const faint = Color(0xFF8A8A8A); // 5.7:1
   static const live = Color(0xFF3FB950);
   static const warn = Color(0xFFE5484D);
 }
