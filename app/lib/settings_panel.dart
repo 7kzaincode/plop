@@ -260,7 +260,7 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                   label,
                 ),
                 _row(
-                  'grab newest',
+                  'grab the newest',
                   _Key(
                     text: _recording == 'grab' ? '…' : Hotkeys.grabLabel,
                     active: _recording == 'grab',

@@ -353,11 +353,7 @@ void main() {
   testWidgets('a runner without the pill keeps notifications too', (
     tester,
   ) async {
-    await start(
-      tester,
-      activate: false,
-      available: MissingPluginException(),
-    );
+    await start(tester, activate: false, available: MissingPluginException());
     await initAs(tester, 'windows');
     expect(Island.active, isFalse);
 
@@ -368,9 +364,7 @@ void main() {
     expect(notified, hasLength(1));
   });
 
-  testWidgets('macOS always has the island; phones never ask', (
-    tester,
-  ) async {
+  testWidgets('macOS always has the island; phones never ask', (tester) async {
     await start(tester, activate: false, available: false);
     await initAs(tester, 'macos');
     expect(Island.active, isTrue, reason: 'no need to ask the runner');

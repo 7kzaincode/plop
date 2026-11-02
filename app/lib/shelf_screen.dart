@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:plop_core/plop_core.dart';
 
+import 'alias.dart';
 import 'grab.dart';
 import 'hotkeys.dart';
 import 'settings.dart';
@@ -31,6 +32,18 @@ const _fadeOut = Duration(seconds: 5);
 const _iconInset = 6.0;
 
 final _mod = Platform.isMacOS ? '⌘' : 'Ctrl+';
+
+/// The TTL and add menus: a quick fade-and-grow instead of Material's
+/// 300 ms unfurl with staggered items, which felt slow for a three-line
+/// menu; 4px clear of the button that opened it, as narrow as the short
+/// labels allow and with the same 12px inset as the rows' content.
+const _menuAnimation = AnimationStyle(
+  duration: Duration(milliseconds: 120),
+  reverseDuration: Duration(milliseconds: 80),
+);
+const _menuOffset = Offset(0, 4);
+const _menuWidth = BoxConstraints(minWidth: 96);
+const _menuItemPadding = EdgeInsets.symmetric(horizontal: 12);
 
 /// ⌘ on macOS, Ctrl elsewhere. No repeats: a held ⌘V would plop the
 /// clipboard once per repeat.
@@ -60,6 +73,8 @@ class ShelfScreen extends StatefulWidget {
 
 class ShelfScreenState extends State<ShelfScreen> {
   late final StreamSubscription<void> _changes;
+  // The empty shelf names plop.local only while it leads somewhere.
+  late final StreamSubscription<AliasState> _alias;
   late final Timer _tick;
   late final AppLifecycleListener _lifecycle;
   final _started = DateTime.now();
@@ -100,6 +115,9 @@ class ShelfScreenState extends State<ShelfScreen> {
   void initState() {
     super.initState();
     _changes = node.changes.listen((_) => setState(() {}));
+    _alias = Alias.instance.changes.listen((_) {
+      if (mounted) setState(() {});
+    });
     // Redraw once a second only while there is a countdown to show, the
     // "looking for devices" grace period is running, or the one-way flag or
     // the unreachable peers (both purely time-based in the core, so nothing
@@ -136,6 +154,7 @@ class ShelfScreenState extends State<ShelfScreen> {
   void dispose() {
     _lifecycle.dispose();
     _changes.cancel();
+    _alias.cancel();
     _tick.cancel();
     _toastTimer?.cancel();
     _focus.dispose();
@@ -458,7 +477,22 @@ class ShelfScreenState extends State<ShelfScreen> {
     );
   }
 
+  /// The first thing a new user sees, and what anyone sees between plops:
+  /// what plop is in one line, then a short key/value list of how to put
+  /// something on it, how long it stays and how other devices join. No
+  /// tutorial: everything here is also how the app keeps working, and it
+  /// goes the moment the shelf has something on it.
   Widget _empty(_Help? help) {
+    // Phones have their add buttons right below; desktop has no buttons
+    // for drop and paste, so it names them.
+    final add = isDesktop
+        ? ['drop a file  ·  +  ·  ${_mod}V paste']
+        : [
+            'camera, photo, file or paste below',
+            // The quickest way in on Android, and one an APK's users
+            // would otherwise only learn from the README.
+            if (ShareIn.shareTarget) 'or share to plop from any app',
+          ];
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
@@ -471,47 +505,26 @@ class ShelfScreenState extends State<ShelfScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              isDesktop
-                  ? 'drop anything  ·  ${_mod}V to paste'
-                  : 'add a photo, a file, or paste',
+              'share with every device on this wi-fi',
               textAlign: TextAlign.center,
               style: monoStyle(color: Palette.dim),
             ),
-            // The quickest way in on Android, and one an APK's users would
-            // otherwise only learn from the README.
-            if (!isDesktop && ShareIn.shareTarget) ...[
-              const SizedBox(height: 6),
-              Text(
-                'or share to plop from any app',
-                textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.faint),
-              ),
-            ],
-            const SizedBox(height: 6),
-            Text(
-              'anyone on this wi-fi with plop open can grab it '
-              'for ${formatTtl(node.ttl)}',
-              textAlign: TextAlign.center,
-              style: monoStyle(size: 11, color: Palette.faint),
+            const SizedBox(height: 18),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Fact('add', add),
+                if (Hotkeys.supported)
+                  _Fact('keys', [
+                    '${Hotkeys.snipLabel} snip  ·  '
+                        '${Hotkeys.clipLabel} clipboard',
+                    'from any app',
+                  ]),
+                _Fact('stays', ['${formatTtl(node.ttl)}, then it vanishes']),
+                _Fact('join', _joinHint()),
+              ],
             ),
-            if (Hotkeys.supported) ...[
-              const SizedBox(height: 14),
-              Text(
-                '${Hotkeys.snipLabel} snip  ·  ${Hotkeys.clipLabel} clipboard'
-                '  ·  from any app',
-                textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.faint),
-              ),
-            ],
-            // iPhones cannot get the app; the web shelf is the way in.
-            if (isDesktop) ...[
-              SizedBox(height: Hotkeys.supported ? 6 : 14),
-              Text(
-                'phones without the app: settings › open on a phone',
-                textAlign: TextAlign.center,
-                style: monoStyle(size: 11, color: Palette.faint),
-              ),
-            ],
             if (help != null) ...[
               const SizedBox(height: 18),
               Text(
@@ -524,6 +537,26 @@ class ShelfScreenState extends State<ShelfScreen> {
         ),
       ),
     );
+  }
+
+  /// How another device gets onto this shelf. Any device with plop open
+  /// is on it already; a phone without the app (an iPhone can't get it)
+  /// opens the web shelf. plop.local is the address while this computer,
+  /// or another of the user's, answers for it, or is about to; otherwise
+  /// the settings panel has this computer's own address and a QR code.
+  List<String> _joinHint() {
+    if (!isDesktop) return ['open plop on the other device too'];
+    // Private mode serves no web shelf; only paired devices get in.
+    if (node.private.on) {
+      return ['plop on the other device,', 'then pair it in settings'];
+    }
+    return switch (Alias.instance.state) {
+      AliasState.held || AliasState.waiting || AliasState.claiming => [
+        'plop on the other device, or',
+        '$sharedHost:$defaultWebPort in a browser',
+      ],
+      _ => ['plop on the other device, or', 'settings › open on a phone'],
+    };
   }
 
   Widget _mobileBar() => Container(
@@ -587,6 +620,38 @@ String _fixHint() => Platform.isIOS
     : Platform.isWindows
     ? 'allow plop in Windows Firewall, or set this wi-fi to Private'
     : 'guest and campus wi-fi often block devices from seeing each other';
+
+/// One line of the empty shelf's list: a faint label in a fixed column,
+/// then what it says, a line per entry, wrapping under itself.
+class _Fact extends StatelessWidget {
+  const _Fact(this.label, this.lines);
+  final String label;
+  final List<String> lines;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: MediaQuery.textScalerOf(context).scale(48),
+          child: Text(label, style: monoStyle(size: 11, color: Palette.faint)),
+        ),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final l in lines)
+                Text(l, style: monoStyle(size: 11, color: Palette.dim)),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
@@ -667,7 +732,7 @@ class _TopBar extends StatelessWidget {
                 message: 'private mode · only your paired devices',
                 triggerMode: isDesktop ? null : TooltipTriggerMode.tap,
                 child: const Icon(
-                  Icons.lock_outline_rounded,
+                  Icons.lock_outlined,
                   key: ValueKey('private lock'),
                   size: 13,
                   color: Palette.dim,
@@ -705,12 +770,16 @@ class _TopBar extends StatelessWidget {
               initialValue: ttl,
               onSelected: onTtl,
               position: PopupMenuPosition.under,
+              popUpAnimationStyle: _menuAnimation,
+              offset: _menuOffset,
+              constraints: _menuWidth,
               borderRadius: BorderRadius.circular(6),
               itemBuilder: (_) => [
                 for (final d in ttlChoices)
                   PopupMenuItem(
                     value: d,
                     height: 32,
+                    padding: _menuItemPadding,
                     child: Text(
                       formatTtl(d),
                       style: monoStyle(
@@ -719,26 +788,30 @@ class _TopBar extends StatelessWidget {
                     ),
                   ),
               ],
-              child: _Chip(icon: Icons.timer_rounded, label: formatTtl(ttl)),
+              child: _Chip(icon: Icons.timer_outlined, label: formatTtl(ttl)),
             ),
             if (isDesktop) ...[
               const SizedBox(width: 4),
               if (Platform.isMacOS)
                 _IconAction(
-                  icon: Icons.add_rounded,
-                  tip: 'add files or folders (⌘O)',
+                  icon: Icons.add_outlined,
+                  tip: 'add files or folders · ⌘O',
                   onTap: onAddFiles,
                 )
               else
                 PopupMenuButton<bool>(
-                  tooltip: 'add (Ctrl+O)',
+                  tooltip: 'add · Ctrl+O',
                   position: PopupMenuPosition.under,
+                  popUpAnimationStyle: _menuAnimation,
+                  offset: _menuOffset,
+                  constraints: _menuWidth,
                   borderRadius: BorderRadius.circular(6),
                   onSelected: (folder) => folder ? onAddFolder() : onAddFiles(),
                   itemBuilder: (_) => [
                     PopupMenuItem(
                       value: false,
                       height: 32,
+                      padding: _menuItemPadding,
                       child: Text(
                         'files…',
                         style: monoStyle(color: Palette.text),
@@ -747,16 +820,17 @@ class _TopBar extends StatelessWidget {
                     PopupMenuItem(
                       value: true,
                       height: 32,
+                      padding: _menuItemPadding,
                       child: Text(
                         'folder…',
                         style: monoStyle(color: Palette.text),
                       ),
                     ),
                   ],
-                  child: const _HoverIcon(Icons.add_rounded),
+                  child: const _HoverIcon(Icons.add_outlined),
                 ),
               _IconAction(
-                icon: Icons.tune_rounded,
+                icon: Icons.tune_outlined,
                 tip: 'shortcuts and settings',
                 onTap: onSettings,
               ),
@@ -817,6 +891,49 @@ class _RowState extends State<_Row> {
   bool _flash = false;
   bool _busy = false;
 
+  /// A text item's text, for reading on the shelf without grabbing it: a
+  /// tap copies, and the row shows only the first line, cut at 60
+  /// characters. Shown as the name's tooltip (hover on desktop, a long
+  /// press on phones); null while unread, or when the name already says it
+  /// all.
+  String? _text;
+  String? _textFrom; // the path it was read from, so it is read once
+
+  /// More than this is a document, not a note; the tooltip shows the start.
+  static const _peekChars = 1200, _peekLines = 18;
+
+  @override
+  void initState() {
+    super.initState();
+    _readText();
+  }
+
+  @override
+  void didUpdateWidget(_Row old) {
+    super.didUpdateWidget(old);
+    _readText(); // a peer's text is fetched after its row appears
+  }
+
+  void _readText() {
+    final item = widget.item;
+    if (item.kind != ItemKind.text || !item.isReady) return;
+    final path = item.path!;
+    if (_textFrom == path) return;
+    _textFrom = path;
+    File(path).readAsString().then((t) {
+      if (mounted) setState(() => _text = _peek(t, item.name));
+    }, onError: (_) {}); // expired meanwhile: the row is on its way out
+  }
+
+  static String? _peek(String text, String name) {
+    var t = text.trim();
+    if (t == name) return null;
+    final lines = t.split('\n');
+    if (lines.length > _peekLines) t = '${lines.take(_peekLines).join('\n')}…';
+    if (t.length > _peekChars) t = '${t.characters.take(_peekChars)}…';
+    return t;
+  }
+
   /// Runs an action once: the second click of a double-click, or taps while
   /// a transfer is running, are ignored (two saves of a big item would race
   /// on the same .part file).
@@ -868,29 +985,35 @@ class _RowState extends State<_Row> {
         if (a == GrabAction.save && widget.saved)
           // Saved already: a tap shows the file, as the save's toast did.
           _IconAction(
-            icon: Icons.folder_open_rounded,
+            icon: Icons.folder_open_outlined,
             tip: 'show',
             onTap: () => _act(a),
           )
         else
           _IconAction(
             icon: switch (a) {
-              GrabAction.copy => Icons.copy_rounded,
-              GrabAction.save => Icons.arrow_downward_rounded,
-              GrabAction.share => Icons.ios_share_rounded,
+              GrabAction.copy => Icons.copy_outlined,
+              GrabAction.save => Icons.arrow_downward_outlined,
+              GrabAction.share => Icons.ios_share_outlined,
             },
             tip: a.name,
             onTap: () => _act(a),
           ),
       if (widget.mine)
         _IconAction(
-          icon: Icons.close_rounded,
+          icon: Icons.close_outlined,
           tip: 'remove',
           onTap: widget.onRemove,
         ),
     ];
+    // The countdown's slot grows with the system text size: a fixed 44
+    // clipped "1h00" to "1h0" on a phone set to large text, and the
+    // desktop slot must still hold it once the icons swap out.
+    final slot = MediaQuery.textScalerOf(context).scale(44);
     final countdown = Text(
       _countdown(left),
+      maxLines: 1,
+      softWrap: false,
       textAlign: TextAlign.right,
       style: monoStyle(color: ending ? Palette.warn : Palette.dim),
     );
@@ -939,7 +1062,23 @@ class _RowState extends State<_Row> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _Name(item),
+                            if (_text case final text?)
+                              Tooltip(
+                                message: text,
+                                textAlign: TextAlign.start,
+                                constraints: const BoxConstraints(
+                                  maxWidth: 360,
+                                ),
+                                triggerMode: isDesktop
+                                    ? null
+                                    : TooltipTriggerMode.longPress,
+                                showDuration: const Duration(seconds: 6),
+                                // Below the meta line, not over it.
+                                verticalOffset: 30,
+                                child: _Name(item),
+                              )
+                            else
+                              _Name(item),
                             const SizedBox(height: 3),
                             Text(
                               meta,
@@ -954,7 +1093,7 @@ class _RowState extends State<_Row> {
                       // actions on hover, so the name never reflows.
                       if (isDesktop)
                         SizedBox(
-                          width: 60,
+                          width: max(60, slot + _iconInset),
                           child: lit && icons.isNotEmpty
                               ? Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
@@ -973,7 +1112,7 @@ class _RowState extends State<_Row> {
                       else ...[
                         ...icons,
                         const SizedBox(width: 6),
-                        SizedBox(width: 44, child: countdown),
+                        SizedBox(width: slot, child: countdown),
                       ],
                     ],
                   ),
@@ -1133,11 +1272,17 @@ class _Leading extends StatelessWidget {
 
 /// The row divider, doubling as a countdown (or download progress) bar. The
 /// fill is opaque: translucent white on [Palette.line] came out a shade
-/// nobody could tell from the line itself.
+/// nobody could tell from the line itself. Nor is it [Palette.faint], a text
+/// colour: a full shelf drew a bright rule under every row, louder than the
+/// names. [_fill] is about 1.7:1 on the line, enough to read the time
+/// draining away at a glance and no more; a download in flight still goes
+/// bright, as it is the one bar worth watching.
 class _Hairline extends StatelessWidget {
   const _Hairline({required this.fraction, required this.bright});
   final double fraction;
   final bool bright;
+
+  static const _fill = Color(0xFF424242);
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -1147,7 +1292,7 @@ class _Hairline extends StatelessWidget {
         Container(color: Palette.line),
         FractionallySizedBox(
           widthFactor: fraction,
-          child: Container(color: bright ? Palette.text : Palette.faint),
+          child: Container(color: bright ? Palette.text : _fill),
         ),
       ],
     ),
@@ -1226,7 +1371,11 @@ class _IconActionState extends State<_IconAction> {
 }
 
 /// A 16px glyph that brightens under the pointer, or while [lit]; the
-/// padding is part of the hover target.
+/// padding is part of the hover target. Every control glyph in the app is
+/// from Material's outlined set, one stroke weight from the title bar to
+/// the phone's add buttons; a filled one (the old timer) read as a badge
+/// among outlines. The type glyphs (type_icons.dart) are filled on
+/// purpose: they are cut out of a solid bucket.
 class _HoverIcon extends StatefulWidget {
   const _HoverIcon(
     this.icon, {

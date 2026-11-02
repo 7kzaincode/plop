@@ -480,62 +480,63 @@ void main() {
     Hotkeys.snip = Hotkeys.defaultSnip;
   });
 
-  testWidgets('grab newest has a row of its own, refuses taken keys, resets', (
-    tester,
-  ) async {
-    addTearDown(() => Hotkeys.grab = Hotkeys.defaultGrab);
-    final settings = await openPanel(tester);
-    expect(find.text('grab newest'), findsOneWidget);
-    expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
+  testWidgets(
+    'grab the newest has a row of its own, refuses taken keys, resets',
+    (tester) async {
+      addTearDown(() => Hotkeys.grab = Hotkeys.defaultGrab);
+      final settings = await openPanel(tester);
+      expect(find.text('grab the newest'), findsOneWidget);
+      expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
 
-    await tester.tap(find.text(Hotkeys.grabLabel));
-    await tester.pump();
-    expect(find.text('…'), findsOneWidget);
-
-    /// Holds [mods] down and presses [key].
-    Future<void> chord(
-      List<LogicalKeyboardKey> mods,
-      LogicalKeyboardKey key,
-    ) async {
-      for (final m in mods) {
-        await tester.sendKeyDownEvent(m);
-      }
-      await tester.sendKeyEvent(key);
-      for (final m in mods.reversed) {
-        await tester.sendKeyUpEvent(m);
-      }
+      await tester.tap(find.text(Hotkeys.grabLabel));
       await tester.pump();
-    }
+      expect(find.text('…'), findsOneWidget);
 
-    // The snip's own keys: refused, and recording goes on.
-    await chord([
-      for (final m in Hotkeys.defaultMods)
-        switch (m) {
-          HotKeyModifier.control => LogicalKeyboardKey.controlLeft,
-          HotKeyModifier.shift => LogicalKeyboardKey.shiftLeft,
-          _ => LogicalKeyboardKey.altLeft,
-        },
-    ], LogicalKeyboardKey.keyP);
-    expect(find.text('that one is already taken'), findsOneWidget);
-    expect(find.text('…'), findsOneWidget, reason: 'still recording');
+      /// Holds [mods] down and presses [key].
+      Future<void> chord(
+        List<LogicalKeyboardKey> mods,
+        LogicalKeyboardKey key,
+      ) async {
+        for (final m in mods) {
+          await tester.sendKeyDownEvent(m);
+        }
+        await tester.sendKeyEvent(key);
+        for (final m in mods.reversed) {
+          await tester.sendKeyUpEvent(m);
+        }
+        await tester.pump();
+      }
 
-    await chord([
-      LogicalKeyboardKey.controlLeft,
-      LogicalKeyboardKey.altLeft,
-    ], LogicalKeyboardKey.keyS);
-    expect(find.text('…'), findsNothing);
-    expect(Hotkeys.keyName(Hotkeys.grab.physicalKey), 'S');
-    expect(find.text(Hotkeys.grabLabel), findsOneWidget);
-    expect(Hotkeys.same(settings.hotkey('grab')!, Hotkeys.grab), isTrue);
-    expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
-    expect(settings.hotkey('snip'), isNull, reason: 'the others keep theirs');
+      // The snip's own keys: refused, and recording goes on.
+      await chord([
+        for (final m in Hotkeys.defaultMods)
+          switch (m) {
+            HotKeyModifier.control => LogicalKeyboardKey.controlLeft,
+            HotKeyModifier.shift => LogicalKeyboardKey.shiftLeft,
+            _ => LogicalKeyboardKey.altLeft,
+          },
+      ], LogicalKeyboardKey.keyP);
+      expect(find.text('that one is already taken'), findsOneWidget);
+      expect(find.text('…'), findsOneWidget, reason: 'still recording');
 
-    await tester.tap(find.text('reset to defaults'));
-    await tester.pump();
-    expect(Hotkeys.same(Hotkeys.grab, Hotkeys.defaultGrab), isTrue);
-    expect(settings.hotkey('grab'), isNull);
-    expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
-  });
+      await chord([
+        LogicalKeyboardKey.controlLeft,
+        LogicalKeyboardKey.altLeft,
+      ], LogicalKeyboardKey.keyS);
+      expect(find.text('…'), findsNothing);
+      expect(Hotkeys.keyName(Hotkeys.grab.physicalKey), 'S');
+      expect(find.text(Hotkeys.grabLabel), findsOneWidget);
+      expect(Hotkeys.same(settings.hotkey('grab')!, Hotkeys.grab), isTrue);
+      expect(Hotkeys.same(Hotkeys.snip, Hotkeys.defaultSnip), isTrue);
+      expect(settings.hotkey('snip'), isNull, reason: 'the others keep theirs');
+
+      await tester.tap(find.text('reset to defaults'));
+      await tester.pump();
+      expect(Hotkeys.same(Hotkeys.grab, Hotkeys.defaultGrab), isTrue);
+      expect(settings.hotkey('grab'), isNull);
+      expect(find.text(Hotkeys.label(Hotkeys.defaultGrab)), findsOneWidget);
+    },
+  );
 
   testWidgets('a reset that cannot be saved says so', (tester) async {
     addTearDown(() => Hotkeys.snip = Hotkeys.defaultSnip);

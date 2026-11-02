@@ -137,6 +137,11 @@ class TypeIcon extends StatelessWidget {
     _Icon(:final data) => Icon(data, size: s, color: _ink),
     _Label(:final text, :final scale) => Text(
       text,
+      // Part of a fixed-size icon, not reading text: scaled with the
+      // system text size it wrapped "PDF" onto two lines inside the bucket.
+      textScaler: TextScaler.noScaling,
+      maxLines: 1,
+      softWrap: false,
       style: _labelStyle(s * scale),
     ),
     _Zipper() => CustomPaint(

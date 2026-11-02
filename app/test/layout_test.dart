@@ -206,6 +206,19 @@ void main() {
           await tester.pump();
           expect(tester.takeException(), isNull, reason: '$kind $size hover');
           await tester.runAsync(() => _shot(key, '$tag-hover'));
+
+          // Resting on a long text's name shows the whole text, so it can
+          // be read without grabbing it.
+          await mouse.moveTo(
+            tester.getCenter(find.textContaining('a very long pasted')),
+          );
+          await tester.pump(const Duration(milliseconds: 500));
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(find.textContaining('without breaking the layout'), findsOne);
+          expect(tester.takeException(), isNull, reason: '$kind $size text');
+          await tester.runAsync(() => _shot(key, '$tag-text'));
+          await mouse.moveTo(Offset.zero);
+          await tester.pump(const Duration(seconds: 1));
           await mouse.removePointer();
         }
 
@@ -245,10 +258,32 @@ void main() {
             '$kind-empty-${size.width.toInt()}x${size.height.toInt()}',
           ),
         );
+        if (desktop && size == const Size(460, 560)) {
+          // The lifetime menu, open.
+          await tester.tap(find.byIcon(Icons.timer_outlined));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 200));
+          await tester.runAsync(() => _shot(key, 'desktop-ttl-menu'));
+          await tester.tapAt(const Offset(20, 300));
+          await tester.pump(const Duration(milliseconds: 200));
+        }
       }
       await stopNodes(tester);
     });
   }
+
+  // A phone set to large text: the countdown column grows with it rather
+  // than clipping the time.
+  testWidgets('phone: large text fits', (tester) async {
+    debugDesktopOverride = false;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await startNodes(tester);
+    final key = await pumpApp(tester, const Size(375, 667));
+    expect(tester.takeException(), isNull);
+    await tester.runAsync(() => _shot(key, 'phone-items-375x667-large-text'));
+    await stopNodes(tester);
+  });
 
   for (final desktop in [true, false]) {
     final kind = desktop ? 'desktop' : 'phone';
@@ -357,7 +392,7 @@ void main() {
     await startNodes(tester, withItems: false);
     for (final size in const [Size(360, 320), Size(460, 560)]) {
       final key = await pumpApp(tester, size);
-      await tester.tap(find.byIcon(Icons.tune_rounded));
+      await tester.tap(find.byIcon(Icons.tune_outlined));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'settings $size');
       final tag =
