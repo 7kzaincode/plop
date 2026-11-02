@@ -250,6 +250,19 @@ void main() {
     });
   }
 
+  // A phone set to large text: the countdown column grows with it rather
+  // than clipping the time.
+  testWidgets('phone: large text fits', (tester) async {
+    debugDesktopOverride = false;
+    tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await startNodes(tester);
+    final key = await pumpApp(tester, const Size(375, 667));
+    expect(tester.takeException(), isNull);
+    await tester.runAsync(() => _shot(key, 'phone-items-375x667-large-text'));
+    await stopNodes(tester);
+  });
+
   for (final desktop in [true, false]) {
     final kind = desktop ? 'desktop' : 'phone';
 

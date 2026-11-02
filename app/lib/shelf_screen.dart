@@ -889,8 +889,14 @@ class _RowState extends State<_Row> {
           onTap: widget.onRemove,
         ),
     ];
+    // The countdown's slot grows with the system text size: a fixed 44
+    // clipped "1h00" to "1h0" on a phone set to large text, and the
+    // desktop slot must still hold it once the icons swap out.
+    final slot = MediaQuery.textScalerOf(context).scale(44);
     final countdown = Text(
       _countdown(left),
+      maxLines: 1,
+      softWrap: false,
       textAlign: TextAlign.right,
       style: monoStyle(color: ending ? Palette.warn : Palette.dim),
     );
@@ -954,7 +960,7 @@ class _RowState extends State<_Row> {
                       // actions on hover, so the name never reflows.
                       if (isDesktop)
                         SizedBox(
-                          width: 60,
+                          width: max(60, slot + _iconInset),
                           child: lit && icons.isNotEmpty
                               ? Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
@@ -973,7 +979,7 @@ class _RowState extends State<_Row> {
                       else ...[
                         ...icons,
                         const SizedBox(width: 6),
-                        SizedBox(width: 44, child: countdown),
+                        SizedBox(width: slot, child: countdown),
                       ],
                     ],
                   ),
