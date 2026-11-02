@@ -817,6 +817,49 @@ class _RowState extends State<_Row> {
   bool _flash = false;
   bool _busy = false;
 
+  /// A text item's text, for reading on the shelf without grabbing it: a
+  /// tap copies, and the row shows only the first line, cut at 60
+  /// characters. Shown as the name's tooltip (hover on desktop, a long
+  /// press on phones); null while unread, or when the name already says it
+  /// all.
+  String? _text;
+  String? _textFrom; // the path it was read from, so it is read once
+
+  /// More than this is a document, not a note; the tooltip shows the start.
+  static const _peekChars = 1200, _peekLines = 18;
+
+  @override
+  void initState() {
+    super.initState();
+    _readText();
+  }
+
+  @override
+  void didUpdateWidget(_Row old) {
+    super.didUpdateWidget(old);
+    _readText(); // a peer's text is fetched after its row appears
+  }
+
+  void _readText() {
+    final item = widget.item;
+    if (item.kind != ItemKind.text || !item.isReady) return;
+    final path = item.path!;
+    if (_textFrom == path) return;
+    _textFrom = path;
+    File(path).readAsString().then((t) {
+      if (mounted) setState(() => _text = _peek(t, item.name));
+    }, onError: (_) {}); // expired meanwhile: the row is on its way out
+  }
+
+  static String? _peek(String text, String name) {
+    var t = text.trim();
+    if (t == name) return null;
+    final lines = t.split('\n');
+    if (lines.length > _peekLines) t = '${lines.take(_peekLines).join('\n')}…';
+    if (t.length > _peekChars) t = '${t.characters.take(_peekChars)}…';
+    return t;
+  }
+
   /// Runs an action once: the second click of a double-click, or taps while
   /// a transfer is running, are ignored (two saves of a big item would race
   /// on the same .part file).
@@ -945,7 +988,23 @@ class _RowState extends State<_Row> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _Name(item),
+                            if (_text case final text?)
+                              Tooltip(
+                                message: text,
+                                textAlign: TextAlign.start,
+                                constraints: const BoxConstraints(
+                                  maxWidth: 360,
+                                ),
+                                triggerMode: isDesktop
+                                    ? null
+                                    : TooltipTriggerMode.longPress,
+                                showDuration: const Duration(seconds: 6),
+                                // Below the meta line, not over it.
+                                verticalOffset: 30,
+                                child: _Name(item),
+                              )
+                            else
+                              _Name(item),
                             const SizedBox(height: 3),
                             Text(
                               meta,

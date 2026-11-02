@@ -206,6 +206,19 @@ void main() {
           await tester.pump();
           expect(tester.takeException(), isNull, reason: '$kind $size hover');
           await tester.runAsync(() => _shot(key, '$tag-hover'));
+
+          // Resting on a long text's name shows the whole text, so it can
+          // be read without grabbing it.
+          await mouse.moveTo(
+            tester.getCenter(find.textContaining('a very long pasted')),
+          );
+          await tester.pump(const Duration(milliseconds: 500));
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(find.textContaining('without breaking the layout'), findsOne);
+          expect(tester.takeException(), isNull, reason: '$kind $size text');
+          await tester.runAsync(() => _shot(key, '$tag-text'));
+          await mouse.moveTo(Offset.zero);
+          await tester.pump(const Duration(seconds: 1));
           await mouse.removePointer();
         }
 
