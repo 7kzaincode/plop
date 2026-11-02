@@ -51,7 +51,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>$(PRODUCT_COPYRIGHT)</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>plop finds other devices on your Wi-Fi so you can share files with them.</string>
+	<string>plop looks for your other devices on this Wi-Fi, so what you put on its shelf reaches them. Nothing leaves your network.</string>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
