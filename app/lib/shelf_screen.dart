@@ -1139,11 +1139,17 @@ class _Leading extends StatelessWidget {
 
 /// The row divider, doubling as a countdown (or download progress) bar. The
 /// fill is opaque: translucent white on [Palette.line] came out a shade
-/// nobody could tell from the line itself.
+/// nobody could tell from the line itself. Nor is it [Palette.faint], a text
+/// colour: a full shelf drew a bright rule under every row, louder than the
+/// names. [_fill] is about 1.7:1 on the line, enough to read the time
+/// draining away at a glance and no more; a download in flight still goes
+/// bright, as it is the one bar worth watching.
 class _Hairline extends StatelessWidget {
   const _Hairline({required this.fraction, required this.bright});
   final double fraction;
   final bool bright;
+
+  static const _fill = Color(0xFF424242);
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -1153,7 +1159,7 @@ class _Hairline extends StatelessWidget {
         Container(color: Palette.line),
         FractionallySizedBox(
           widthFactor: fraction,
-          child: Container(color: bright ? Palette.text : Palette.faint),
+          child: Container(color: bright ? Palette.text : _fill),
         ),
       ],
     ),
