@@ -344,7 +344,7 @@ void main() {
           (w.decoration as BoxDecoration).border != null,
     );
     expect(
-      find.descendant(of: ring, matching: find.byIcon(Icons.copy_rounded)),
+      find.descendant(of: ring, matching: find.byIcon(Icons.copy_outlined)),
       findsOneWidget,
       reason: 'the copy icon shows the ring',
     );
@@ -361,7 +361,7 @@ void main() {
     }
     await tester.pump();
     expect(
-      find.descendant(of: ring, matching: find.byIcon(Icons.tune_rounded)),
+      find.descendant(of: ring, matching: find.byIcon(Icons.tune_outlined)),
       findsOneWidget,
       reason: 'the settings icon shows the ring',
     );
@@ -829,8 +829,8 @@ void main() {
           find.ancestor(of: find.byIcon(icon), matching: find.byType(Tooltip)),
         )
         .message!;
-    expect(tipOf(Icons.arrow_downward_rounded), 'save');
-    expect(find.byIcon(Icons.folder_open_rounded), findsNothing);
+    expect(tipOf(Icons.arrow_downward_outlined), 'save');
+    expect(find.byIcon(Icons.folder_open_outlined), findsNothing);
 
     // A tap saves it; the row says so, and its icon now shows the file.
     await tester.runAsync(() async {
@@ -847,8 +847,8 @@ void main() {
       find.text('${formatSize(1024)}  ·  other  ·  saved'),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.arrow_downward_rounded), findsNothing);
-    expect(tipOf(Icons.folder_open_rounded), 'show');
+    expect(find.byIcon(Icons.arrow_downward_outlined), findsNothing);
+    expect(tipOf(Icons.folder_open_outlined), 'show');
 
     await tester.pump(const Duration(seconds: 5)); // the toast fades
     await stopNodes(tester);

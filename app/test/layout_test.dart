@@ -357,7 +357,7 @@ void main() {
     await startNodes(tester, withItems: false);
     for (final size in const [Size(360, 320), Size(460, 560)]) {
       final key = await pumpApp(tester, size);
-      await tester.tap(find.byIcon(Icons.tune_rounded));
+      await tester.tap(find.byIcon(Icons.tune_outlined));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'settings $size');
       final tag =

@@ -667,7 +667,7 @@ class _TopBar extends StatelessWidget {
                 message: 'private mode · only your paired devices',
                 triggerMode: isDesktop ? null : TooltipTriggerMode.tap,
                 child: const Icon(
-                  Icons.lock_outline_rounded,
+                  Icons.lock_outlined,
                   key: ValueKey('private lock'),
                   size: 13,
                   color: Palette.dim,
@@ -719,13 +719,13 @@ class _TopBar extends StatelessWidget {
                     ),
                   ),
               ],
-              child: _Chip(icon: Icons.timer_rounded, label: formatTtl(ttl)),
+              child: _Chip(icon: Icons.timer_outlined, label: formatTtl(ttl)),
             ),
             if (isDesktop) ...[
               const SizedBox(width: 4),
               if (Platform.isMacOS)
                 _IconAction(
-                  icon: Icons.add_rounded,
+                  icon: Icons.add_outlined,
                   tip: 'add files or folders (⌘O)',
                   onTap: onAddFiles,
                 )
@@ -753,10 +753,10 @@ class _TopBar extends StatelessWidget {
                       ),
                     ),
                   ],
-                  child: const _HoverIcon(Icons.add_rounded),
+                  child: const _HoverIcon(Icons.add_outlined),
                 ),
               _IconAction(
-                icon: Icons.tune_rounded,
+                icon: Icons.tune_outlined,
                 tip: 'shortcuts and settings',
                 onTap: onSettings,
               ),
@@ -868,23 +868,23 @@ class _RowState extends State<_Row> {
         if (a == GrabAction.save && widget.saved)
           // Saved already: a tap shows the file, as the save's toast did.
           _IconAction(
-            icon: Icons.folder_open_rounded,
+            icon: Icons.folder_open_outlined,
             tip: 'show',
             onTap: () => _act(a),
           )
         else
           _IconAction(
             icon: switch (a) {
-              GrabAction.copy => Icons.copy_rounded,
-              GrabAction.save => Icons.arrow_downward_rounded,
-              GrabAction.share => Icons.ios_share_rounded,
+              GrabAction.copy => Icons.copy_outlined,
+              GrabAction.save => Icons.arrow_downward_outlined,
+              GrabAction.share => Icons.ios_share_outlined,
             },
             tip: a.name,
             onTap: () => _act(a),
           ),
       if (widget.mine)
         _IconAction(
-          icon: Icons.close_rounded,
+          icon: Icons.close_outlined,
           tip: 'remove',
           onTap: widget.onRemove,
         ),
@@ -1226,7 +1226,11 @@ class _IconActionState extends State<_IconAction> {
 }
 
 /// A 16px glyph that brightens under the pointer, or while [lit]; the
-/// padding is part of the hover target.
+/// padding is part of the hover target. Every control glyph in the app is
+/// from Material's outlined set, one stroke weight from the title bar to
+/// the phone's add buttons; a filled one (the old timer) read as a badge
+/// among outlines. The type glyphs (type_icons.dart) are filled on
+/// purpose: they are cut out of a solid bucket.
 class _HoverIcon extends StatefulWidget {
   const _HoverIcon(
     this.icon, {
