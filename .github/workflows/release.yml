@@ -7,7 +7,7 @@
 #   Android  plop-android.apk (debug-signed, for sideloading)
 # Push a tag for a release: git tag v0.2.0 && git push origin v0.2.0.
 # Running it by hand from a branch replaces the "dev" prerelease instead.
-# iPhone builds can't be distributed without a paid Apple account; see README.
+# iPhone builds can't be distributed without a paid Apple account; see docs/GUIDE.md.
 # Never runs on a plain push: macOS minutes are billed at 10x on private repos.
 name: Release
 
@@ -77,13 +77,13 @@ jobs:
           mkdir -p ../dist
 
       # Not notarized either way (that needs a paid Apple account), so the
-      # first open still goes through Open Anyway: see README. What the
+      # first open still goes through Open Anyway: see docs/GUIDE.md. What the
       # signature decides is whether macOS knows an update is the same app.
       # An ad-hoc signature's designated requirement is that one build's
       # hash, so to macOS every update is a new app and Screen Recording has
       # to be granted again. Optional secrets MACOS_SIGN_P12 (the base64 of
       # a self-signed Code Signing certificate exported with its key, see
-      # README > Releasing) and MACOS_SIGN_P12_PASSWORD give every build the
+      # docs/DEVELOPING.md > Releasing) and MACOS_SIGN_P12_PASSWORD give every build the
       # requirement "this identifier, signed by that certificate" instead,
       # which the next build meets too. codesign takes only an identity
       # trusted for code signing, so the certificate is trusted on this

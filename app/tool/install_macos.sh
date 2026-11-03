@@ -9,7 +9,7 @@ app=build/macos/Build/Products/Release/plop.app
 
 # Sign with a lasting identity if this Mac has one, so macOS keeps plop's
 # Screen Recording and Local Network permissions across updates: first the
-# "plop" certificate the downloads are signed with (README > Releasing), so
+# "plop" certificate the downloads are signed with (docs/DEVELOPING.md > Releasing), so
 # this build and a downloaded one are the same app to macOS, else your Apple
 # Development identity. Without either the build keeps its ad-hoc
 # signature, which also works.
