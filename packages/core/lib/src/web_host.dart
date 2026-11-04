@@ -350,9 +350,6 @@ class WebHost {
   }) async {
     final res = req.response;
     _noStore(res);
-    // Whatever the bytes are, they never run as a page from this origin:
-    // a peer's HTML, opened in a tab, would otherwise script the shelf.
-    res.headers.set('content-security-policy', 'sandbox');
     // A file shared in place and changed since leaves the shelf instead,
     // as it does for peers.
     final item = node.store[key];
@@ -360,11 +357,22 @@ class WebHost {
       res.statusCode = HttpStatus.notFound;
       return;
     }
+    final mime = safeMime(item.mime);
+    // Whatever the bytes are, they never run as a page from this origin: a
+    // peer's HTML or SVG, opened in a tab, would otherwise script the
+    // shelf. A photo, video or song can't script, and Safari shows none of
+    // them under a sandbox, only a blank page.
+    if (!_media.hasMatch(mime)) {
+      res.headers.set('content-security-policy', 'sandbox');
+    }
     res.headers
       // Checked again here, not only where a peer's list is read: this is
       // where a bad one would do harm.
-      ..set(HttpHeaders.contentTypeHeader, safeMime(item.mime))
-      ..set('content-disposition', _attachment(transferName(item)));
+      ..set(HttpHeaders.contentTypeHeader, mime)
+      ..set('content-disposition', _attachment(transferName(item)))
+      // A phone's video player reads a file in ranges, and plays nothing
+      // from a server that can't send them.
+      ..set(HttpHeaders.acceptRangesHeader, 'bytes');
     // HEAD is answered from what the shelf knows: a mirror not copied yet
     // would otherwise be copied whole just to say how big it is.
     if (head) {
@@ -399,17 +407,42 @@ class WebHost {
       await f.close();
       rethrow;
     }
-    res.contentLength = length;
-    await _chunks(f).pipe(res);
+    final range = byteRange(req.headers.value(HttpHeaders.rangeHeader), length);
+    if (range == null) {
+      res.contentLength = length;
+      await _chunks(f, 0, length).pipe(res);
+      return;
+    }
+    final (start, end) = range;
+    if (start > end) {
+      await f.close();
+      res
+        ..statusCode = HttpStatus.requestedRangeNotSatisfiable
+        ..headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length');
+      return;
+    }
+    res
+      ..statusCode = HttpStatus.partialContent
+      ..headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/$length')
+      ..contentLength = end - start + 1;
+    await _chunks(f, start, end + 1).pipe(res);
   }
 
-  /// [f] from start to end, read as the response takes it, then closed;
-  /// closed too when the browser hangs up first.
-  static Stream<List<int>> _chunks(RandomAccessFile f) async* {
+  static final _media = RegExp(r'^(image/(?!svg)|video/|audio/)');
+
+  /// [f] from [start] to [end], read as the response takes it, then
+  /// closed; closed too when the browser hangs up first.
+  static Stream<List<int>> _chunks(
+    RandomAccessFile f,
+    int start,
+    int end,
+  ) async* {
     try {
-      for (;;) {
-        final chunk = await f.read(64 * 1024);
+      await f.setPosition(start);
+      for (var left = end - start; left > 0;) {
+        final chunk = await f.read(min(64 * 1024, left));
         if (chunk.isEmpty) return;
+        left -= chunk.length;
         yield chunk;
       }
     } finally {
@@ -502,6 +535,22 @@ class WebHost {
       _uploading--;
     }
   }
+}
+
+/// The one byte range a `Range: bytes=…` header asks for in a body of
+/// [length], inclusive: null for none, or a form this does not serve (a
+/// list of ranges, another unit), which gets the whole body; start > end
+/// when it lies past the end.
+(int, int)? byteRange(String? header, int length) {
+  final m = RegExp(r'^bytes=(\d*)-(\d*)$').firstMatch(header?.trim() ?? '');
+  if (m == null) return null;
+  final (a, b) = (int.tryParse(m[1]!), int.tryParse(m[2]!));
+  if (a == null) {
+    if (b == null) return null;
+    // The last b bytes.
+    return b == 0 ? (1, 0) : (max(0, length - b), length - 1);
+  }
+  return (a, min(b ?? length - 1, length - 1));
 }
 
 /// `attachment; filename="…"; filename*=UTF-8''…`: the plain form for old

@@ -3,8 +3,9 @@
 //   dart run plop_core:plop --peer 192.168.1.20:50725 --text hello --file a.png
 //
 // It polls the given peers directly. On macOS it also advertises itself with
-// `dns-sd`, so apps on the network find it and mirror its items. `--web`
-// serves the web shelf too, on port 7567 when that is free.
+// `dns-sd`, so apps on the network find it and mirror its items, unless
+// `--hidden`. `--web` serves the web shelf too, on port 7567 when that is
+// free, or on `--web-port`.
 import 'dart:async';
 import 'dart:io';
 
@@ -29,7 +30,7 @@ Future<void> main(List<String> args) async {
     discovery: discovery,
     name: name,
     ttl: Duration(seconds: int.parse(opt('ttl') ?? '120')),
-    ports: [if (web) defaultWebPort],
+    ports: [if (web) int.parse(opt('web-port') ?? '$defaultWebPort')],
   );
   print('node ${node.id} listening on ${node.port}');
   if (web) {
@@ -46,7 +47,7 @@ Future<void> main(List<String> args) async {
   }
 
   Process? dnsSd;
-  if (Platform.isMacOS) {
+  if (Platform.isMacOS && !args.contains('--hidden')) {
     final ips = await localIPv4s();
     dnsSd = await Process.start('dns-sd', [
       '-R',
@@ -65,7 +66,7 @@ Future<void> main(List<String> args) async {
     await node.addText(t);
   }
   for (final f in all('file')) {
-    await node.addFile(f);
+    await node.addPath(f); // a folder goes up as one item
   }
 
   var last = '';

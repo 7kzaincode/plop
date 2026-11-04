@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:plop_core/plop_core.dart';
+import 'package:plop_core/src/web_host.dart' show byteRange;
 import 'package:test/test.dart';
 
 /// Two nodes on loopback that know each other. The web shelf is tested on
@@ -494,6 +495,28 @@ void main() {
       404,
     );
 
+    // A video player's range: just those bytes.
+    final part = await send(
+      'GET',
+      p.url('/web/items/${big.key}'),
+      headers: {'range': 'bytes=10-19'},
+    );
+    expect(part.status, 206);
+    expect(part.body, bytes.sublist(10, 20));
+    expect(
+      part.headers.value('content-range'),
+      'bytes 10-19/${bytes.length}',
+    );
+    expect(part.headers.value('accept-ranges'), 'bytes');
+    expect(
+      (await send(
+        'GET',
+        p.url('/web/items/${big.key}'),
+        headers: {'range': 'bytes=${bytes.length}-'},
+      )).status,
+      416,
+    );
+
     // A name after the id, as Safari's sheet is given one, is the same file.
     expect(
       (await get(p.url('/web/items/${big.key}/${big.name}'))).status,
@@ -510,6 +533,21 @@ void main() {
       "filename*=UTF-8''Z%C3%BCrich%20%F0%9F%8F%94.bin",
     );
     expect(p.a.store[big.key]!.isReady, isTrue, reason: 'kept as a mirror');
+
+    // A photo shows in Safari only without the sandbox; an SVG, which
+    // can script, keeps it.
+    final png = await p.b.addBytes([137, 80, 78, 71], 'a.png');
+    final svg = await p.b.addBytes(utf8.encode('<svg/>'), 'a.svg');
+    await eventually(
+      () =>
+          (p.a.store[png.key]?.isReady ?? false) &&
+          (p.a.store[svg.key]?.isReady ?? false),
+    );
+    final pr = await get(p.url('/web/items/${png.key}'));
+    expect(pr.headers.contentType?.mimeType, 'image/png');
+    expect(pr.headers.value('content-security-policy'), isNull);
+    final sr = await get(p.url('/web/items/${svg.key}'));
+    expect(sr.headers.value('content-security-policy'), 'sandbox');
 
     // A folder comes as its zip; text as text.
     final dir = Directory('${p.root.path}/Design notes')..createSync();
@@ -1287,5 +1325,18 @@ void main() {
     // Not ports at all, from a corrupt setting: skipped, not fatal.
     expect(await portOf([70000, -1, 0, fallback]), fallback);
     expect(await portOf([1 << 20]), isNot(0));
+  });
+
+  test('byteRange reads the one range a video player asks for', () {
+    expect(byteRange(null, 100), isNull);
+    expect(byteRange('bytes=0-', 100), (0, 99));
+    expect(byteRange('bytes=0-1', 100), (0, 1));
+    expect(byteRange('bytes=90-200', 100), (90, 99));
+    expect(byteRange('bytes=-10', 100), (90, 99));
+    expect(byteRange('bytes=-500', 100), (0, 99));
+    final (a, b) = byteRange('bytes=100-', 100)!;
+    expect(a > b, isTrue, reason: 'past the end');
+    expect(byteRange('bytes=0-1,5-6', 100), isNull, reason: 'not served');
+    expect(byteRange('items=0-1', 100), isNull);
   });
 }
