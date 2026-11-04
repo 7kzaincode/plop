@@ -356,6 +356,9 @@ void main() {
     expect(html, contains('rel="manifest"'));
     expect(html, contains('apple-mobile-web-app-capable'));
     expect(html, isNot(contains('{{name}}')));
+    expect(html, isNot(contains('{{others}}')));
+    // The shelf's other addresses, where a home-screen app opens files.
+    expect(html, contains(RegExp(r'const OTHERS = \["http://[^"]+:\d+"')));
     // Nothing is fetched from outside the LAN.
     expect(html, isNot(contains('https://')));
     // Home-screen mode: the bottom bar, under the list, clears the home
@@ -491,6 +494,11 @@ void main() {
       404,
     );
 
+    // A name after the id, as Safari's sheet is given one, is the same file.
+    expect(
+      (await get(p.url('/web/items/${big.key}/${big.name}'))).status,
+      200,
+    );
     final r = await get(p.url('/web/items/${big.key}'));
     expect(r.status, 200);
     expect(r.body, bytes);

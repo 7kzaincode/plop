@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'discovery.dart';
 import 'item.dart';
 import 'node_server.dart';
 import 'plop_node.dart';
@@ -138,6 +139,22 @@ class WebHost {
     } catch (_) {}
   }
 
+  /// This shelf at its other addresses, as a JSON list for the page: a
+  /// home-screen app on an iPhone or iPad opens a file from one of them in
+  /// Safari's sheet over itself, which has Save to Files and Done; from its
+  /// own address the file would take over the app with no way back.
+  Future<String> _others(HttpRequest req) async {
+    final port = req.connectionInfo?.localPort ?? req.requestedUri.port;
+    final (ips, host) = await (localIPv4s(), localHostName()).wait;
+    final hosts = [
+      ...ips,
+      if (host.isNotEmpty && host != 'localhost') '$host.local',
+    ];
+    // Into a <script>: nothing in it may close the tag.
+    return jsonEncode([for (final h in hosts) 'http://$h:$port'])
+        .replaceAll('<', r'\u003c');
+  }
+
   Future<void> _route(HttpRequest req) async {
     final res = req.response;
     final reads = req.method == 'GET' || req.method == 'HEAD';
@@ -155,7 +172,9 @@ class WebHost {
           ..contentType = ContentType.html
           ..set(HttpHeaders.cacheControlHeader, 'max-age=60');
         res.write(
-          _page.replaceAll('{{name}}', htmlEscape.convert(node.store.nodeName)),
+          _page
+              .replaceAll('{{name}}', htmlEscape.convert(node.store.nodeName))
+              .replaceAll('{{others}}', await _others(req)),
         );
       case ('GET', ['manifest.webmanifest']):
         res.headers
@@ -176,7 +195,9 @@ class WebHost {
         _noStore(res);
         res.headers.contentType = ContentType.json;
         res.write(jsonEncode(await _shelf()));
-      case ('GET', ['web', 'items', final origin, final id]):
+      // The name after the id, if any, is only for Safari's sheet, which
+      // names a file by its URL's last segment.
+      case ('GET', ['web', 'items', final origin, final id, ...]):
         await _download(req, itemKey(origin, id), head: req.method == 'HEAD');
       case ('POST', ['web', 'items']):
         await _upload(req);
@@ -657,6 +678,8 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', 
 const clean = s => String(s).replace(/[\u0000-\u001f\u007f-\u009f\u2028-\u202e\u2066-\u2069]/g, '_').replace(/[\u061c\u200b\u200e\u200f\u2060-\u2064\u206a-\u206f\ufeff]/g, '');
 const saveMine = () => store.set('plop.mine', JSON.stringify(Object.fromEntries(mine)));
 const url = it => '/web/items/' + it.key;
+// This shelf at its other addresses (see _others).
+const OTHERS = {{others}}.filter(o => o !== location.origin);
 const fileName = it => it.kind === 'folder' ? it.name + '.zip' : it.kind === 'text' ? 'text.txt' : it.name;
 const isImage = it => it.kind === 'file' && /^image\//.test(it.mime);
 const canShare = f => !!(navigator.share && navigator.canShare && navigator.canShare({files: [f]}));
@@ -947,11 +970,21 @@ async function fetchBlob(it) {
 }
 // A link with the download attribute, which the browser saves: Safari
 // asks first, then it is in Files › Downloads. A home-screen app on an
-// iPhone or iPad does this too, through a page for the file whose tap
-// offers Save to Files; opening the item in a new view instead (as this
-// once did) only shows it, with no way to keep it.
+// iPhone or iPad can't: the download takes over its only page, as a
+// preview with no way back to the shelf. There the file opens in Safari's
+// sheet over the app instead, from another of this shelf's addresses (a
+// link to its own opens in the app), with Share › Save to Files, and ✕.
 function download(it) {
-  if (standalone && ios) toast('tap the file, then save to files');
+  if (standalone && ios && OTHERS.length) {
+    toast('share › save to files, then ✕');
+    const a = document.createElement('a');
+    a.href = OTHERS[0] + url(it) + '/' + encodeURIComponent(fileName(it));
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
   const a = document.createElement('a');
   a.href = url(it);
   a.download = fileName(it);
