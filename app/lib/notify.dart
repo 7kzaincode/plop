@@ -122,6 +122,11 @@ abstract final class Notify {
   /// The island needs no notification permission, only the same consent.
   static bool get islandWanted => _islandWanted;
 
+  /// Arrivals show on the island even with plop in front: its window is
+  /// often behind a browser, or half off screen, and the island is where
+  /// copy and save are one click.
+  static bool get arrivalsWanted => _settings?.notifications ?? true;
+
   static bool get _islandWanted =>
       (_settings?.notifications ?? true) && !windowFocused;
 
@@ -212,9 +217,11 @@ abstract final class Notify {
       final upload = _isUpload(item.key);
       if (!upload) _hear(item.originId);
       if (!_seen.add(item)) continue;
-      // The row just appeared on a focused shelf: in view already. Or plop
-      // just started and this device's shelf is being filled in.
-      if (windowFocused || (!upload && _quiet.containsKey(item.originId))) {
+      // The row just appeared on a focused shelf: in view already, unless
+      // the island shows it anyway. Or plop just started and this device's
+      // shelf is being filled in.
+      if ((windowFocused && !Island.active) ||
+          (!upload && _quiet.containsKey(item.originId))) {
         continue;
       }
       final from = upload ? 'web' : item.originId;
@@ -230,7 +237,7 @@ abstract final class Notify {
   static void _announce(String sender) {
     final b = _bursts.remove(sender);
     if (b != null && Island.active) {
-      if (_islandWanted) Island.arrived(b.sender, b.items).ignore();
+      if (arrivalsWanted) Island.arrived(b.sender, b.items).ignore();
       return;
     }
     // Focused in the meantime, or switched off: the rows are there to see.

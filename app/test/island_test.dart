@@ -143,14 +143,16 @@ void main() {
     expect(notified, isEmpty);
   });
 
-  testWidgets('nothing shows while the window is focused', (tester) async {
+  testWidgets('arrivals show while the window is focused; says do not', (
+    tester,
+  ) async {
     await start(tester);
     await lifecycle(tester, AppLifecycleState.resumed);
     Notify.arrived([item('a')]);
     Notify.say('plopped clipboard');
     await tester.pump(Notify.burst);
     await settle(tester);
-    expect(calls, isEmpty);
+    expect(calls.map((c) => c.method), ['show']);
   });
 
   testWidgets('a row: its title, line, buttons, and what drags out', (

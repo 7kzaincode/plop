@@ -159,7 +159,7 @@ abstract final class Island {
     }
     Timer(burst * 2, () {
       if (_shown.any((i) => i.key == item.key)) return;
-      if (Notify.islandWanted) {
+      if (Notify.arrivalsWanted) {
         say('copied ${_title(item)} from ${AutoCopy.senderOf(item)}');
       }
     });

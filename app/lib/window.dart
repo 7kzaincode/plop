@@ -136,7 +136,7 @@ abstract final class Arrivals {
         // The island says what arrived now; no bounce on top of it.
         'fresh': fresh && !Island.active,
       }).ignore();
-    } else if (fresh && !(Island.active && Notify.islandWanted)) {
+    } else if (fresh && !(Island.active && Notify.arrivalsWanted)) {
       // The pill says what arrived now. With it switched off ("show
       // arrivals") the taskbar button still flashes, as it always did
       // alongside the notifications that switch also turns off.
