@@ -9,6 +9,15 @@ class AppDelegate: FlutterAppDelegate {
     return false
   }
 
+  // Quitting is never refused on macOS (lib/tray.dart's onExitRequested
+  // says exit here), so say so at once. FlutterAppDelegate answers every
+  // request "cancel" while it asks Dart, then quits a moment later; to a
+  // restart, shut down or log out that "cancel" is final ("plop canceled
+  // restart"), and to AppleScript's quit an error.
+  override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    return .terminateNow
+  }
+
   // Clicking the Dock icon brings the window back. Whether the window
   // itself is up, not AppKit's flag, which can count the island's panel.
   override func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
