@@ -121,6 +121,12 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
+      # plop.local on Windows answers on UDP 5353 beside Windows' own
+      # responder; only a real Windows machine shows that sharing works.
+      - working-directory: packages/core
+        run: |
+          dart pub get
+          dart test test/host_responder_windows_test.dart --reporter expanded
       - working-directory: app
         run: |
           flutter pub get
