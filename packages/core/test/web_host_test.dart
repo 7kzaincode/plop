@@ -4,7 +4,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:plop_core/plop_core.dart';
-import 'package:plop_core/src/web_host.dart' show byteRange;
 import 'package:test/test.dart';
 
 /// Two nodes on loopback that know each other. The web shelf is tested on
