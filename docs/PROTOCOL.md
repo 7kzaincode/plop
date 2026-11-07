@@ -202,10 +202,13 @@ reverse PTR record), Windows 10 1809 and later with `DnsServiceRegister`
 (a `_plop-web._tcp` instance whose host name is `plop.local`). Host names are
 unique on mDNS: with two computers on, one wins the probe and the other hears
 of a conflict. The loser never renames itself (a `plop-2.local` would be an
-address no phone saved): it lets go and claims again every 20 to 30 s
+address no phone saved): it lets go and claims again every 8 to 14 s
 (jittered), and wins once the holder has gone, which a computer that quits or
-lets go says with a goodbye packet, and one that sleeps by no longer
-answering the probe. The address is checked every 30 s, and a new one (after
+lets go says with a goodbye packet. A computer going to sleep lets go too
+(macOS on `NSWorkspace.willSleepNotification`, Windows on
+`PBT_APMSUSPEND`), so phones drop the name at once instead of when its
+120 s record runs out, and a Bonjour sleep proxy doesn't keep answering for
+it; after the wake it claims again like any loser. The address is checked every 30 s, and a new one (after
 a wake, on another network) is claimed afresh. Quitting lets go first, within
 300 ms; the OS lets go regardless once the process is gone (mDNSResponder and
 Avahi drop a client's records when its connection closes, Windows when the

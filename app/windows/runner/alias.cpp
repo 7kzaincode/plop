@@ -157,6 +157,13 @@ class Alias::Impl {
     }
   }
 
+  void Suspend() {
+    if (!current_) return;
+    int gen = current_->gen;
+    Release();
+    Report("lost", gen);
+  }
+
  private:
   void Claim(const flutter::EncodableValue* args) {
     Release();
@@ -267,3 +274,5 @@ Alias::Alias(flutter::BinaryMessenger* messenger)
     : impl_(std::make_unique<Impl>(messenger)) {}
 
 Alias::~Alias() = default;
+
+void Alias::Suspend() { impl_->Suspend(); }

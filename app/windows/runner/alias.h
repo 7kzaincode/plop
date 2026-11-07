@@ -17,6 +17,11 @@ class Alias {
   explicit Alias(flutter::BinaryMessenger* messenger);
   ~Alias();
 
+  // The PC is going to sleep: lets the name go, so another computer can
+  // answer for it while this one can't, and tells Dart, which asks again
+  // after the wake.
+  void Suspend();
+
   Alias(const Alias&) = delete;
   Alias& operator=(const Alias&) = delete;
 

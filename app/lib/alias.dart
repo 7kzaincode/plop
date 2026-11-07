@@ -57,8 +57,8 @@ class Alias {
   /// The app's one claim, wired to the runner by [follow].
   static final instance = Alias();
 
-  static const retry = Duration(seconds: 20);
-  static const jitter = Duration(seconds: 10);
+  static const retry = Duration(seconds: 8);
+  static const jitter = Duration(seconds: 6);
   static const recheck = Duration(seconds: 30);
 
   /// How long quitting waits for the runner to let go. The runner lets go

@@ -1,3 +1,4 @@
+import AppKit
 import FlutterMacOS
 import dnssd
 
@@ -14,7 +15,10 @@ import dnssd
 /// entitlements plop already has, as Bonjour registration always has. It
 /// also answers for the record after a wake, re-probing first, and drops
 /// it with a goodbye when the connection closes: on release, and when plop
-/// quits, however it quits.
+/// quits, however it quits, and when the Mac goes to sleep: a sleeping Mac
+/// can't serve the shelf, and without the goodbye phones would keep the
+/// name pointing at it (and a sleep proxy would answer for it) while
+/// another computer could have it.
 final class Alias {
   private let channel: FlutterMethodChannel
   private var connection: DNSServiceRef?
@@ -39,6 +43,18 @@ final class Alias {
         result(FlutterMethodNotImplemented)
       }
     }
+    NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
+    ) { [weak self] _ in self?.letGoForSleep() }
+  }
+
+  /// Drops the record and tells Dart it is lost, which asks again a little
+  /// after the wake (and waits, if another computer took it meanwhile).
+  private func letGoForSleep() {
+    guard connection != nil else { return }
+    let held = gen
+    release()
+    channel.invokeMethod("state", arguments: ["state": "lost", "gen": held])
   }
 
   /// Registers the record on a connection of its own, replacing any

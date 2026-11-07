@@ -61,7 +61,7 @@ void main() {
     });
   });
 
-  test('a conflict lets go, never renames, and asks again after 20-30 s', () {
+  test('a conflict lets go, never renames, and asks again after 8-14 s', () {
     fakeAsync((t) {
       alias.want(true);
       t.flushMicrotasks();
@@ -69,9 +69,9 @@ void main() {
       t.flushMicrotasks();
       expect(alias.state, AliasState.waiting);
       expect(runner.methods, ['claim', 'release']);
-      t.elapse(const Duration(seconds: 19));
-      expect(runner.methods, ['claim', 'release'], reason: 'not before 20 s');
-      t.elapse(const Duration(seconds: 11));
+      t.elapse(const Duration(seconds: 7));
+      expect(runner.methods, ['claim', 'release'], reason: 'not before 8 s');
+      t.elapse(const Duration(seconds: 7));
       expect(runner.methods, ['claim', 'release', 'claim']);
       // Every claim is for the same name and address, only a new gen.
       expect(runner.lastClaim['ip'], '192.168.1.5');
@@ -86,7 +86,7 @@ void main() {
     });
   });
 
-  test('the wait is jittered between 20 and 30 s', () {
+  test('the wait is jittered between 8 and 14 s', () {
     for (var seed = 0; seed < 20; seed++) {
       fakeAsync((t) {
         final r = FakeRunner();

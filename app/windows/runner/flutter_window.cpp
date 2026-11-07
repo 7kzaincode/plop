@@ -119,6 +119,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_POWERBROADCAST:
+      // Only the top-level window hears this, not the alias's own
+      // message-only one.
+      if (wparam == PBT_APMSUSPEND && alias_) alias_->Suspend();
+      break;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
