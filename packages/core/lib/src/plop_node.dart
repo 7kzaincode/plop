@@ -286,7 +286,8 @@ class PlopNode {
       store.addFile(path, name: name);
   Future<ShelfItem> addBytes(List<int> bytes, String name) =>
       store.addBytes(bytes, name);
-  Future<ShelfItem> addText(String text) => store.addText(text);
+  Future<ShelfItem> addText(String text, {Duration? ttl}) =>
+      store.addText(text, ttl: ttl);
   void remove(String key) => store.remove(key);
 
   /// Local path of an item's bytes, downloading first if needed.

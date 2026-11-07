@@ -186,7 +186,8 @@ class WebHost {
           _page
               .replaceAll('{{name}}', htmlEscape.convert(node.store.nodeName))
               .replaceAll('{{others}}', await _others(req))
-              .replaceAll('{{shared}}', _shared(req)),
+              .replaceAll('{{shared}}', _shared(req))
+              .replaceAll('{{ttlMs}}', '${node.ttl.inMilliseconds}'),
         );
       case ('GET', ['manifest.webmanifest']):
         res.headers
@@ -462,6 +463,26 @@ class WebHost {
     }
   }
 
+  /// The lifetimes the page offers, as the app does.
+  static const ttlChoices = [
+    Duration(seconds: 30),
+    Duration(minutes: 1),
+    Duration(minutes: 2),
+    Duration(minutes: 5),
+    Duration(minutes: 15),
+    Duration(hours: 1),
+  ];
+
+  /// The page's pick for an upload (`ttl`, in ms): one of [ttlChoices],
+  /// else null for this shelf's own.
+  static Duration? _ttl(HttpRequest req) {
+    final ms = int.tryParse(req.uri.queryParameters['ttl'] ?? '');
+    for (final d in ttlChoices) {
+      if (d.inMilliseconds == ms) return d;
+    }
+    return null;
+  }
+
   Future<void> _upload(HttpRequest req) async {
     final res = req.response;
     _noStore(res);
@@ -494,6 +515,7 @@ class WebHost {
         name,
         expectedSize: length < 0 ? null : length,
         maxBytes: cap,
+        ttl: _ttl(req),
       );
       _answerUpload(res, item);
     } on ItemTooLargeException catch (e) {
@@ -539,7 +561,7 @@ class WebHost {
         res.statusCode = HttpStatus.badRequest;
         return;
       }
-      final item = await node.addText(text);
+      final item = await node.addText(text, ttl: _ttl(req));
       _answerUpload(res, item);
     } on TimeoutException {
       res.statusCode = HttpStatus.requestTimeout;
@@ -642,6 +664,9 @@ h1 span{color:var(--dim);font-weight:400}
 .btn{padding:6px 12px;border:1px solid var(--border);border-radius:6px;line-height:1.2;white-space:nowrap}
 .btn:active{background:var(--pressed)}
 #list{flex:1;display:flex;flex-direction:column}
+.pill{position:relative;display:flex;align-items:center;gap:6px;font-size:14px}
+.pill svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.pill select{position:absolute;inset:0;width:100%;opacity:0;font-size:16px;cursor:pointer}
 .row{flex:none;display:flex;align-items:center;gap:12px;padding:12px 8px 12px 16px;position:relative;cursor:pointer;user-select:none;-webkit-user-select:none}
 .row:active{background:var(--pressed)}
 .main{flex:1;min-width:0}
@@ -689,6 +714,7 @@ input[type=file]{display:none}
 <body>
 <header>
 <h1>plop <span>· {{name}}</span></h1>
+<label class="btn pill"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 9.5V13l2.2 1.6M10 3h4"/></svg><span id="ttlv">2m</span><select id="ttl" aria-label="how long new items stay"><option value="30000">30s</option><option value="60000">1m</option><option value="120000">2m</option><option value="300000">5m</option><option value="900000">15m</option><option value="3600000">1h</option></select></label>
 <button class="btn" id="install" hidden>install</button>
 </header>
 <div id="list"></div>
@@ -1158,7 +1184,7 @@ function send(u) {
   u.pct = 0;
   render();
   const x = new XMLHttpRequest();
-  x.open('POST', '/web/items?name=' + encodeURIComponent(u.name));
+  x.open('POST', '/web/items?name=' + encodeURIComponent(u.name) + '&ttl=' + ttl);
   x.setRequestHeader('x-plop-web', '1');
   x.upload.onprogress = e => {
     if (!e.lengthComputable) return;
@@ -1197,7 +1223,7 @@ async function sendText(t) {
   try {
     let r;
     for (let i = 0; ; i++) {
-      r = await fetch('/web/text', {method: 'POST', headers: {'content-type': 'text/plain;charset=utf-8', 'x-plop-web': '1'}, body: t});
+      r = await fetch('/web/text?ttl=' + ttl, {method: 'POST', headers: {'content-type': 'text/plain;charset=utf-8', 'x-plop-web': '1'}, body: t});
       if (r.status !== 503 || i >= 3) break;
       await new Promise(ok => setTimeout(ok, 2000 * (i + 1)));
     }
@@ -1250,6 +1276,22 @@ ta.addEventListener('paste', () => {
 $('paste').onclick = () => {
   if (!navigator.clipboard || !navigator.clipboard.readText) return showSheet('');
   navigator.clipboard.readText().then(t => t && t.trim() ? sendText(t) : showSheet(''), () => showSheet(''));
+};
+
+// ------------------------------------------------------------- lifetime
+
+// How long what this phone plops stays, as the app's timer button sets it:
+// this phone's pick, kept, else the computer's own.
+const TTLS = {30000: '30s', 60000: '1m', 120000: '2m', 300000: '5m', 900000: '15m', 3600000: '1h'};
+let ttl = +store.get('plop.ttl') || {{ttlMs}};
+if (!TTLS[ttl]) ttl = 120000;
+$('ttl').value = String(ttl);
+$('ttlv').textContent = TTLS[ttl];
+$('ttl').onchange = () => {
+  ttl = +$('ttl').value;
+  $('ttlv').textContent = TTLS[ttl];
+  store.set('plop.ttl', String(ttl));
+  toast('what you plop now stays ' + TTLS[ttl]);
 };
 
 // ------------------------------------------------------------- home screen

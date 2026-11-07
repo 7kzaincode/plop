@@ -661,6 +661,26 @@ void main() {
     );
   });
 
+  test('an upload stays as long as the page picked', () async {
+    p = await Pair.start();
+    Future<ShelfItem> post(String path) async {
+      final r = await send('POST', p.url(path), body: utf8.encode('hi'));
+      expect(r.status, 200);
+      return p.a.store[(jsonDecode(utf8.decode(r.body)) as Map)['key']]!;
+    }
+
+    expect((await post('/web/text?ttl=3600000')).ttl, const Duration(hours: 1));
+    expect(
+      (await post('/web/items?name=a.txt&ttl=30000')).ttl,
+      const Duration(seconds: 30),
+    );
+    // Anything but one of the page's choices: the shelf's own.
+    expect((await post('/web/text?ttl=99999999')).ttl, p.a.ttl);
+    expect((await post('/web/text')).ttl, p.a.ttl);
+    final page = utf8.decode((await get(p.url('/'))).body);
+    expect(page, contains('|| ${p.a.ttl.inMilliseconds};'));
+  });
+
   test('a text post lands as a text item', () async {
     p = await Pair.start();
     final r = await send(

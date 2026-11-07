@@ -447,6 +447,7 @@ class ShelfStore {
     String name, {
     int? expectedSize,
     int? maxBytes,
+    Duration? ttl,
   }) async {
     final cap = min(maxBytes ?? maxItemBytes, maxItemBytes);
     if (expectedSize != null && expectedSize > cap) {
@@ -481,25 +482,34 @@ class ShelfStore {
       kind: ItemKind.file,
       path: file.path,
       ownsFile: true,
+      ttl: ttl,
     );
   }
 
-  Future<ShelfItem> addText(String text) {
+  /// [ttl], when given, for this item instead of the shelf's.
+  Future<ShelfItem> addText(String text, {Duration? ttl}) {
     // `\r` too: a Windows line ends in `\r\n`, and a `\r` left on the
     // label would show as `_` on every peer.
     final firstLine = text.trim().split(RegExp('[\r\n]')).first;
     final label = firstLine.length > 60
         ? '${_head(firstLine, 60)}…'
         : firstLine;
-    return _addOwned(utf8.encode(text), label, ItemKind.text, 'text.txt');
+    return _addOwned(
+      utf8.encode(text),
+      label,
+      ItemKind.text,
+      'text.txt',
+      ttl: ttl,
+    );
   }
 
   Future<ShelfItem> _addOwned(
     List<int> bytes,
     String name,
     ItemKind kind,
-    String fileName,
-  ) async {
+    String fileName, {
+    Duration? ttl,
+  }) async {
     _checkSize(bytes.length);
     final id = randomId();
     final file = File(_itemPath(nodeId, id, fileName));
@@ -512,6 +522,7 @@ class ShelfStore {
       kind: kind,
       path: file.path,
       ownsFile: true,
+      ttl: ttl,
     );
   }
 
@@ -523,7 +534,9 @@ class ShelfStore {
     required String path,
     required bool ownsFile,
     DateTime? sourceModified,
+    Duration? ttl,
   }) {
+    final life = ttl ?? this.ttl;
     final item = ShelfItem(
       id: id ?? randomId(),
       originId: nodeId,
@@ -536,13 +549,13 @@ class ShelfStore {
         ItemKind.file => mimeFor(name),
       },
       kind: kind,
-      expiresAt: DateTime.now().add(ttl),
-      ttl: ttl,
+      expiresAt: DateTime.now().add(life),
+      ttl: life,
       path: path,
       ownsFile: ownsFile,
       sourceModified: sourceModified,
     );
-    _insert(item, ttl);
+    _insert(item, life);
     _localChanges.add(null);
     return item;
   }
