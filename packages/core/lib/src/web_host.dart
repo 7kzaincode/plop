@@ -146,9 +146,11 @@ class WebHost {
   Future<String> _others(HttpRequest req) async {
     final port = req.connectionInfo?.localPort ?? req.requestedUri.port;
     final (ips, host) = await (localIPv4s(), localHostName()).wait;
+    // The name first: an iPhone's sheet has been seen to hang on an
+    // address it reaches fine by name.
     final hosts = [
-      ...ips,
       if (host.isNotEmpty && host != 'localhost') '$host.local',
+      ...ips,
     ];
     // Into a <script>: nothing in it may close the tag.
     return jsonEncode([for (final h in hosts) 'http://$h:$port'])
@@ -729,6 +731,18 @@ const saveMine = () => store.set('plop.mine', JSON.stringify(Object.fromEntries(
 const url = it => '/web/items/' + it.key;
 // This shelf at its other addresses (see _others).
 const OTHERS = {{others}}.filter(o => o !== location.origin);
+// The first of them this phone reaches, found once the page is up, so a
+// tap doesn't open the sheet on one that never loads.
+let other = null;
+(async () => {
+  for (const o of OTHERS) {
+    try {
+      await fetch(o + '/icon.png', {mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(2500)});
+      other = o;
+      return;
+    } catch (e) {}
+  }
+})();
 const fileName = it => it.kind === 'folder' ? it.name + '.zip' : it.kind === 'text' ? 'text.txt' : it.name;
 const isImage = it => it.kind === 'file' && /^image\//.test(it.mime);
 const canShare = f => !!(navigator.share && navigator.canShare && navigator.canShare({files: [f]}));
@@ -1027,7 +1041,7 @@ function download(it) {
   if (standalone && ios && OTHERS.length) {
     toast('share › save to files, then ✕');
     const a = document.createElement('a');
-    a.href = OTHERS[0] + url(it) + '/' + encodeURIComponent(fileName(it));
+    a.href = (other || OTHERS[0]) + url(it) + '/' + encodeURIComponent(fileName(it));
     a.target = '_blank';
     document.body.appendChild(a);
     a.click();
