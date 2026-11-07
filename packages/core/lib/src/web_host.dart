@@ -157,6 +157,15 @@ class WebHost {
         .replaceAll('<', r'\u003c');
   }
 
+  /// plop.local's shelf, when this one is served where it would be (the
+  /// shared port), as a JS string for the page; empty otherwise.
+  String _shared(HttpRequest req) {
+    final port = req.connectionInfo?.localPort ?? req.requestedUri.port;
+    return port == defaultWebPort
+        ? jsonEncode('http://$sharedHost:$defaultWebPort')
+        : "''";
+  }
+
   Future<void> _route(HttpRequest req) async {
     final res = req.response;
     final reads = req.method == 'GET' || req.method == 'HEAD';
@@ -176,7 +185,8 @@ class WebHost {
         res.write(
           _page
               .replaceAll('{{name}}', htmlEscape.convert(node.store.nodeName))
-              .replaceAll('{{others}}', await _others(req)),
+              .replaceAll('{{others}}', await _others(req))
+              .replaceAll('{{shared}}', _shared(req)),
         );
       case ('GET', ['manifest.webmanifest']):
         res.headers
@@ -1248,6 +1258,16 @@ const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform ==
 const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 const touch = matchMedia('(pointer: coarse)').matches;
 if (ios && !standalone && !store.get('plop.hint')) $('hint').classList.add('on');
+// Opened by number (the QR code gives this computer's address, which every
+// phone reaches): move to plop.local if this phone reaches it, so the
+// address added to the home screen opens the shelf on whichever of the
+// user's computers is on. Not from a home-screen app, where another
+// address would open in Safari's sheet rather than in the app.
+const SHARED = {{shared}};
+if (SHARED && location.origin !== SHARED && !standalone) {
+  fetch(SHARED + '/icon.png', {mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(2500)})
+    .then(() => { if (!uploads.length && !viewing) location.replace(SHARED + '/'); }, () => {});
+}
 $('hintx').onclick = () => { $('hint').classList.remove('on'); store.set('plop.hint', '1'); };
 let installEvt;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('install').hidden = false; });

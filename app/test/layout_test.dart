@@ -15,6 +15,7 @@ import 'package:plop/main.dart';
 import 'package:plop/settings.dart';
 import 'package:plop/share_in.dart';
 import 'package:plop/shelf_screen.dart';
+import 'package:plop/web_shelf.dart' show shown;
 import 'package:plop_core/plop_core.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -413,12 +414,14 @@ void main() {
       expect(qr, findsOneWidget);
       await tester.ensureVisible(qr);
       await tester.pumpAndSettle();
-      // The .local name first; the next address (an IPv4) under it.
+      // The numbered address first, which every phone reaches; the best
+      // name under it.
       final urls = (await tester.runAsync(() => me.webUrls))!;
-      final address = urls.first;
+      final address = shown(urls);
       final url = find.text(address);
       expect(url, findsOneWidget);
-      if (urls.length > 1) expect(find.text('or ${urls[1]}'), findsOneWidget);
+      final next = urls.firstWhere((u) => u != address, orElse: () => '');
+      if (next.isNotEmpty) expect(find.text('or $next'), findsOneWidget);
       expect(
         tester.getSize(url).width,
         lessThanOrEqualTo(tester.getSize(find.byType(Dialog)).width),

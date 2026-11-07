@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -137,7 +138,7 @@ class _PhoneLinkState extends State<PhoneLink> {
   }
 
   void _copy() {
-    Clipboard.setData(ClipboardData(text: _urls!.first));
+    Clipboard.setData(ClipboardData(text: shown(_urls!)));
     _copiedTimer?.cancel();
     setState(() => _copied = true);
     _copiedTimer = Timer(const Duration(milliseconds: 1500), () {
@@ -164,8 +165,15 @@ class _PhoneLinkState extends State<PhoneLink> {
       return [Text('not on a network right now', style: monoStyle(size: 11))];
     }
     final lit = _hover || _focused;
+    // The QR code and the line under it give this computer's numbered
+    // address, which every phone on the Wi-Fi reaches; a .local name some
+    // can't resolve (Android, some networks), and a scan that hangs is the
+    // end of it. The page moves itself to plop.local where the phone does
+    // reach it (lib/src/web_host.dart), before it goes on a home screen.
+    final main = shown(urls);
+    final next = urls.firstWhere((u) => u != main, orElse: () => '');
     return [
-      Align(alignment: Alignment.centerLeft, child: ShelfQr(urls.first)),
+      Align(alignment: Alignment.centerLeft, child: ShelfQr(main)),
       const SizedBox(height: 8),
       // Tab reaches the address and Enter or Space copies it, with the
       // panel's hairline ring while focused.
@@ -204,7 +212,7 @@ class _PhoneLinkState extends State<PhoneLink> {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    _copied ? 'copied' : urls.first,
+                    _copied ? 'copied' : main,
                     style: monoStyle(color: lit ? Palette.text : Palette.dim),
                   ),
                 ),
@@ -213,14 +221,12 @@ class _PhoneLinkState extends State<PhoneLink> {
           ),
         ),
       ),
-      // The next best: this computer's own address after plop.local, else
-      // an IPv4 address for browsers that cannot resolve .local (Android's,
-      // mostly), or on Windows the .local name.
-      if (urls.length > 1)
+      // The best named address: plop.local, or this computer's .local name.
+      if (next.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(left: 4),
           child: Text(
-            'or ${urls[1]}',
+            'or $next',
             style: monoStyle(size: 11, color: Palette.faint),
           ),
         ),
@@ -234,3 +240,11 @@ class _PhoneLinkState extends State<PhoneLink> {
     ];
   }
 }
+
+/// The address the QR code gives: the first numbered one, else the first.
+@visibleForTesting
+String shown(List<String> urls) => urls.firstWhere(
+  (u) => InternetAddress.tryParse(Uri.parse(u).host)?.type ==
+      InternetAddressType.IPv4,
+  orElse: () => urls.first,
+);
