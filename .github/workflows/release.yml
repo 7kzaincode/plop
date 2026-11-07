@@ -73,7 +73,8 @@ jobs:
           else version=$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' pubspec.yaml); fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
           flutter build ${{ matrix.target == 'android' && 'apk' || matrix.target }} --release \
-            --build-name="$version" --build-number="$GITHUB_RUN_NUMBER"
+            --build-name="$version" --build-number="$GITHUB_RUN_NUMBER" \
+            --dart-define=PLOP_VERSION="$version"
           mkdir -p ../dist
 
       # Not notarized either way (that needs a paid Apple account), so the

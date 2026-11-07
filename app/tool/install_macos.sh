@@ -4,7 +4,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-flutter build macos --release
+# The version settings shows, and the one update checks compare against
+# (lib/updates.dart): pubspec's, as a release build of this commit would.
+version=$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' pubspec.yaml)
+flutter build macos --release --dart-define=PLOP_VERSION="$version"
 app=build/macos/Build/Products/Release/plop.app
 
 # Sign with a lasting identity if this Mac has one, so macOS keeps plop's

@@ -12,6 +12,7 @@ import 'notify.dart';
 import 'settings.dart';
 import 'theme.dart';
 import 'tray.dart';
+import 'updates.dart';
 import 'web_shelf.dart';
 
 /// The one settings surface: global shortcuts, open-at-login, the web
@@ -328,6 +329,12 @@ class _SettingsPanelState extends State<_SettingsPanel> {
                 const SizedBox(height: 8),
                 Text(_note!, style: monoStyle(size: 11, color: Palette.dim)),
               ],
+              const Divider(height: 20, color: Palette.line),
+              _UpdateSection(
+                widget.settings,
+                recording: _recording != null,
+                onQuit: onQuit,
+              ),
             ],
           ),
         ),
@@ -456,8 +463,16 @@ class _KeyState extends State<_Key> {
 /// A dim line of text that acts when clicked, brightening under the pointer
 /// or keyboard focus, which Tab gives it and Enter or Space press.
 class _Link extends StatefulWidget {
-  const _Link(this.text, {required this.recording, required this.onTap});
+  const _Link(
+    this.text, {
+    required this.recording,
+    required this.onTap,
+    this.bright = false,
+  });
   final String text;
+
+  /// Lit even at rest, for the one thing worth noticing.
+  final bool bright;
 
   /// See [_Key.recording]: no press while a shortcut is being recorded.
   final bool recording;
@@ -494,7 +509,9 @@ class _LinkState extends State<_Link> {
                 widget.text,
                 style: monoStyle(
                   size: 11,
-                  color: hover || _focused ? Palette.text : Palette.dim,
+                  color: hover || _focused || widget.bright
+                      ? Palette.text
+                      : Palette.dim,
                 ),
               ),
             ),
@@ -502,6 +519,117 @@ class _LinkState extends State<_Link> {
         ),
       ),
     ),
+  );
+}
+
+/// The version, and a newer one when there is: "update to 0.2.9", which
+/// installs it (lib/updates.dart), or "check now"; and the switch for
+/// checking at all.
+class _UpdateSection extends StatefulWidget {
+  const _UpdateSection(
+    this.settings, {
+    required this.recording,
+    required this.onQuit,
+  });
+  final Settings settings;
+  final bool recording;
+  final VoidCallback? onQuit;
+
+  @override
+  State<_UpdateSection> createState() => _UpdateSectionState();
+}
+
+class _UpdateSectionState extends State<_UpdateSection> {
+  final _updates = Updates.instance;
+  String? _said;
+  bool _checking = false;
+
+  Future<void> _check() async {
+    setState(() {
+      _checking = true;
+      _said = null;
+    });
+    try {
+      final r = await _updates.check();
+      _said = r == null ? 'up to date' : null;
+    } catch (_) {
+      _said = "couldn't reach GitHub";
+    }
+    if (mounted) setState(() => _checking = false);
+  }
+
+  Future<void> _install(Release r) async {
+    setState(() => _said = null);
+    try {
+      await _updates.install(r, () async => widget.onQuit?.call());
+      if (Platform.isMacOS && mounted) {
+        setState(() => _said = 'drag plop into Applications to finish');
+      }
+    } catch (_) {
+      if (mounted) setState(() => _said = "couldn't download it · try again");
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([_updates.available, _updates.progress]),
+    builder: (context, _) {
+      final r = _updates.available.value, busy = _updates.progress.value;
+      final dev = appVersion == 'dev';
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'plop ${dev ? 'dev build' : appVersion}',
+                  style: monoStyle(size: 11, color: Palette.dim),
+                ),
+              ),
+              if (busy != null)
+                Text(busy, style: monoStyle(size: 11, color: Palette.text))
+              else if (r != null)
+                _Link(
+                  'update to ${r.version}',
+                  recording: widget.recording,
+                  onTap: () => _install(r),
+                  bright: true,
+                )
+              else if (Updates.supported && !dev)
+                _Link(
+                  _checking ? 'checking…' : 'check now',
+                  recording: widget.recording || _checking,
+                  onTap: _check,
+                ),
+            ],
+          ),
+          if (_said != null)
+            Text(_said!, style: monoStyle(size: 11, color: Palette.faint)),
+          if (Updates.supported && !dev)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'check for updates',
+                      style: monoStyle(color: Palette.text),
+                    ),
+                  ),
+                  _Toggle(
+                    label: 'check for updates',
+                    value: widget.settings.checkUpdates,
+                    recording: widget.recording,
+                    onChanged: (on) =>
+                        setState(() => widget.settings.checkUpdates = on),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      );
+    },
   );
 }
 

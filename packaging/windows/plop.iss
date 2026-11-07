@@ -62,6 +62,9 @@ Root: HKCU; Subkey: "Software\plop"; Flags: dontcreatekey uninsdeletekey
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=plop"; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=plop dir=in action=allow program=""{app}\plop.exe"" enable=yes profile=any remoteip=localsubnet"; Flags: runhidden
 Filename: "{app}\plop.exe"; Description: "Open plop"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; plop's own "update to …" runs this installer silently, having quit
+; itself: reopen it once the new version is in (app/lib/updates.dart).
+Filename: "{app}\plop.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [UninstallDelete]
 ; The Start menu shortcut plop makes in the user's own folder when it runs

@@ -85,6 +85,15 @@ class Settings {
     _save().ignore(); // the toggle has nowhere to say it failed
   }
 
+  /// Asking GitHub for a newer plop twice a day (lib/updates.dart), the
+  /// only thing plop asks of the internet. On unless switched off.
+  bool get checkUpdates => _data['checkUpdates'] != false;
+
+  set checkUpdates(bool on) {
+    _data['checkUpdates'] = on;
+    _save().ignore(); // the toggle has nowhere to say it failed
+  }
+
   /// Whether plop has said, once, that closing the window keeps it running
   /// in the tray (lib/notify.dart).
   bool get trayNoticeShown => _data['trayNoticeShown'] == true;

@@ -15,6 +15,7 @@ import 'share_in.dart';
 import 'theme.dart';
 import 'tray.dart';
 import 'type_icons.dart';
+import 'updates.dart';
 import 'window.dart';
 
 /// How long to wait for a peer before saying none were found. Tests
@@ -829,10 +830,37 @@ class _TopBar extends StatelessWidget {
                   ],
                   child: const _HoverIcon(Icons.add_outlined),
                 ),
-              _IconAction(
-                icon: Icons.tune_outlined,
-                tip: 'shortcuts and settings',
-                onTap: onSettings,
+              // A dot while a newer plop is out; settings has the update.
+              ValueListenableBuilder(
+                valueListenable: Updates.instance.available,
+                builder: (_, update, _) => Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    _IconAction(
+                      icon: Icons.tune_outlined,
+                      tip: update == null
+                          ? 'shortcuts and settings'
+                          : 'settings · plop ${update.version} is out',
+                      onTap: onSettings,
+                    ),
+                    if (update != null)
+                      const Positioned(
+                        top: 6,
+                        right: 6,
+                        child: IgnorePointer(
+                          child: SizedBox.square(
+                            dimension: 6,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Palette.live,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ],
           ],

@@ -19,6 +19,7 @@ import 'share_in.dart';
 import 'shelf_screen.dart';
 import 'theme.dart';
 import 'tray.dart';
+import 'updates.dart';
 import 'web_shelf.dart';
 import 'window.dart';
 
@@ -89,6 +90,7 @@ Future<void> _start() async {
   // happens while the window is away is said on the island where it shows
   // (macOS, Windows, Linux on X11) and with OS notifications elsewhere.
   Tray.init(node).ignore();
+  Updates.instance.follow(settings);
   Notify.init(settings).ignore();
   Notify.watch(node);
   // Arrivals and shortcut results: the notch island on macOS, the pill

@@ -18,7 +18,9 @@ screenshot or some text on it, and every other device can grab it for the
 next two minutes.
 
 No accounts. No cloud. No pairing. Files go straight from one device to
-another over your local network.
+another over your local network. The one thing plop asks of the internet
+is whether GitHub has a newer version, twice a day, which settings can
+switch off; "update to …" there installs it.
 
 ## Features
 
@@ -56,7 +58,7 @@ Anyway**. On Windows, click **More info › Run anyway**. The
 Each device running plop announces itself on the local network (mDNS) and
 serves its shelf over plain HTTP. The others list it, copy small items right
 away, and fetch big ones on demand. Every item has a timer, and when it runs
-out the item is gone from every device. Nothing leaves your network. The
+out the item is gone from every device. Files never leave your network. The
 details are in [PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Build from source
