@@ -157,11 +157,16 @@ class Alias::Impl {
     }
   }
 
+  // Dart answers for the name itself on Windows (lib/alias.dart's
+  // HostResponder), so it is told to let go; a registration made here, if
+  // any, goes too.
   void Suspend() {
-    if (!current_) return;
-    int gen = current_->gen;
-    Release();
-    Report("lost", gen);
+    if (current_) {
+      int gen = current_->gen;
+      Release();
+      Report("lost", gen);
+    }
+    channel_->InvokeMethod("suspend", nullptr);
   }
 
  private:

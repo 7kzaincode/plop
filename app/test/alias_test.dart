@@ -86,6 +86,22 @@ void main() {
     });
   });
 
+  test('going to sleep lets go, then asks again after the wake', () {
+    fakeAsync((t) {
+      alias.want(true);
+      t.flushMicrotasks();
+      say('won');
+      t.flushMicrotasks();
+      expect(alias.held, isTrue);
+      alias.handle(const MethodCall('suspend'));
+      t.flushMicrotasks();
+      expect(alias.state, AliasState.waiting);
+      expect(runner.methods, ['claim', 'release']);
+      t.elapse(const Duration(seconds: 14));
+      expect(runner.methods, ['claim', 'release', 'claim']);
+    });
+  });
+
   test('the wait is jittered between 8 and 14 s', () {
     for (var seed = 0; seed < 20; seed++) {
       fakeAsync((t) {

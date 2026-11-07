@@ -198,8 +198,14 @@ computers is on. They all serve the same shelf, so it does not matter which
 one answers. The claim is a unique A record (TTL 120 s): macOS registers it
 with mDNSResponder (`DNSServiceRegisterRecord`, `kDNSServiceFlagsUnique`),
 Linux with Avahi over D-Bus (an entry group with `AddAddress`, without the
-reverse PTR record), Windows 10 1809 and later with `DnsServiceRegister`
-(a `_plop-web._tcp` instance whose host name is `plop.local`). Host names are
+reverse PTR record). Windows answers for it in plop itself
+(`HostResponder`, on UDP 5353 beside the system's responder): its
+`DnsServiceRegister` publishes a service's SRV pointing at a host name but
+never answers a lookup of the name. The responder probes three times
+250 ms apart, announces, answers A and ANY queries for the name (one-shot
+lookups from another port directly, with their id), gives the name up when
+another computer answers for it with another address, and says goodbye
+(TTL 0) when it lets go. Host names are
 unique on mDNS: with two computers on, one wins the probe and the other hears
 of a conflict. The loser never renames itself (a `plop-2.local` would be an
 address no phone saved): it lets go and claims again every 8 to 14 s

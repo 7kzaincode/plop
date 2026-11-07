@@ -3,6 +3,7 @@ library;
 
 export 'src/circle.dart';
 export 'src/discovery.dart';
+export 'src/host_responder.dart';
 export 'src/item.dart';
 export 'src/node_client.dart';
 export 'src/node_server.dart';

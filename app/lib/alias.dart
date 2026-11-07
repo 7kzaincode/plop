@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -54,8 +55,22 @@ class Alias {
 
   static const _channel = MethodChannel('plop/alias');
 
-  /// The app's one claim, wired to the runner by [follow].
-  static final instance = Alias();
+  /// The app's one claim, wired to the runner by [follow]. On Windows a
+  /// [HostResponder] stands in for the runner: the system's own responder
+  /// publishes a service pointing at plop.local but never answers for the
+  /// name, so a phone's lookup heard nothing.
+  static final instance = Platform.isWindows ? _answeredHere() : Alias();
+
+  static Alias _answeredHere() {
+    late final Alias alias;
+    final responder = HostResponder(
+      sharedHost,
+      onState: (state, gen) => alias
+          .handle(MethodCall('state', {'state': state, 'gen': gen}))
+          .ignore(),
+    );
+    return alias = Alias(invoke: responder.invoke);
+  }
 
   static const retry = Duration(seconds: 8);
   static const jitter = Duration(seconds: 6);
@@ -123,8 +138,15 @@ class Alias {
     }
   }
 
-  /// The runner's "state" calls.
+  /// The runner's "state" calls, and "suspend" when the computer is going
+  /// to sleep: let go, with a goodbye, and ask again after the wake.
   Future<Object?> handle(MethodCall call) async {
+    if (call.method == 'suspend') {
+      if (_state == AliasState.held || _state == AliasState.claiming) {
+        await _heard('lost', _gen);
+      }
+      return null;
+    }
     if (call.method != 'state') throw MissingPluginException();
     final args = call.arguments as Map?;
     if (args?['state'] case final String s) {
