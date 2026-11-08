@@ -1,7 +1,7 @@
 name: plop
 description: A shared shelf for files, screenshots and text on your Wi-Fi.
 publish_to: 'none'
-version: 0.2.12+14
+version: 0.2.13+15
 
 environment:
   sdk: ^3.13.5
