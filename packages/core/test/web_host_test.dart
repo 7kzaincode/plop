@@ -361,6 +361,16 @@ void main() {
     expect(html, contains(RegExp(r'const OTHERS = \["http://[^"]+:\d+"')));
     // Nothing is fetched from outside the LAN.
     expect(html, isNot(contains('https://')));
+    // The share-sheet Shortcut comes from the shelf itself, signed (an
+    // unsigned one won't import), under the name it takes in Shortcuts.
+    expect(html, contains('href="/Send%20to%20plop.shortcut"'));
+    final sc = await get(p.url('/Send%20to%20plop.shortcut'));
+    expect(sc.status, 200);
+    expect(ascii.decode(sc.body.sublist(0, 4)), 'AEA1');
+    expect(
+      sc.headers.value('content-disposition'),
+      contains('filename="Send to plop.shortcut"'),
+    );
     // Home-screen mode: the bottom bar, under the list, clears the home
     // indicator.
     expect(

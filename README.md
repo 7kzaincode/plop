@@ -26,7 +26,8 @@ switch off; "update to …" there installs it.
 
 - **Every platform:** Mac, Windows, Linux and Android. iPhone and iPad work
   through the browser, with no install, at `http://plop.local:7567` on
-  whichever of your computers is on.
+  whichever of your computers is on. The page offers a **Send to plop**
+  Shortcut, which puts plop in every app's share menu.
 - **Snip to the shelf:** `⌃⌥P` puts any part of your screen on plop. `⌃⌥V`
   plops your clipboard.
 - **Grab the newest:** `⌃⌥G` copies the last thing another device sent.

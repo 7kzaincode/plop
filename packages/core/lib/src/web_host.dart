@@ -9,6 +9,7 @@ import 'item.dart';
 import 'node_server.dart';
 import 'plop_node.dart';
 import 'shelf_store.dart';
+import 'shortcut.g.dart';
 
 /// Header the page sets on every request that changes something. A form
 /// or a no-cors fetch from any other site reaches these routes through the
@@ -50,6 +51,9 @@ class WebHost {
 
   /// The PNG behind /icon.png: the app's icon. A black pixel until set.
   Uint8List iconPng = _blackPixel;
+
+  static const shortcutName = 'Send to plop.shortcut';
+  static Uint8List? _shortcut;
 
   /// Text items up to this size travel inline in the shelf list, so a tap
   /// can copy them without a fetch first: on plain http a browser offers no
@@ -204,6 +208,16 @@ class WebHost {
           ..set(HttpHeaders.cacheControlHeader, 'max-age=86400');
         res.contentLength = iconPng.length;
         res.add(iconPng);
+      // The share-sheet Shortcut (packaging/shortcut), named as it will be
+      // in the Shortcuts app: by the file's name.
+      case ('GET', [shortcutName]):
+        final bytes = _shortcut ??= base64.decode(sendToPlopShortcut);
+        res.headers
+          ..contentType = ContentType('application', 'octet-stream')
+          ..set('content-disposition', _attachment(shortcutName))
+          ..set(HttpHeaders.cacheControlHeader, 'max-age=3600');
+        res.contentLength = bytes.length;
+        res.add(bytes);
       case ('GET', ['web', 'shelf']):
         _noStore(res);
         res.headers.contentType = ContentType.json;
@@ -688,10 +702,11 @@ h1 span{color:var(--dim);font-weight:400}
 .bar i{display:block;height:1px;width:100%;background:var(--faint);transition:width 1s linear}
 .bar.live i{background:var(--text);transition:none}
 .empty{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--faint);font-size:13px;line-height:1.7;padding:32px}
-#hint{display:none;align-items:center;gap:8px;padding:12px 12px 12px 16px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
-#hint.on{display:flex}
-#hint span{flex:1}
-#hint b{color:var(--text);font-weight:400}
+.hint{display:none;align-items:center;gap:8px;padding:12px 12px 12px 16px;border-top:1px solid var(--line);color:var(--dim);font-size:13px}
+.hint.on{display:flex}
+.hint span{flex:1}
+.hint b{color:var(--text);font-weight:400}
+.hint a{color:inherit}
 #toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);max-width:calc(100vw - 32px);padding:8px 12px;background:#161616;border:1px solid #2a2a2a;border-radius:8px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .15s;pointer-events:none;z-index:3}
 #toast.on{opacity:1}
 #sheet,#view{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:2}
@@ -718,7 +733,8 @@ input[type=file]{display:none}
 <button class="btn" id="install" hidden>install</button>
 </header>
 <div id="list"></div>
-<div id="hint"><span>add plop to your home screen: <b>share › add to home screen</b></span><button class="x" id="hintx" aria-label="dismiss">×</button></div>
+<div id="hint" class="hint"><span>add plop to your home screen: <b>share › add to home screen</b></span><button class="x" id="hintx" aria-label="dismiss">×</button></div>
+<div id="sc" class="hint"><span>plop from any app's share menu: <a id="scget" href="/Send%20to%20plop.shortcut" download><b>get the shortcut</b></a></span><button class="x" id="scx" aria-label="dismiss">×</button></div>
 <nav id="bar"><button class="gb" id="camera"><svg viewBox="0 0 24 24"><path d="M4.5 8A1.5 1.5 0 0 1 6 6.5h2.2l1.4-2h4.8l1.4 2H18A1.5 1.5 0 0 1 19.5 8v9.5A1.5 1.5 0 0 1 18 19H6a1.5 1.5 0 0 1-1.5-1.5z"/><circle cx="12" cy="12.6" r="3.3"/></svg>camera</button><button class="gb" id="photo"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9 9"/></svg>photo</button><button class="gb" id="add"><svg viewBox="0 0 24 24"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5z"/><path d="M13.5 3.5v5h5"/></svg>file</button><button class="gb" id="paste"><svg viewBox="0 0 24 24"><rect x="5.5" y="5" width="13" height="15.5" rx="2"/><path d="M9 5V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/></svg>paste</button></nav>
 <input type="file" id="pics" accept="image/*,video/*" multiple>
 <input type="file" id="shot" accept="image/*" capture="environment">
@@ -1300,6 +1316,8 @@ const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform ==
 const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
 const touch = matchMedia('(pointer: coarse)').matches;
 if (ios && !standalone && !store.get('plop.hint')) $('hint').classList.add('on');
+// Once the home-screen hint is done with: the share-sheet Shortcut.
+else if (ios && !store.get('plop.sc')) $('sc').classList.add('on');
 // Opened by number (the QR code gives this computer's address, which every
 // phone reaches): move to plop.local if this phone reaches it, so the
 // address added to the home screen opens the shelf on whichever of the
@@ -1311,6 +1329,18 @@ if (SHARED && location.origin !== SHARED && !standalone) {
     .then(() => { if (!uploads.length && !viewing) location.replace(SHARED + '/'); }, () => {});
 }
 $('hintx').onclick = () => { $('hint').classList.remove('on'); store.set('plop.hint', '1'); };
+// In a home-screen app, from another address, as download() does.
+$('scget').onclick = e => {
+  if (!standalone || !OTHERS.length) return;
+  e.preventDefault();
+  const a = document.createElement('a');
+  a.href = (other || OTHERS[0]) + '/Send%20to%20plop.shortcut';
+  a.target = '_blank';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+$('scx').onclick = () => { $('sc').classList.remove('on'); store.set('plop.sc', '1'); };
 let installEvt;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('install').hidden = false; });
 $('install').onclick = () => { if (installEvt) installEvt.prompt(); installEvt = null; $('install').hidden = true; };
