@@ -357,6 +357,17 @@ void main() {
     expect(html, contains('apple-mobile-web-app-capable'));
     expect(html, isNot(contains('{{name}}')));
     expect(html, isNot(contains('{{others}}')));
+    // Kept by the phone for weeks, and checked on every refresh: the
+    // shelf's fingerprint is the page's own until something changes.
+    expect(page.headers.value('cache-control'), 'max-age=$pageMaxAge');
+    final version = RegExp(r'const PAGE = "([0-9a-f]{8})";').firstMatch(html);
+    expect(version, isNotNull, reason: 'the page knows its fingerprint');
+    final shelf = await get(p.url('/web/shelf'));
+    expect(shelf.headers.value(pageHeader), version![1]);
+    // Another default timer is another page: the old copy is stale.
+    p.a.ttl = const Duration(minutes: 7);
+    final after = await get(p.url('/web/shelf'));
+    expect(after.headers.value(pageHeader), isNot(version[1]));
     // The shelf's other addresses, where a home-screen app opens files.
     expect(html, contains(RegExp(r'const OTHERS = \["http://[^"]+:\d+"')));
     // Nothing is fetched from outside the LAN.
@@ -828,11 +839,19 @@ void main() {
     expect(
       js,
       contains(
-        'if (downSince && Date.now() - downSince >= DOWN_MS && '
-        '!uploads.length && !viewing && '
-        "!sheet.classList.contains('on')) return location.reload();",
+        "const idle = !uploads.length && !viewing && "
+        "!sheet.classList.contains('on');",
       ),
     );
+    expect(
+      js,
+      contains(
+        'if (downSince && Date.now() - downSince >= DOWN_MS && idle) '
+        'return location.reload();',
+      ),
+    );
+    // A copy the shelf no longer serves is swapped for the new one.
+    expect(js, contains('if (v && v !== PAGE && idle) return refresh(v);'));
     expect(
       js,
       contains(

@@ -20,6 +20,13 @@ const webHeader = 'x-plop-web';
 /// Header a DELETE carries the token its upload was answered with.
 const webTokenHeader = 'x-plop-token';
 
+/// The fingerprint of the page the shelf would serve now, on each
+/// /web/shelf answer; see WebHost._pageValues.
+const pageHeader = 'x-plop-page';
+
+/// How long a phone keeps the page: 30 days.
+const pageMaxAge = 30 * 24 * 3600;
+
 /// Port the app asks for first: p-l-o-p on a phone keypad, so the address a
 /// phone has to type is one worth remembering. Any free port when taken.
 const defaultWebPort = 7567;
@@ -143,6 +150,30 @@ class WebHost {
     } catch (_) {}
   }
 
+  /// What the page served to [req] fills in, and a fingerprint of the
+  /// page with them: a page whose own fingerprint differs (another
+  /// version, another computer at plop.local, another address) is stale.
+  Future<(List<String>, String)> _pageValues(HttpRequest req) async {
+    final values = [
+      htmlEscape.convert(node.store.nodeName),
+      await _others(req),
+      _shared(req),
+      '${node.ttl.inMilliseconds}',
+    ];
+    return (values, _fnv([_pageHash, ...values].join('\u0000')));
+  }
+
+  static final _pageHash = _fnv(_page);
+
+  /// FNV-1a: a short, stable fingerprint, for change and not for secrecy.
+  static String _fnv(String s) {
+    var h = 0x811c9dc5;
+    for (final c in s.codeUnits) {
+      h = ((h ^ c) * 0x01000193) & 0xffffffff;
+    }
+    return h.toRadixString(16).padLeft(8, '0');
+  }
+
   /// This shelf at its other addresses, as a JSON list for the page: a
   /// home-screen app on an iPhone or iPad opens a file from one of them in
   /// Safari's sheet over itself, which has Save to Files and Done; from its
@@ -183,15 +214,21 @@ class WebHost {
     final method = req.method == 'HEAD' ? 'GET' : req.method;
     switch ((method, req.uri.pathSegments)) {
       case ('GET', []):
+        // Kept for weeks: a home-screen app opens from this copy at once,
+        // where fetching it would show nothing but black for as long as a
+        // computer that just slept takes to not answer (a minute). The page
+        // then checks itself against [pageHeader] on every refresh.
+        final (values, version) = await _pageValues(req);
         res.headers
           ..contentType = ContentType.html
-          ..set(HttpHeaders.cacheControlHeader, 'max-age=60');
+          ..set(HttpHeaders.cacheControlHeader, 'max-age=$pageMaxAge');
         res.write(
           _page
-              .replaceAll('{{name}}', htmlEscape.convert(node.store.nodeName))
-              .replaceAll('{{others}}', await _others(req))
-              .replaceAll('{{shared}}', _shared(req))
-              .replaceAll('{{ttlMs}}', '${node.ttl.inMilliseconds}'),
+              .replaceAll('{{name}}', values[0])
+              .replaceAll('{{others}}', values[1])
+              .replaceAll('{{shared}}', values[2])
+              .replaceAll('{{ttlMs}}', values[3])
+              .replaceAll('{{version}}', jsonEncode(version)),
         );
       case ('GET', ['manifest.webmanifest']):
         res.headers
@@ -219,9 +256,12 @@ class WebHost {
         res.contentLength = bytes.length;
         res.add(bytes);
       case ('GET', ['web', 'shelf']):
+        final shelf = await _shelf();
         _noStore(res);
-        res.headers.contentType = ContentType.json;
-        res.write(jsonEncode(await _shelf()));
+        res.headers
+          ..contentType = ContentType.json
+          ..set(pageHeader, (await _pageValues(req)).$2);
+        res.write(jsonEncode(shelf));
       // The name after the id, if any, is only for Safari's sheet, which
       // names a file by its URL's last segment.
       case ('GET', ['web', 'items', final origin, final id, ...]):
@@ -649,7 +689,8 @@ final _blackPixel = Uint8List.fromList(const [
 // through execCommand inside the tap, images open full-screen to be held
 // and saved, other files download, and share() is used only where a
 // browser does offer it. Every write sets the x-plop-web header (see
-// webHeader). `{{name}}` is this device's name.
+// webHeader). `{{name}}` is this device's name; `{{version}}` the page's
+// fingerprint (WebHost._pageValues).
 const _page = r'''<!doctype html>
 <html lang="en">
 <head>
@@ -900,6 +941,15 @@ function toast(msg) {
 
 // ------------------------------------------------------------- the shelf
 
+const PAGE = {{version}};
+// A reload revalidates the page; should one still bring back this copy,
+// the next goes round the cache with an address of its own.
+function refresh(v) {
+  let tried = null;
+  try { tried = sessionStorage.getItem('plop.v'); sessionStorage.setItem('plop.v', v); } catch (e) {}
+  if (tried === v) location.replace('/?v=' + v); else location.reload();
+}
+
 async function poll() {
   if (polling) { again = true; return; }
   clearTimeout(pollTimer);
@@ -914,7 +964,12 @@ async function poll() {
     try { r = await fetch('/web/shelf', {cache: 'no-store', signal: ac.signal}); } finally { clearTimeout(limit); }
     if (!r.ok) throw new Error(r.status);
     // Not mid-upload or while something is open on top: those would be lost.
-    if (downSince && Date.now() - downSince >= DOWN_MS && !uploads.length && !viewing && !sheet.classList.contains('on')) return location.reload();
+    const idle = !uploads.length && !viewing && !sheet.classList.contains('on');
+    if (downSince && Date.now() - downSince >= DOWN_MS && idle) return location.reload();
+    // This page came from the phone's copy (kept for weeks, so the app
+    // opens at once) and the shelf now serves another: take that one.
+    const v = r.headers.get('x-plop-page');
+    if (v && v !== PAGE && idle) return refresh(v);
     downSince = 0;
     items = await r.json();
     for (const it of items) { it.name = clean(it.name); it.from = clean(it.from); }
